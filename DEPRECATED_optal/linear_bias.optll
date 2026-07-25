@@ -1,0 +1,35 @@
+@PL::Python
+@Task::LinearBias
+@Modulu::Linear
+@Technique::Linear::[matmul, addernetmatmul]
+
+// Standard matrix multiply with bias: y = x @ W^T + b
+@Impl::Linear::matmul{
+import torch
+_x = torch.randn(4, 512)
+_w = torch.randn(512, 512)
+_b = torch.randn(512)
+_out = _x @ _w.t() + _b
+@}
+
+// AdderNet L1-distance alternative (no multiply):
+// y_o = -sum_i |x_i - w_{o,i}| + b
+@Impl::Linear::addernetmatmul{
+import torch
+_x = torch.randn(4, 512)
+_w = torch.randn(512, 512)
+_b = torch.randn(512)
+_out = -((_x.unsqueeze(1) - _w.unsqueeze(0)).abs().sum(dim=2)) + _b
+@}
+
+@Graded::Correctness{
+import torch
+_ref = _x @ _w.t() + _b
+_cos = torch.nn.functional.cosine_similarity(
+    _out.reshape(-1), _ref.reshape(-1), dim=0
+).item()
+@}::endpoints::[cosine_sim=_cos]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[cosine_sim]

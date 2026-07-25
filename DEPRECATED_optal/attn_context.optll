@@ -1,0 +1,41 @@
+@PL::Python
+@Task::AttnContext
+@Modulu::Attention
+@Technique::Attention::[matmul, addernetmatmul]
+
+// Standard context aggregation: C = attn @ v
+@Impl::Attention::matmul{
+import torch
+_b = 2
+_h = 4
+_t = 8
+_hs = 16
+_attn = torch.randn(_b, _h, _t, _t)
+_v = torch.randn(_b, _h, _t, _hs)
+_out = _attn @ _v
+@}
+
+// AdderNet alternative (no matmul): replace attn@v with L1 distance
+// C_{i,d} = -sum_j |attn_{i,j} - v_{j,d}|
+@Impl::Attention::addernetmatmul{
+import torch
+_b = 2
+_h = 4
+_t = 8
+_hs = 16
+_attn = torch.randn(_b, _h, _t, _t)
+_v = torch.randn(_b, _h, _t, _hs)
+_out = -((_attn.unsqueeze(-1) - _v.unsqueeze(-2)).abs().sum(dim=-2))
+@}
+
+@Graded::Correctness{
+import torch
+_ref = _attn @ _v
+_cos = torch.nn.functional.cosine_similarity(
+    _out.reshape(-1), _ref.reshape(-1), dim=0
+).item()
+@}::endpoints::[cosine_sim=_cos]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[cosine_sim]

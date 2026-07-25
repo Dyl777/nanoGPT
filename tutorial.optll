@@ -1,0 +1,554 @@
+@PL::Python
+@Task::NanoGPTMatmuls
+@Modulu::Model
+
+@Technique::Model::[matmul, addernetmatmul]
+
+"""Imports and settings."""
+
+
+import json
+import time
+from pathlib import Path
+from warnings import warn
+
+import numpy as np
+import torch
+from torch import nn, optim
+from torch.nn import functional as F
+from torch.nn.utils.parametrizations import weight_norm
+from torch.utils.data import TensorDataset, DataLoader, random_split
+from tqdm import tqdm
+
+
+"""Device setup."""
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"{device=}")
+if torch.cuda.is_available():
+    print(f"GPU: {torch.cuda.get_device_name(device)}")
+
+
+"""Read the Shakespeare dataset."""
+
+filepath = Path.cwd() / "data/tiny_shakespeare.txt"
+with open(filepath) as f:
+    text = f.read()
+
+n_chars = len(text)
+tokens = sorted(set(text))
+vocab_sz = len(tokens)
+print(f"{n_chars=}  {vocab_sz=}")
+print(f"Tokens: {''.join(tokens)}")
+
+
+"""Tokenize and encode the dataset."""
+
+token_to_int = {t: i for i, t in enumerate(tokens)}
+int_to_token = {i: t for t, i in token_to_int.items()}
+encode = lambda tokens: [token_to_int[t] for t in tokens]
+decode = lambda ints: "".join([int_to_token[i] for i in ints])
+
+print(encode("Hello, world!"))
+print(decode(encode("Hello, world!")))
+
+data = torch.tensor(encode(text), dtype=torch.long)
+print(f"Data shape: {data.shape}")
+
+
+"""Motivating self-attention with a simple weighted aggregation."""
+
+ctx_len = 4
+x = torch.randn(ctx_len, ctx_len)
+w = torch.zeros(ctx_len, ctx_len)
+tril = torch.tril(torch.ones(ctx_len, ctx_len))
+w = w.masked_fill(tril == 0, float("-inf"))
+w = F.softmax(w, dim=1)
+attn_out = w @ x
+print(f"Attention output shape: {attn_out.shape}")
+
+
+"""Self-attention demo: Q, K, V projections + attention computation."""
+
+batch_sz, ctx_len, emb_dim = 4, 4, 8
+head_sz = 2
+
+# Technique-specific: nn.Linear vs AdderLinear
+@Impl::Model::matmul{
+query = nn.Linear(emb_dim, head_sz, bias=False)
+key = nn.Linear(emb_dim, head_sz, bias=False)
+value = nn.Linear(emb_dim, head_sz, bias=False)
+}@}
+@Impl::Model::addernetmatmul{
+query = AdderLinear(emb_dim, head_sz, bias=False)
+key = AdderLinear(emb_dim, head_sz, bias=False)
+value = AdderLinear(emb_dim, head_sz, bias=False)
+}@}
+
+x = torch.randn(batch_sz, ctx_len, emb_dim)
+q = query(x)
+k = key(x)
+v = value(x)
+
+# Technique-specific: q @ k^T vs L1
+@Impl::Model::matmul{
+k_q_sim = q @ k.transpose(2, 1) / np.sqrt(head_sz)
+}@}
+@Impl::Model::addernetmatmul{
+k_q_sim = -(q.unsqueeze(2) - k.unsqueeze(1)).abs().sum(-1) / np.sqrt(head_sz)
+}@}
+
+print(f"{k_q_sim.shape=}")
+
+tril = torch.tril(torch.ones(ctx_len, ctx_len))
+k_q_sim = k_q_sim.masked_fill(tril == 0, float("-inf"))
+attn_weights = F.softmax(k_q_sim, dim=2)
+print(f"{attn_weights.shape=}")
+
+# Technique-specific: attn_weights @ v vs L1
+@Impl::Model::matmul{
+attn_out = attn_weights @ v
+}@}
+@Impl::Model::addernetmatmul{
+attn_out = -(attn_weights.unsqueeze(-1) - v.unsqueeze(2)).abs().sum(dim=2)
+}@}
+
+print(f"{attn_out.shape=}")
+
+
+"""Single self-attention head."""
+
+class Head(nn.Module):
+    """Self-attention head."""
+
+    def __init__(self, head_sz, emb_dim):
+        super().__init__()
+        self.head_sz, self.emb_dim = head_sz, emb_dim
+        # Technique-specific: nn.Linear vs AdderLinear
+        @Impl::Model::matmul{
+        self.key = nn.Linear(emb_dim, head_sz, bias=False)
+        self.query = nn.Linear(emb_dim, head_sz, bias=False)
+        self.value = nn.Linear(emb_dim, head_sz, bias=False)
+        }@}
+        @Impl::Model::addernetmatmul{
+        self.key = AdderLinear(emb_dim, head_sz, bias=False)
+        self.query = AdderLinear(emb_dim, head_sz, bias=False)
+        self.value = AdderLinear(emb_dim, head_sz, bias=False)
+        }@}
+
+    def forward(self, x):
+        _batch_sz, ctx_len, _emb_dim = x.shape
+        q = self.query(x)
+        k = self.key(x)
+        v = self.value(x)
+        # Technique-specific: q @ k^T vs L1
+        @Impl::Model::matmul{
+        k_q_sim = q @ k.transpose(2, 1) / np.sqrt(self.head_sz)
+        }@}
+        @Impl::Model::addernetmatmul{
+        k_q_sim = -(q.unsqueeze(2) - k.unsqueeze(1)).abs().sum(-1) / np.sqrt(self.head_sz)
+        }@}
+        tril = torch.tril(torch.ones(ctx_len, ctx_len)).to(device)
+        k_q_sim = k_q_sim.masked_fill(tril == 0, float("-inf"))
+        attn_weights = F.softmax(k_q_sim, dim=2)
+        # Technique-specific: attn_weights @ v vs L1
+        @Impl::Model::matmul{
+        attn_out = attn_weights @ v
+        }@}
+        @Impl::Model::addernetmatmul{
+        attn_out = -(attn_weights.unsqueeze(-1) - v.unsqueeze(2)).abs().sum(dim=2)
+        }@}
+        return attn_out
+
+
+"""Multi-head self-attention demo."""
+
+n_heads = 2
+heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)]).to(device)
+attn_outs = [head(x.to(device)) for head in heads]
+attn_out = torch.cat(attn_outs, dim=2)
+
+# Technique-specific: projection layer
+@Impl::Model::matmul{
+proj = nn.Linear(n_heads * head_sz, emb_dim).to(device)
+}@}
+@Impl::Model::addernetmatmul{
+proj = AdderLinear(n_heads * head_sz, emb_dim).to(device)
+}@}
+
+multi_attn_out = proj(attn_out)
+print(f"{multi_attn_out.shape=}")
+
+
+"""Multi-head self-attention module."""
+
+class MultiHead(nn.Module):
+    """Multi-head self-attention."""
+
+    def __init__(self, n_heads, head_sz, emb_dim):
+        super().__init__()
+        self.n_heads, self.head_sz, self.emb_dim = n_heads, head_sz, emb_dim
+        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])
+        # Technique-specific: projection layer
+        @Impl::Model::matmul{
+        self.proj = nn.Linear(self.n_heads * self.head_sz, self.emb_dim)
+        }@}
+        @Impl::Model::addernetmatmul{
+        self.proj = AdderLinear(self.n_heads * self.head_sz, self.emb_dim)
+        }@}
+
+    def forward(self, x):
+        attn_outs = [head(x) for head in self.heads]
+        attn_out = torch.cat(attn_outs, dim=2)
+        attn_out = self.proj(attn_out)
+        return attn_out
+
+
+"""Feedforward network."""
+
+class Feedforward(nn.Module):
+    """Position-wise feedforward network."""
+
+    def __init__(self, emb_dim, ff_dim):
+        super().__init__()
+        # Technique-specific: nn.Linear vs AdderLinear in the sandwich
+        self.layers = nn.Sequential(
+            @Impl::Model::matmul{
+            nn.Linear(emb_dim, emb_dim * ff_dim), nn.ReLU(), nn.Linear(emb_dim * ff_dim, emb_dim)
+            }@}
+            @Impl::Model::addernetmatmul{
+            AdderLinear(emb_dim, emb_dim * ff_dim), nn.ReLU(), AdderLinear(emb_dim * ff_dim, emb_dim)
+            }@}
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+"""Transformer block."""
+
+class Block(nn.Module):
+    """Transformer block: communication followed by computation."""
+
+    def __init__(self, n_heads, head_sz, emb_dim, ff_dim, dropout):
+        super().__init__()
+        self.n_heads, self.head_sz, self.emb_dim, self.ff_dim = n_heads, head_sz, emb_dim, ff_dim
+        self.self_attn_ln = nn.LayerNorm(emb_dim)
+        self.self_attn = MultiHead(n_heads, head_sz, emb_dim)
+        self.self_attn_dropout = nn.Dropout(dropout)
+        self.ff_ln = nn.LayerNorm(emb_dim)
+        self.ff = Feedforward(emb_dim, ff_dim)
+        self.ff_dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        x = x + self.self_attn_dropout(self.self_attn(self.self_attn_ln(x)))
+        x = x + self.ff_dropout(self.ff(self.ff_ln(x)))
+        return x
+
+
+"""AdderLinear: L1-distance based linear layer (common code)."""
+
+class AdderLinear(nn.Module):
+    """L1-distance alternative to nn.Linear."""
+
+    def __init__(self, in_features, out_features, bias=True):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.randn(out_features, in_features))
+        if bias:
+            self.bias = nn.Parameter(torch.randn(out_features))
+        else:
+            self.register_parameter("bias", None)
+
+    def forward(self, x):
+        wb = self.weight
+        for _ in range(x.dim() - 2):
+            wb = wb.unsqueeze(0)
+        return -((x.unsqueeze(-2) - wb).abs().sum(-1)) + (self.bias if self.bias is not None else 0)
+
+
+"""Xavier init — checks both Linear types (common code)."""
+
+def xavier_init(module, gain=1):
+    """Xavier init for Linear, AdderLinear, and Embedding modules."""
+    if isinstance(module, (nn.Linear, AdderLinear)) or isinstance(module, nn.Embedding):
+        nn.init.xavier_normal_(module.weight, gain=gain)
+
+
+"""NanoGPT: Decoder-only Transformer."""
+
+class NanoGPT(nn.Module):
+    """Decoder-only Transformer."""
+
+    def __init__(
+        self,
+        n_tokens=vocab_sz,
+        ctx_len=512,
+        n_blocks=8,
+        n_heads=10,
+        head_sz=64,
+        emb_dim=512,
+        ff_dim=4,
+        dropout=0.1,
+    ):
+        super().__init__()
+        (
+            self.n_tokens,
+            self.ctx_len,
+            self.n_blocks,
+            self.n_heads,
+            self.head_sz,
+            self.emb_dim,
+            self.ff_dim,
+        ) = (n_tokens, ctx_len, n_blocks, n_heads, head_sz, emb_dim, ff_dim)
+        if (emb_dim / n_heads / head_sz) != 1:
+            warn(f"Ratio n_heads*head_sz / emb_dim ({emb_dim / n_heads / head_sz}) is not 1")
+        self.tok_emb = nn.Embedding(n_tokens, emb_dim)
+        self.pos_emb = nn.Embedding(ctx_len, emb_dim)
+        self.blocks = nn.Sequential(
+            *[Block(n_heads, head_sz, emb_dim, ff_dim, dropout) for _ in range(n_blocks)]
+        )
+        self.f_ln = nn.LayerNorm(emb_dim)
+        self.f_dropout = nn.Dropout(dropout)
+        # Technique-specific: output projection
+        @Impl::Model::matmul{
+        self.out = nn.Linear(emb_dim, n_tokens)
+        }@}
+        @Impl::Model::addernetmatmul{
+        self.out = AdderLinear(emb_dim, n_tokens)
+        }@}
+        self.apply(xavier_init)
+
+    def forward(self, x):
+        batch_sz, ctx_len = x.shape
+        tok_emb = self.tok_emb(x)
+        pos_emb = self.pos_emb.weight[0:ctx_len]
+        pos_enc = tok_emb + pos_emb
+        logits = self.out(self.f_dropout(self.f_ln(self.blocks(pos_enc))))
+        return logits
+
+
+"""Text generation function (common code)."""
+
+def generate(model, tokens, in_txt=None, n_tokens=100, temp=1.0, top_k=None, seed=42, print_gen=True):
+    """Generate text from a nanoGPT model."""
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+    token_to_int = {t: i for i, t in enumerate(tokens)}
+    int_to_token = {i: t for t, i in token_to_int.items()}
+
+    if in_txt is not None:
+        encode = lambda tokens: [token_to_int[t] for t in tokens]
+        in_tkns = encode(in_txt)
+        input_len = len(in_tkns)
+        x = torch.zeros((input_len + n_tokens,), dtype=torch.long).to(device)
+        x[:input_len] = torch.tensor(in_tkns, dtype=torch.long).to(device)
+    else:
+        x = torch.zeros((1 + n_tokens,), dtype=torch.long).to(device)
+        x[0] = token_to_int["\n"]
+        input_len = 1
+
+    assert len(x) <= model.ctx_len, "Generated length exceeds model context length."
+
+    model.eval()
+    with torch.no_grad():
+        first_gen_idx, last_gen_idx = input_len - 1, input_len + n_tokens - 1
+        for i in range(first_gen_idx, last_gen_idx):
+            model_first_ctx = 0 if i < model.ctx_len else i - model.ctx_len + 1
+            logits = model(x[model_first_ctx:(i + 1)].unsqueeze(0))
+            logits = logits[:, -1, :] / temp
+            if top_k is not None:
+                top_vals, top_idxs = logits.topk(top_k, dim=1)
+                probs = F.softmax(top_vals, dim=1)
+                next_tkn_int = top_idxs.gather(1, torch.multinomial(probs, 1))
+            else:
+                probs = F.softmax(logits, dim=1)
+                next_tkn_int = torch.multinomial(probs, 1)
+            x[i + 1] = next_tkn_int
+            if print_gen:
+                print(int_to_token[next_tkn_int.item()], end="")
+
+    decode = lambda ints: "".join([int_to_token[i] for i in ints])
+    return decode(x.tolist())
+
+
+"""Build model and test generation."""
+
+model = NanoGPT().to(device)
+
+print(model)
+n_params_tot = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"\n{n_params_tot / 1e6:.2f} M parameters\n")
+
+print("Generating sample...")
+in_txt = (
+    "Wherefore art thou, Romeo? "
+    "We are such stuff as dreams are made on. "
+    "The course of true love never did run smooth."
+)
+gen = generate(model, tokens, in_txt=in_txt, n_tokens=200)
+
+
+"""Build dataset and create data loaders."""
+
+def build_dataset(txtfile, ctx_len):
+    """Build dataset from text file."""
+    with open(txtfile) as f:
+        text = f.read()
+    tokens = sorted(list(set(text)))
+    token_to_int = {t: i for i, t in enumerate(tokens)}
+    encode = lambda tokens: [token_to_int[t] for t in tokens]
+    data = torch.tensor(encode(text), dtype=torch.long)
+    n_chars = len(text)
+    n_examples = n_chars - ctx_len
+    idxs = torch.arange(ctx_len + 1).unsqueeze(0) + torch.arange(n_examples).unsqueeze(1)
+    X, Y = data[idxs[:, :-1]], data[idxs[:, 1:]]
+    return X, Y
+
+
+X, Y = build_dataset(Path.cwd() / "data/tiny_shakespeare.txt", model.ctx_len)
+dataset = TensorDataset(X, Y)
+train_data, test_data, val_data = random_split(dataset, [0.9, 0.05, 0.05])
+batch_sz = 32
+train_loader = DataLoader(train_data, batch_size=batch_sz, shuffle=True)
+val_loader = DataLoader(val_data, batch_size=batch_sz, shuffle=True)
+test_loader = DataLoader(test_data, batch_size=batch_sz, shuffle=True)
+
+
+"""Training function with gradient centralization (common code)."""
+
+def apply_gradient_centralization(optimizer):
+    """Centralize gradients for every parameter group."""
+    for group in optimizer.param_groups:
+        for param in group["params"]:
+            if param.grad is not None:
+                grad_mean = param.grad.data.mean(
+                    dim=tuple(range(1, len(param.grad.shape))), keepdim=True
+                )
+                param.grad.data -= grad_mean
+
+
+@@torch.no_grad()
+def estimate_losses(model, val_loader, loss_fn, n_tokens, val_iter=5):
+    """Estimate losses on the validation loader."""
+    model.eval()
+    losses = []
+    for i, (x_val, y_val) in enumerate(val_loader):
+        logits = model(x_val.to(device))
+        loss = loss_fn(logits.view(-1, n_tokens), y_val.to(device).view(-1))
+        losses.append(loss.item())
+        if i >= val_iter - 1:
+            break
+    model.train()
+    return float(np.mean(losses))
+
+
+def train(
+    model,
+    train_loader,
+    val_loader,
+    optimizer,
+    loss_fn,
+    max_epochs=2,
+    max_batches=1000,
+    val_chk_interval=200,
+    patience_thresh=1000,
+    save_chkpt_dir="",
+    save_chkpt_thresh=0.5,
+):
+    """Train a model, return (loss, train_losses, val_losses)."""
+    ctx_len, n_tokens = model.ctx_len, model.n_tokens
+    n_batches = len(train_loader)
+    batch_lim = min(max_batches, n_batches * max_epochs)
+    patience_thresh *= val_chk_interval
+    train_losses, val_losses = [], []
+    best_val_loss = float("inf")
+    patience_ct = 0
+    init_loss = float("inf")
+
+    for epoch in range(max_epochs):
+        pbar = tqdm(enumerate(train_loader), total=batch_lim, desc=f"Epoch {epoch+1}")
+        for batch_i, (x_train, y_train) in pbar:
+            optimizer.zero_grad()
+            logits = model(x_train.to(device))
+            loss = loss_fn(logits.view(-1, n_tokens), y_train.to(device).view(-1))
+            loss.backward()
+            apply_gradient_centralization(optimizer)
+            optimizer.step()
+            train_losses.append(loss.item())
+
+            if val_chk_interval and batch_i % val_chk_interval == 0:
+                val_loss = estimate_losses(model, val_loader, loss_fn, n_tokens)
+                val_losses.append(val_loss)
+                avg_train = float(np.mean(train_losses[-val_chk_interval:]))
+                pbar.set_postfix_str(f"train={avg_train:.3f} val={val_loss:.3f}")
+
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_ct = 0
+                else:
+                    patience_ct += val_chk_interval
+                if patience_ct >= patience_thresh:
+                    print("Early stopping.")
+                    return loss, train_losses, val_losses
+
+            if (batch_i + 1) * (epoch + 1) >= max_batches:
+                print("Finished training.")
+                return loss, train_losses, val_losses
+
+            if save_chkpt_dir and Path(save_chkpt_dir).exists():
+                if init_loss - loss.item() > save_chkpt_thresh:
+                    torch.save(
+                        model.state_dict(),
+                        Path(save_chkpt_dir) / f"model_chkpt_loss{loss.item():.3f}.pth",
+                    )
+                    init_loss = loss.item()
+
+    print("Finished training.")
+    return loss, train_losses, val_losses
+
+
+"""Train the model for a few batches."""
+
+save_chkpt_dir = Path.cwd() / "models/shakespeare_chkpts"
+save_chkpt_dir.mkdir(parents=True, exist_ok=True)
+adam = torch.optim.AdamW(model.parameters(), lr=1e-3)
+loss_fn = nn.CrossEntropyLoss()
+loss, train_losses, val_losses = train(
+    model, train_loader, val_loader, adam, loss_fn,
+    max_batches=1000, save_chkpt_dir=save_chkpt_dir,
+)
+
+
+"""Post-training generation."""
+
+in_txt = (
+    "Wherefore art thou, Romeo? "
+    "We are such stuff as dreams are made on. "
+    "The course of true love never did run smooth."
+)
+
+gen = generate(model, tokens, in_txt=in_txt, n_tokens=200, top_k=50, temp=0.5, seed=42)
+print(f"\nGenerated text:\n{gen}")
+
+
+"""Save and reload the model."""
+
+# Save
+save_path = Path.cwd() / "models/nanogpt_shakespeare.pth"
+torch.save(model.state_dict(), save_path)
+print(f"Model saved to {save_path}")
+
+# Reload into a fresh instance
+model2 = NanoGPT().to(device)
+model2.load_state_dict(torch.load(save_path, weights_only=True))
+model2.eval()
+
+# Verify
+gen2 = generate(model2, tokens, in_txt=in_txt, n_tokens=200, top_k=50, temp=0.5, seed=42)
+print(f"\nLoaded model generation matches original: {gen == gen2}")
+
+

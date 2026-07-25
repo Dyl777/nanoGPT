@@ -1,0 +1,41 @@
+@PL::Python
+@Task::AttnScores
+@Modulu::Attention
+@Technique::Attention::[matmul, addernetmatmul]
+
+// Standard scaled dot-product attention scores: S = (q @ k^T) / sqrt(hs)
+@Impl::Attention::matmul{
+import torch
+_b = 2
+_h = 4
+_t = 8
+_hs = 16
+_q = torch.randn(_b, _h, _t, _hs)
+_k = torch.randn(_b, _h, _t, _hs)
+_out = (_q @ _k.transpose(-2, -1)) / (_hs ** 0.5)
+@}
+
+// AdderNet alternative (no matmul): replace q@k^T with L1 distance
+// S_{i,j} = -sum_d |q_{i,d} - k_{j,d}| / sqrt(hs)
+@Impl::Attention::addernetmatmul{
+import torch
+_b = 2
+_h = 4
+_t = 8
+_hs = 16
+_q = torch.randn(_b, _h, _t, _hs)
+_k = torch.randn(_b, _h, _t, _hs)
+_out = -((_q.unsqueeze(-2) - _k.unsqueeze(-3)).abs().sum(dim=-1)) / (_hs ** 0.5)
+@}
+
+@Graded::Correctness{
+import torch
+_ref = (_q @ _k.transpose(-2, -1)) / (_hs ** 0.5)
+_cos = torch.nn.functional.cosine_similarity(
+    _out.reshape(-1), _ref.reshape(-1), dim=0
+).item()
+@}::endpoints::[cosine_sim=_cos]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[cosine_sim]

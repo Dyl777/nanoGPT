@@ -1,0 +1,22 @@
+﻿@PL::Python
+@Task::T
+@Modulu::M
+
+@Technique::M::[a, b]
+
+@Impl::M::a{
+x = 1
+y = 2
+@}
+
+@Impl::M::b{
+x = 3
+@}
+
+@Graded::C{
+z = 1
+@}::endpoints::[c=z]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[c]
