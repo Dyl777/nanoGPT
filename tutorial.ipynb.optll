@@ -1,20 +1,32 @@
 {
   "cells": [
     {
-      "cell_type": "markdown",
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "# nanoGPT with OPTAL — Matmul \u0026 AdderNet Variants",
+        "@PL::Python\n@Task::NanoGPTMatmuls\n@Modulu::Model\n\n@Technique::Model::[matmul, addernetmatmul]\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "# nanoGPT with OPTAL \u2014 Matmul & AdderNet Variants",
         "",
         "This notebook is the **OPTAL source**. Code cells contain `@Impl{...}@}` blocks",
         "keeping two implementation paths alive: `matmul` (`nn.Linear` + `@`) and",
         "`addernetmatmul` (`AdderLinear` + L1-distance).",
         "",
         "Compile: `optalgo compile tutorial.ipynb.optll ipynb`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Imports and settings.\"\"\"\n",
         "%load_ext autoreload\n",
@@ -29,23 +41,27 @@
         "from torch.nn import functional as F\n",
         "from torch.nn.utils.parametrizations import weight_norm\n",
         "from torch.utils.data import TensorDataset, DataLoader, random_split\n",
-        "from tqdm import tqdm"
-      ],
-      "metadata": {}
+        "from tqdm import tqdm\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Device setup.\"\"\"\n",
         "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
         "print(f\"{device=}\")\n",
         "if torch.cuda.is_available():\n",
-        "    print(f\"GPU: {torch.cuda.get_device_name(device)}\")"
-      ],
-      "metadata": {}
+        "    print(f\"GPU: {torch.cuda.get_device_name(device)}\")\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Read the Shakespeare dataset.\"\"\"\n",
         "filepath = Path.cwd() / \"data/tiny_shakespeare.txt\"\n",
@@ -55,12 +71,14 @@
         "tokens = sorted(set(text))\n",
         "vocab_sz = len(tokens)\n",
         "print(f\"{n_chars=}  {vocab_sz=}\")\n",
-        "print(f\"Tokens: {''.join(tokens)}\")"
-      ],
-      "metadata": {}
+        "print(f\"Tokens: {''.join(tokens)}\")\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Tokenize and encode the dataset.\"\"\"\n",
         "token_to_int = {t: i for i, t in enumerate(tokens)}\n",
@@ -70,21 +88,23 @@
         "print(encode(\"Hello, world!\"))\n",
         "print(decode(encode(\"Hello, world!\")))\n",
         "data = torch.tensor(encode(text), dtype=torch.long)\n",
-        "print(f\"Data shape: {data.shape}\")"
-      ],
-      "metadata": {}
+        "print(f\"Data shape: {data.shape}\")\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "## 1. Motivating Self-Attention",
         "",
         "`w @ x` with a lower-triangular attention weight matrix."
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Motivating self-attention.\"\"\"\n",
         "ctx_len = 4\n",
@@ -94,147 +114,185 @@
         "w = w.masked_fill(tril == 0, float(\"-inf\"))\n",
         "w = F.softmax(w, dim=1)\n",
         "attn_out = w @ x\n",
-        "print(f\"Attention output shape: {attn_out.shape}\")"
-      ],
-      "metadata": {}
+        "print(f\"Attention output shape: {attn_out.shape}\")\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "## 2. Self-Attention for a Decoder",
         "",
         "`attention(Q, K, V) = softmax(Q @ K^T / sqrt(d_k)) @ V`",
         "",
         "### Setup"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Self-attention setup.\"\"\"\n",
         "batch_sz, ctx_len, emb_dim = 4, 4, 8\n",
-        "head_sz = 2"
-      ],
-      "metadata": {}
+        "head_sz = 2\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "### Impl: Q projection",
         "- **matmul**: `nn.Linear(emb_dim, head_sz)`",
         "- **addernetmatmul**: `AdderLinear(emb_dim, head_sz)`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "\n",
-        "query = nn.Linear(emb_dim, head_sz, bias=False)"
-      ],
-      "metadata": {}
+        "@Impl::Model::matmul{\n",
+        "query = nn.Linear(emb_dim, head_sz, bias=False)\n",
+        "}@}\n",
+        "@Impl::Model::addernetmatmul{\n",
+        "query = AdderLinear(emb_dim, head_sz, bias=False)\n",
+        "}@}\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "### Impl: K projection",
         "- **matmul**: `nn.Linear(emb_dim, head_sz)`",
         "- **addernetmatmul**: `AdderLinear(emb_dim, head_sz)`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "\n",
-        "key = nn.Linear(emb_dim, head_sz, bias=False)"
-      ],
-      "metadata": {}
+        "@Impl::Model::matmul{\n",
+        "key = nn.Linear(emb_dim, head_sz, bias=False)\n",
+        "}@}\n",
+        "@Impl::Model::addernetmatmul{\n",
+        "key = AdderLinear(emb_dim, head_sz, bias=False)\n",
+        "}@}\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "### Impl: V projection",
         "- **matmul**: `nn.Linear(emb_dim, head_sz)`",
         "- **addernetmatmul**: `AdderLinear(emb_dim, head_sz)`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "\n",
-        "value = nn.Linear(emb_dim, head_sz, bias=False)"
-      ],
-      "metadata": {}
+        "@Impl::Model::matmul{\n",
+        "value = nn.Linear(emb_dim, head_sz, bias=False)\n",
+        "}@}\n",
+        "@Impl::Model::addernetmatmul{\n",
+        "value = AdderLinear(emb_dim, head_sz, bias=False)\n",
+        "}@}\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "x = torch.randn(batch_sz, ctx_len, emb_dim)\n",
         "q = query(x)\n",
         "k = key(x)\n",
-        "v = value(x)"
-      ],
-      "metadata": {}
+        "v = value(x)\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "### Impl: Attention scores",
         "- **matmul**: `q @ k^T / sqrt(d_k)`",
         "- **addernetmatmul**: `-(q.unsqueeze(2) - k.unsqueeze(1)).abs().sum(-1) / sqrt(d_k)`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "\n",
-        "k_q_sim = q @ k.transpose(2, 1) / np.sqrt(head_sz)"
-      ],
-      "metadata": {}
+        "@Impl::Model::matmul{\n",
+        "k_q_sim = q @ k.transpose(2, 1) / np.sqrt(head_sz)\n",
+        "}@}\n",
+        "@Impl::Model::addernetmatmul{\n",
+        "k_q_sim = -(q.unsqueeze(2) - k.unsqueeze(1)).abs().sum(-1) / np.sqrt(head_sz)\n",
+        "}@}\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "print(f\"{k_q_sim.shape=}\")\n",
         "tril = torch.tril(torch.ones(ctx_len, ctx_len))\n",
         "k_q_sim = k_q_sim.masked_fill(tril == 0, float(\"-inf\"))\n",
         "attn_weights = F.softmax(k_q_sim, dim=2)\n",
-        "print(f\"{attn_weights.shape=}\")"
-      ],
-      "metadata": {}
+        "print(f\"{attn_weights.shape=}\")\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "### Impl: Attention output",
         "- **matmul**: `attn_weights @ v`",
         "- **addernetmatmul**: L1-distance"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "\n",
-        "attn_out = attn_weights @ v"
-      ],
-      "metadata": {}
+        "@Impl::Model::matmul{\n",
+        "attn_out = attn_weights @ v\n",
+        "}@}\n",
+        "@Impl::Model::addernetmatmul{\n",
+        "attn_out = -(attn_weights.unsqueeze(-1) - v.unsqueeze(2)).abs().sum(dim=2)\n",
+        "}@}\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "print(f\"{attn_out.shape=}\")"
-      ],
-      "metadata": {}
+        "print(f\"{attn_out.shape=}\")\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
-        "## 3. Head — Single Self-Attention Head",
+        "## 3. Head \u2014 Single Self-Attention Head",
         "",
         "A single head computes `attention(Q, K, V)`. The class body contains",
         "multiple `@Impl` blocks (key/query/value projections, attention ops).",
@@ -243,11 +301,13 @@
         "### Impls (all in one cell):",
         "- **`__init__`**: `nn.Linear` vs `AdderLinear` for key, query, value",
         "- **`forward`**: `q @ k^T` vs L1 and `attn_weights @ v` vs L1"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Single self-attention head (class-level impls).\"\"\"\n",
         "class Head(nn.Module):\n",
@@ -255,139 +315,172 @@
         "    def __init__(self, head_sz, emb_dim):\n",
         "        super().__init__()\n",
         "        self.head_sz, self.emb_dim = head_sz, emb_dim\n",
-        "\n",
+        "        @Impl::Model::matmul{\n",
         "        self.key = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "\n",
-        "\n",
+        "        }@}\n",
+        "        @Impl::Model::addernetmatmul{\n",
+        "        self.key = AdderLinear(emb_dim, head_sz, bias=False)\n",
+        "        }@}\n",
+        "        @Impl::Model::matmul{\n",
         "        self.query = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "\n",
-        "\n",
+        "        }@}\n",
+        "        @Impl::Model::addernetmatmul{\n",
+        "        self.query = AdderLinear(emb_dim, head_sz, bias=False)\n",
+        "        }@}\n",
+        "        @Impl::Model::matmul{\n",
         "        self.value = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "\n",
+        "        }@}\n",
+        "        @Impl::Model::addernetmatmul{\n",
+        "        self.value = AdderLinear(emb_dim, head_sz, bias=False)\n",
+        "        }@}\n",
         "    def forward(self, x):\n",
         "        _batch_sz, ctx_len, _emb_dim = x.shape\n",
         "        q = self.query(x)\n",
         "        k = self.key(x)\n",
         "        v = self.value(x)\n",
-        "\n",
+        "        @Impl::Model::matmul{\n",
         "        k_q_sim = q @ k.transpose(2, 1) / np.sqrt(self.head_sz)\n",
-        "\n",
+        "        }@}\n",
+        "        @Impl::Model::addernetmatmul{\n",
+        "        k_q_sim = -(q.unsqueeze(2) - k.unsqueeze(1)).abs().sum(-1) / np.sqrt(self.head_sz)\n",
+        "        }@}\n",
         "        tril = torch.tril(torch.ones(ctx_len, ctx_len)).to(device)\n",
         "        k_q_sim = k_q_sim.masked_fill(tril == 0, float(\"-inf\"))\n",
         "        attn_weights = F.softmax(k_q_sim, dim=2)\n",
-        "\n",
+        "        @Impl::Model::matmul{\n",
         "        attn_out = attn_weights @ v\n",
-        "\n",
-        "        return attn_out"
-      ],
-      "metadata": {}
+        "        }@}\n",
+        "        @Impl::Model::addernetmatmul{\n",
+        "        attn_out = -(attn_weights.unsqueeze(-1) - v.unsqueeze(2)).abs().sum(dim=2)\n",
+        "        }@}\n",
+        "        return attn_out\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "## 4. Multi-Head Self-Attention Demo",
         "### Impl: Output projection",
         "- **matmul**: `nn.Linear(n_heads * head_sz, emb_dim)`",
         "- **addernetmatmul**: `AdderLinear(n_heads * head_sz, emb_dim)`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Multi-head self-attention demo.\"\"\"\n",
         "n_heads = 2\n",
         "heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)]).to(device)\n",
         "attn_outs = [head(x.to(device)) for head in heads]\n",
-        "attn_out = torch.cat(attn_outs, dim=2)"
-      ],
-      "metadata": {}
+        "attn_out = torch.cat(attn_outs, dim=2)\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "\n",
-        "proj = nn.Linear(n_heads * head_sz, emb_dim).to(device)"
-      ],
-      "metadata": {}
+        "@Impl::Model::matmul{\n",
+        "proj = nn.Linear(n_heads * head_sz, emb_dim).to(device)\n",
+        "}@}\n",
+        "@Impl::Model::addernetmatmul{\n",
+        "proj = AdderLinear(n_heads * head_sz, emb_dim).to(device)\n",
+        "}@}\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "multi_attn_out = proj(attn_out)\n",
-        "print(f\"{multi_attn_out.shape=}\")"
-      ],
-      "metadata": {}
+        "print(f\"{multi_attn_out.shape=}\")\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
-        "## 5. MultiHead — Full Multi-Head Attention Module",
+        "## 5. MultiHead \u2014 Full Multi-Head Attention Module",
         "### Impl: Output projection",
         "- **matmul**: `nn.Linear(n_heads * head_sz, emb_dim)`",
         "- **addernetmatmul**: `AdderLinear(n_heads * head_sz, emb_dim)`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Multi-head self-attention module.\"\"\"\n",
         "class MultiHead(nn.Module):\n",
         "    def __init__(self, n_heads, head_sz, emb_dim):\n",
         "        super().__init__()\n",
         "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
-        "\n",
+        "        @Impl::Model::matmul{\n",
         "        self.proj = nn.Linear(n_heads * head_sz, emb_dim)\n",
-        "\n",
+        "        }@}\n",
+        "        @Impl::Model::addernetmatmul{\n",
+        "        self.proj = AdderLinear(n_heads * head_sz, emb_dim)\n",
+        "        }@}\n",
         "    def forward(self, x):\n",
         "        attn_outs = [head(x) for head in self.heads]\n",
         "        attn_out = torch.cat(attn_outs, dim=2)\n",
-        "        return self.proj(attn_out)"
-      ],
-      "metadata": {}
+        "        return self.proj(attn_out)\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "## 6. FeedForward",
         "A two-layer MLP with GELU.",
         "### Impl: Linear layers",
         "- **matmul**: `nn.Linear(emb_dim, 4*emb_dim)` / `nn.Linear(4*emb_dim, emb_dim)`",
         "- **addernetmatmul**: `AdderLinear(emb_dim, 4*emb_dim)` / `AdderLinear(4*emb_dim, emb_dim)`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Feed-forward network (class-level impl).\"\"\"\n",
         "class FeedForward(nn.Module):\n",
         "    def __init__(self, emb_dim):\n",
         "        super().__init__()\n",
-        "\n",
-        "        self.net = nn.Sequential(\n",
-        "        nn.Linear(emb_dim, 4 * emb_dim),\n",
-        "        nn.GELU(),\n",
-        "        nn.Linear(4 * emb_dim, emb_dim),\n",
-        "        )\n",
-        "\n",
+        "        @Impl::Model::matmul{\n",
+        "        self.net = nn.Sequential(\n            nn.Linear(emb_dim, 4 * emb_dim),\n            nn.GELU(),\n            nn.Linear(4 * emb_dim, emb_dim),\n        )\n",
+        "        }@}\n",
+        "        @Impl::Model::addernetmatmul{\n",
+        "        self.net = nn.Sequential(\n            AdderLinear(emb_dim, 4 * emb_dim),\n            nn.GELU(),\n            AdderLinear(4 * emb_dim, emb_dim),\n        )\n",
+        "        }@}\n",
         "    def forward(self, x):\n",
-        "        return self.net(x)"
-      ],
-      "metadata": {}
+        "        return self.net(x)\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
-        "## 7. Block — Decoder Block",
+        "## 7. Block \u2014 Decoder Block",
         "LayerNorm + MultiHead + residual + LayerNorm + FeedForward + residual.",
-        "**No technique-specific lines** — pure common code."
-      ],
-      "metadata": {}
+        "**No technique-specific lines** \u2014 pure common code."
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Decoder block.\"\"\"\n",
         "class Block(nn.Module):\n",
@@ -403,23 +496,25 @@
         "    def forward(self, x):\n",
         "        x = x + self.self_attn_dropout(self.self_attn(self.ln1(x)))\n",
         "        x = x + self.ffwd_dropout(self.ffwd(self.ln2(x)))\n",
-        "        return x"
-      ],
-      "metadata": {}
+        "        return x\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
-        "## 8. NanoGPT — Full Model",
+        "## 8. NanoGPT \u2014 Full Model",
         "Token + position embedding + `n_layers` decoder blocks + LM head.",
         "### Impl: LM head",
         "- **matmul**: `nn.Linear(emb_dim, vocab_sz)`",
         "- **addernetmatmul**: `AdderLinear(emb_dim, vocab_sz)`"
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"NanoGPT: Decoder-only Transformer.\"\"\"\n",
         "class NanoGPT(nn.Module):\n",
@@ -430,9 +525,12 @@
         "        self.position_embedding = nn.Embedding(ctx_len, emb_dim)\n",
         "        self.blocks = nn.Sequential(*[Block(emb_dim, n_heads) for _ in range(n_layers)])\n",
         "        self.ln_final = nn.LayerNorm(emb_dim)\n",
-        "\n",
+        "        @Impl::Model::matmul{\n",
         "        self.lm_head = nn.Linear(emb_dim, vocab_sz)\n",
-        "\n",
+        "        }@}\n",
+        "        @Impl::Model::addernetmatmul{\n",
+        "        self.lm_head = AdderLinear(emb_dim, vocab_sz)\n",
+        "        }@}\n",
         "        self.apply(self._init_weights)\n",
         "    def _init_weights(self, module):\n",
         "        if isinstance(module, (nn.Linear, AdderLinear)) or isinstance(module, nn.Embedding):\n",
@@ -457,12 +555,14 @@
         "            probs = F.softmax(logits, dim=-1)\n",
         "            idx_next = torch.multinomial(probs, num_samples=1)\n",
         "            idx = torch.cat((idx, idx_next), dim=1)\n",
-        "        return idx"
-      ],
-      "metadata": {}
+        "        return idx\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Instantiate model.\"\"\"\n",
         "emb_dim = 64\n",
@@ -471,12 +571,14 @@
         "ctx_len = 64\n",
         "model = NanoGPT(vocab_sz, emb_dim, ctx_len, n_layers, n_heads).to(device)\n",
         "n_params_tot = sum(p.numel() for p in model.parameters())\n",
-        "print(f\"\\n{n_params_tot / 1e6:.2f} M parameters\\n\")"
-      ],
-      "metadata": {}
+        "print(f\"\\n{n_params_tot / 1e6:.2f} M parameters\\n\")\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Build dataset.\"\"\"\n",
         "def build_dataset(txtfile, ctx_len):\n",
@@ -498,12 +600,14 @@
         "batch_sz = 32\n",
         "train_loader = DataLoader(train_data, batch_size=batch_sz, shuffle=True)\n",
         "val_loader = DataLoader(val_data, batch_size=batch_sz, shuffle=True)\n",
-        "test_loader = DataLoader(test_data, batch_size=batch_sz, shuffle=True)"
-      ],
-      "metadata": {}
+        "test_loader = DataLoader(test_data, batch_size=batch_sz, shuffle=True)\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Xavier initialisation.\"\"\"\n",
         "def xavier_init(m):\n",
@@ -511,40 +615,44 @@
         "        torch.nn.init.xavier_uniform_(m.weight)\n",
         "    elif isinstance(m, (nn.Conv2d,)):\n",
         "        torch.nn.init.xavier_uniform_(m.weight)\n",
-        "xavier_init(model)"
-      ],
-      "metadata": {}
+        "xavier_init(model)\n"
+      ]
     },
     {
       "cell_type": "markdown",
+      "metadata": {},
       "source": [
         "## 9. Training Loop",
         "",
         "Standard cross-entropy training. No technique-specific lines."
-      ],
-      "metadata": {}
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
-        "@torch.no_grad()\n",
+        "@@torch.no_grad()\n",
         "def estimate_losses(model, val_loader, loss_fn, n_tokens, val_iter=5):\n",
         "    model.eval()\n",
         "    losses = []\n",
         "    for batch_idx, (xb, yb) in enumerate(val_loader):\n",
-        "        if batch_idx \u003e= val_iter:\n",
+        "        if batch_idx >= val_iter:\n",
         "            break\n",
         "        xb, yb = xb.to(device), yb.to(device)\n",
         "        logits = model(xb)\n",
         "        loss = loss_fn(logits.view(-1, n_tokens), yb.view(-1))\n",
         "        losses.append(loss.item())\n",
         "    model.train()\n",
-        "    return float(np.mean(losses)) if losses else 0.0"
-      ],
-      "metadata": {}
+        "    return float(np.mean(losses)) if losses else 0.0\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Training loop.\"\"\"\n",
         "loss_fn = nn.CrossEntropyLoss()\n",
@@ -557,7 +665,7 @@
         "for epoch in range(n_epochs):\n",
         "    pbar = tqdm(enumerate(train_loader), total=batch_lim, desc=f\"Epoch {epoch+1}\")\n",
         "    for batch_idx, (xb, yb) in pbar:\n",
-        "        if batch_idx \u003e= batch_lim:\n",
+        "        if batch_idx >= batch_lim:\n",
         "            break\n",
         "        xb, yb = xb.to(device), yb.to(device)\n",
         "        optimizer.zero_grad()\n",
@@ -570,17 +678,19 @@
         "            train_loss = loss.item()\n",
         "            val_loss = estimate_losses(model, val_loader, loss_fn, vocab_sz)\n",
         "            pbar.set_postfix_str(f\"train={train_loss:.3f} val={val_loss:.3f}\")\n",
-        "            if val_loss \u003c best_val_loss:\n",
+        "            if val_loss < best_val_loss:\n",
         "                best_val_loss = val_loss\n",
         "                torch.save(\n",
         "                    model.state_dict(),\n",
         "                    save_chkpt_dir / f\"model_chkpt_loss{loss.item():.3f}.pth\",\n",
-        "                )"
-      ],
-      "metadata": {}
+        "                )\n"
+      ]
     },
     {
       "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
       "source": [
         "\"\"\"Generate text and save/load model.\"\"\"\n",
         "start = torch.zeros((1, 1), dtype=torch.long, device=device)\n",
@@ -596,9 +706,8 @@
         "start2 = torch.zeros((1, 1), dtype=torch.long, device=device)\n",
         "gen2 = model2.generate(start2, max_new_tokens=100)\n",
         "gen2 = decode(gen2[0].tolist())\n",
-        "print(f\"\\nLoaded model generation matches original: {gen == gen2}\")"
-      ],
-      "metadata": {}
+        "print(f\"\\nLoaded model generation matches original: {gen == gen2}\")\n"
+      ]
     }
   ],
   "metadata": {
