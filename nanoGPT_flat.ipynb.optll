@@ -464,63 +464,13 @@
         "Each head implements its own Q, K, V projections, attention scores, and output."
       ]
     },
-    @Impl::Model::matmul,Attn::vanillaatten{
+    @Impl::Attn::vanillaatten{
     {
-      "cell_type": "code",
-      "execution_count": null,
+      "cell_type": "markdown",
       "metadata": {},
-      "outputs": [],
       "source": [
-        "\"\"\"Single self-attention head (matmul variant).\"\"\"\n",
-        "class Head(nn.Module):\n",
-        "    def __init__(self, head_sz, emb_dim):\n",
-        "        super().__init__()\n",
-        "        self.head_sz, self.emb_dim = head_sz, emb_dim\n",
-        "        self.key = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.query = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.value = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        B, T, C = x.shape\n",
-        "        k = self.key(x)\n",
-        "        q = self.query(x)\n",
-        "        v = self.value(x)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
-        "        wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
-        "        wei = F.softmax(wei, dim=-1)\n",
-        "        out = wei @ v\n",
-        "        return out\n"
-      ]
-    }
-    }@},
-    @Impl::Model::addernetmatmul,Attn::vanillaatten{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Single self-attention head (addernet variant).\"\"\"\n",
-        "class Head(nn.Module):\n",
-        "    def __init__(self, head_sz, emb_dim):\n",
-        "        super().__init__()\n",
-        "        self.head_sz, self.emb_dim = head_sz, emb_dim\n",
-        "        self.key = AdderConvLinear(emb_dim, head_sz, bias=False)\n",
-        "        self.query = AdderConvLinear(emb_dim, head_sz, bias=False)\n",
-        "        self.value = AdderConvLinear(emb_dim, head_sz, bias=False)\n",
-        "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        B, T, C = x.shape\n",
-        "        k = self.key(x)\n",
-        "        q = self.query(x)\n",
-        "        v = self.value(x)\n",
-        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * C ** -0.5\n",
-        "        wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
-        "        wei = F.softmax(wei, dim=-1)\n",
-        "        out = -(wei.unsqueeze(-1) - v.unsqueeze(-2)).abs().sum(-2)\n",
-        "        return out\n"
+        "### Standard self-attention",
+        "Scaled dot-product attention with a causal mask: each position attends to itself and earlier positions."
       ]
     }
     }@},
@@ -529,185 +479,135 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### MQA \u2014 Multi-Query Attention (Shazeer 2019)",
-        "All query heads share ONE key/value head. KV-cache shrinks by `n_heads`.",
-        "The `Head` below is a query-head accepting optional shared `kv`; sharing is enforced in the MQA `MultiHead`."
+        "### Multi-Query Attention (Shazeer 2019)",
+        "All query heads share a single key/value head, so the KV cache shrinks by the number of heads.",
+        "Each head below accepts an optional shared `kv`; the sharing itself is wired up in `MultiHead`."
       ]
     }
     }@},
-    @Impl::Attn::mqa{
+    @Impl::Attn::gqa{
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Grouped-Query Attention (Ainslie et al. 2023)",
+        "Query heads are split into groups that share key/value heads: fewer KVs than full multi-head attention,",
+        "more than single-query attention. Group routing is wired up in `MultiHead`."
+      ]
+    }
+    }@},
+    @Impl::Attn::mla{
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Multi-head Latent Attention (DeepSeek-AI 2024)",
+        "Keys and values are low-rank: inputs are compressed to a small latent vector that is cached,",
+        "then projected back up per head. Queries stay full-rank."
+      ]
+    }
+    }@},
+    @Impl::Attn::dsa{
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Sparse attention (DeepSeek NSA-inspired)",
+        "On top of the causal mask, each query keeps a local window plus strided distant positions,",
+        "then filters to the top-k scores before the softmax. Near-dense on tiny contexts; pays off at long ones."
+      ]
+    }
+    }@},
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Projection and score functions",
+        "Defined once here and reused by every attention module below."
+      ]
+    },
+    @Impl::Model::matmul{
     {
       "cell_type": "code",
       "execution_count": null,
       "metadata": {},
       "outputs": [],
       "source": [
-        "\"\"\"Single self-attention head (mqa query-head; K/V shared in MQA MultiHead, Shazeer 2019).\"\"\"\n",
+        "\"\"\"Standard projections and dot-product scores.\"\"\"\n",
+        "QKVLinear = nn.Linear\n",
+        "def attn_scores(q, k):\n",
+        "    return q @ k.transpose(-2, -1)\n",
+        "def attn_combine(wei, v):\n",
+        "    return wei @ v\n"
+      ]
+    }
+    }@},
+    @Impl::Model::addernetmatmul{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"AdderNet projections and L1 scores (no multiplies).\"\"\"\n",
+        "QKVLinear = AdderConvLinear\n",
+        "def attn_scores(q, k):\n",
+        "    return -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1)\n",
+        "def attn_combine(wei, v):\n",
+        "    return -(wei.unsqueeze(-1) - v.unsqueeze(-2)).abs().sum(-2)\n"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Single self-attention head.\"\"\"\n",
         "class Head(nn.Module):\n",
         "    def __init__(self, head_sz, emb_dim):\n",
         "        super().__init__()\n",
         "        self.head_sz, self.emb_dim = head_sz, emb_dim\n",
-        "        self.key = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.query = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.value = nn.Linear(emb_dim, head_sz, bias=False)\n",
+        "        self.key = QKVLinear(emb_dim, head_sz, bias=False)\n",
+        "        self.query = QKVLinear(emb_dim, head_sz, bias=False)\n",
+        "        self.value = QKVLinear(emb_dim, head_sz, bias=False)\n",
+@Impl::Attn::mla{
+        "        # MLA latent projections (used instead of key/value)\n",
+        "        self.kv_down = QKVLinear(emb_dim, max(16, head_sz // 2), bias=False)\n",
+        "        self.k_up = QKVLinear(max(16, head_sz // 2), head_sz, bias=False)\n",
+        "        self.v_up = QKVLinear(max(16, head_sz // 2), head_sz, bias=False)\n",
+}@}
         "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
         "\n",
         "    def forward(self, x, kv=None):\n",
         "        B, T, C = x.shape\n",
         "        q = self.query(x)\n",
-        "        if kv is not None:\n",
-        "            k, v = kv\n",
-        "        else:\n",
-        "            k = self.key(x)\n",
-        "            v = self.value(x)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
-        "        wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
-        "        wei = F.softmax(wei, dim=-1)\n",
-        "        out = wei @ v\n",
-        "        return out\n"
-      ]
-    }
-    }@},
-    @Impl::Attn::gqa{
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "### GQA \u2014 Grouped-Query Attention (Ainslie et al. 2023)",
-        "Query heads split into groups over `n_kv_heads` (default `n_heads // 2`) key/value heads:",
-        "MHA (`n_kv == n_heads`) \u2194 GQA \u2194 MQA (`n_kv == 1`). `group_id` marks group membership;",
-        "group routing is enforced in the GQA `MultiHead`."
-      ]
-    }
-    }@},
-    @Impl::Attn::gqa{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Single self-attention head (gqa group member; grouped K/V shared in GQA MultiHead, Ainslie et al. 2023).\"\"\"\n",
-        "class Head(nn.Module):\n",
-        "    def __init__(self, head_sz, emb_dim, group_id=0):\n",
-        "        super().__init__()\n",
-        "        self.head_sz, self.emb_dim, self.group_id = head_sz, emb_dim, group_id\n",
-        "        self.key = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.query = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.value = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
-        "\n",
-        "    def forward(self, x, kv=None):\n",
-        "        B, T, C = x.shape\n",
-        "        q = self.query(x)\n",
-        "        if kv is not None:\n",
-        "            k, v = kv\n",
-        "        else:\n",
-        "            k = self.key(x)\n",
-        "            v = self.value(x)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
-        "        wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
-        "        wei = F.softmax(wei, dim=-1)\n",
-        "        out = wei @ v\n",
-        "        return out\n"
-      ]
-    }
-    }@},
-    @Impl::Attn::mla{
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "### MLA \u2014 Multi-head Latent Attention (DeepSeek-AI 2024)",
-        "K/V are low-rank: `c = x @ W_down` (cache `c`, not full K/V), then `k = c @ W_up_k`, `v = c @ W_up_v`.",
-        "Queries stay full-rank. RoPE omitted here for brevity."
-      ]
-    }
-    }@},
-    @Impl::Attn::mla{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Single self-attention head (mla: latent-compressed K/V, DeepSeek-AI 2024).\"\"\"\n",
-        "class Head(nn.Module):\n",
-        "    def __init__(self, head_sz, emb_dim, latent_dim=None):\n",
-        "        super().__init__()\n",
-        "        self.head_sz, self.emb_dim = head_sz, emb_dim\n",
-        "        self.latent_dim = latent_dim or max(16, head_sz // 2)\n",
-        "        self.query = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.kv_down = nn.Linear(emb_dim, self.latent_dim, bias=False)\n",
-        "        self.k_up = nn.Linear(self.latent_dim, head_sz, bias=False)\n",
-        "        self.v_up = nn.Linear(self.latent_dim, head_sz, bias=False)\n",
-        "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        B, T, C = x.shape\n",
-        "        q = self.query(x)\n",
+        "        k = self.key(x)\n",
+        "        v = self.value(x)\n",
+@Impl::Attn::mla{
         "        c = self.kv_down(x)\n",
         "        k = self.k_up(c)\n",
         "        v = self.v_up(c)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
+}@}
+        "        if kv is not None:\n",
+        "            k, v = kv\n",
+        "        wei = attn_scores(q, k) * (C ** -0.5)\n",
         "        wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
-        "        wei = F.softmax(wei, dim=-1)\n",
-        "        out = wei @ v\n",
-        "        return out\n"
-      ]
-    }
-    }@},
-    @Impl::Attn::dsa{
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "### DSA \u2014 DeepSeek Native-Sparse Attention (simplified)",
-        "Causal + (local-window `w=32` OR strided `s=8`) static mask, then per-query top-k (`k=32`) filtering",
-        "before softmax. For the tiny demo ctx the mask is near-dense; sparsity bites at long ctx."
-      ]
-    }
-    }@},
-    @Impl::Attn::dsa{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Single self-attention head (dsa: NSA-inspired sparse mask + top-k, DeepSeek).\"\"\"\n",
-        "class Head(nn.Module):\n",
-        "    def __init__(self, head_sz, emb_dim, window=32, stride=8, topk=32):\n",
-        "        super().__init__()\n",
-        "        self.head_sz, self.emb_dim = head_sz, emb_dim\n",
-        "        self.window, self.stride, self.topk = window, stride, topk\n",
-        "        self.key = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.query = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.value = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        B, T, C = x.shape\n",
-        "        k = self.key(x)\n",
-        "        q = self.query(x)\n",
-        "        v = self.value(x)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
-        "        causal = self.tril[:T, :T] > 0\n",
+@Impl::Attn::dsa{
         "        idx = torch.arange(T, device=x.device)\n",
-        "        local = (idx.unsqueeze(0) - idx.unsqueeze(1) < self.window)\n",
-        "        strided = ((idx.unsqueeze(0) - idx.unsqueeze(1)) % self.stride == 0)\n",
-        "        sparse = (local | strided)\n",
-        "        wei = wei.masked_fill(~(causal & sparse), float(\"-inf\"))\n",
-        "        k_top = min(self.topk, T)\n",
+        "        local = (idx.unsqueeze(0) - idx.unsqueeze(1) < 32)\n",
+        "        strided = ((idx.unsqueeze(0) - idx.unsqueeze(1)) % 8 == 0)\n",
+        "        wei = wei.masked_fill(~((self.tril[:T, :T] > 0) & (local | strided)), float(\"-inf\"))\n",
+        "        k_top = min(32, T)\n",
         "        topv, _ = wei.topk(k_top, dim=-1)\n",
-        "        thresh = topv[..., -1].unsqueeze(-1)\n",
-        "        wei = wei.masked_fill(wei < thresh, float(\"-inf\"))\n",
+        "        wei = wei.masked_fill(wei < topv[..., -1].unsqueeze(-1), float(\"-inf\"))\n",
+}@}
         "        wei = F.softmax(wei, dim=-1)\n",
-        "        out = wei @ v\n",
+        "        out = attn_combine(wei, v)\n",
         "        return out\n"
       ]
-    }
-    }@},
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -783,208 +683,84 @@
         "## 5. MultiHead \u2013 Full Multi-Head Attention Module"
       ]
     },
-    @Impl::Model::matmul,Attn::vanillaatten{
     {
       "cell_type": "code",
       "execution_count": null,
       "metadata": {},
       "outputs": [],
       "source": [
-        "\"\"\"Multi-head self-attention module (matmul variant).\"\"\"\n",
-        "class MultiHead(nn.Module):\n",
-        "    def __init__(self, n_heads, head_sz, emb_dim):\n",
-        "        super().__init__()\n",
-        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
-        "        self.proj = nn.Linear(n_heads * head_sz, emb_dim)\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
-        "        return self.proj(out)\n"
-      ]
-    }
-    }@},
-    @Impl::Model::addernetmatmul,Attn::vanillaatten{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Multi-head self-attention module (addernet variant).\"\"\"\n",
-        "class MultiHead(nn.Module):\n",
-        "    def __init__(self, n_heads, head_sz, emb_dim):\n",
-        "        super().__init__()\n",
-        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
-        "        self.proj = AdderConvLinear(n_heads * head_sz, emb_dim)\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
-        "        return self.proj(out)\n"
-      ]
-    }
-    }@},
-    @Impl::Attn::mqa{
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "### MultiHead MQA",
-        "`n_heads` query projections, ONE shared key/value. Attention computed per query against the same K/V."
-      ]
-    }
-    }@},
-    @Impl::Attn::mqa{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Multi-head module (mqa: n_heads queries, 1 shared K/V, Shazeer 2019).\"\"\"\n",
+        "\"\"\"Multi-head self-attention module.\"\"\"\n",
         "class MultiHead(nn.Module):\n",
         "    def __init__(self, n_heads, head_sz, emb_dim):\n",
         "        super().__init__()\n",
         "        self.n_heads = n_heads\n",
-        "        self.queries = nn.ModuleList([nn.Linear(emb_dim, head_sz, bias=False) for _ in range(n_heads)])\n",
-        "        self.key = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.value = nn.Linear(emb_dim, head_sz, bias=False)\n",
-        "        self.proj = nn.Linear(n_heads * head_sz, emb_dim)\n",
+@Impl::Attn::mqa{
+        "        # MQA: n_heads queries share ONE key/value (Shazeer 2019)\n",
+        "        self.queries = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(n_heads)])\n",
+        "        self.key = QKVLinear(emb_dim, head_sz, bias=False)\n",
+        "        self.value = QKVLinear(emb_dim, head_sz, bias=False)\n",
+}@}
+@Impl::Attn::gqa{
+        "        # GQA: queries grouped over n_kv_heads key/values (Ainslie et al. 2023)\n",
+        "        self.n_kv_heads = max(1, n_heads // 2)\n",
+        "        self.queries = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(n_heads)])\n",
+        "        self.keys = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(self.n_kv_heads)])\n",
+        "        self.values = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(self.n_kv_heads)])\n",
+}@}
+@Impl::Attn::vanillaatten{
+        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
+}@}
+@Impl::Attn::mla{
+        "        # MLA: compression lives inside each Head\n",
+        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
+}@}
+@Impl::Attn::dsa{
+        "        # DSA: sparsity lives inside each Head\n",
+        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
+}@}
+        "        self.proj = QKVLinear(n_heads * head_sz, emb_dim)\n",
         "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
         "\n",
         "    def forward(self, x):\n",
         "        B, T, C = x.shape\n",
+@Impl::Attn::mqa{
         "        k = self.key(x)\n",
         "        v = self.value(x)\n",
         "        outs = []\n",
         "        for q_layer in self.queries:\n",
         "            q = q_layer(x)\n",
-        "            wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
+        "            wei = attn_scores(q, k) * (C ** -0.5)\n",
         "            wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
         "            wei = F.softmax(wei, dim=-1)\n",
-        "            outs.append(wei @ v)\n",
+        "            outs.append(attn_combine(wei, v))\n",
         "        out = torch.cat(outs, dim=-1)\n",
-        "        return self.proj(out)\n"
-      ]
-    }
-    }@},
-    @Impl::Attn::gqa{
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "### MultiHead GQA",
-        "`n_heads` queries routed to `n_kv_heads` key/values in groups of `n_heads // n_kv_heads`.",
-        "Set `n_kv_heads=1` for MQA, `n_kv_heads=n_heads` for MHA."
-      ]
-    }
-    }@},
-    @Impl::Attn::gqa{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Multi-head module (gqa: n_heads Q grouped over n_kv K/V, Ainslie et al. 2023).\"\"\"\n",
-        "class MultiHead(nn.Module):\n",
-        "    def __init__(self, n_heads, head_sz, emb_dim, n_kv_heads=None):\n",
-        "        super().__init__()\n",
-        "        self.n_heads = n_heads\n",
-        "        self.n_kv_heads = n_kv_heads or max(1, n_heads // 2)\n",
-        "        assert n_heads % self.n_kv_heads == 0\n",
-        "        self.group = n_heads // self.n_kv_heads\n",
-        "        self.queries = nn.ModuleList([nn.Linear(emb_dim, head_sz, bias=False) for _ in range(n_heads)])\n",
-        "        self.keys = nn.ModuleList([nn.Linear(emb_dim, head_sz, bias=False) for _ in range(self.n_kv_heads)])\n",
-        "        self.values = nn.ModuleList([nn.Linear(emb_dim, head_sz, bias=False) for _ in range(self.n_kv_heads)])\n",
-        "        self.proj = nn.Linear(n_heads * head_sz, emb_dim)\n",
-        "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        B, T, C = x.shape\n",
+}@}
+@Impl::Attn::gqa{
         "        ks = [k_layer(x) for k_layer in self.keys]\n",
         "        vs = [v_layer(x) for v_layer in self.values]\n",
         "        outs = []\n",
         "        for i, q_layer in enumerate(self.queries):\n",
         "            q = q_layer(x)\n",
-        "            k = ks[i // self.group]\n",
-        "            v = vs[i // self.group]\n",
-        "            wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
+        "            k = ks[(i * self.n_kv_heads) // self.n_heads]\n",
+        "            v = vs[(i * self.n_kv_heads) // self.n_heads]\n",
+        "            wei = attn_scores(q, k) * (C ** -0.5)\n",
         "            wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
         "            wei = F.softmax(wei, dim=-1)\n",
-        "            outs.append(wei @ v)\n",
+        "            outs.append(attn_combine(wei, v))\n",
         "        out = torch.cat(outs, dim=-1)\n",
-        "        return self.proj(out)\n"
-      ]
-    }
-    }@},
-    @Impl::Attn::mla{
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "### MultiHead over MLA heads",
-        "Heads already compress K/V to latent; this module just concatenates + projects.",
-        "`latent_cache_dim()` reports what gets cached instead of full K/V."
-      ]
-    }
-    }@},
-    @Impl::Attn::mla{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Multi-head module (mla heads: latent compression per head, DeepSeek-AI 2024).\"\"\"\n",
-        "class MultiHead(nn.Module):\n",
-        "    def __init__(self, n_heads, head_sz, emb_dim):\n",
-        "        super().__init__()\n",
-        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
-        "        self.proj = nn.Linear(n_heads * head_sz, emb_dim)\n",
-        "\n",
-        "    def latent_cache_dim(self):\n",
-        "        return sum(h.latent_dim for h in self.heads)\n",
-        "\n",
-        "    def forward(self, x):\n",
+}@}
+@Impl::Attn::vanillaatten{
         "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
-        "        return self.proj(out)\n"
-      ]
-    }
-    }@},
-    @Impl::Attn::dsa{
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "### MultiHead over DSA heads",
-        "Heads already sparsify (window + stride + top-k); this module just concatenates + projects.",
-        "`sparsity_config()` reports each head's window/stride/top-k."
-      ]
-    }
-    }@},
-    @Impl::Attn::dsa{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "\"\"\"Multi-head module (dsa heads: sparse mask + top-k per head).\"\"\"\n",
-        "class MultiHead(nn.Module):\n",
-        "    def __init__(self, n_heads, head_sz, emb_dim):\n",
-        "        super().__init__()\n",
-        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
-        "        self.proj = nn.Linear(n_heads * head_sz, emb_dim)\n",
-        "\n",
-        "    def sparsity_config(self):\n",
-        "        return [(h.window, h.stride, h.topk) for h in self.heads]\n",
-        "\n",
-        "    def forward(self, x):\n",
+}@}
+@Impl::Attn::mla{
         "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
+}@}
+@Impl::Attn::dsa{
+        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
+}@}
         "        return self.proj(out)\n"
       ]
-    }
-    }@},
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -1737,7 +1513,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "\"\"\"Override ln_final with RegularisedBN for regularisedbn path.\"\"\"\n",
+        "\"\"\"Override ln_final with RegularisedBN for the regularisedbn setting.\"\"\"\n",
         "model.ln_final = RegularisedBN(emb_dim)\n",
         "print(\"  ln_final replaced with RegularisedBN\")\n"
       ]
