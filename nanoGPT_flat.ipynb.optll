@@ -608,13 +608,16 @@
         "        return out\n"
       ]
     },
+    @Impl::Attn::vanillaatten{
     {
       "cell_type": "markdown",
       "metadata": {},
       "source": [
         "## 4. Multi-Head Self-Attention Demo"
       ]
-    },
+    }
+    }@},
+    @Impl::Attn::vanillaatten{
     {
       "cell_type": "code",
       "execution_count": null,
@@ -627,14 +630,15 @@
         "attn_outs = [head(x) for head in heads]\n",
         "attn_out = torch.cat(attn_outs, dim=2)\n"
       ]
-    },
-    @Impl::Model::matmul{
+    }
+    }@},
+    @Impl::Attn::vanillaatten{
     {
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Impl: Projection",
-        "- **matmul**: `nn.Linear(n_heads * head_sz, emb_dim)`"
+        "### Projection",
+        "Mix information across heads with a final projection."
       ]
     },
     {
@@ -643,29 +647,11 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "proj = nn.Linear(n_heads * head_sz, emb_dim)\n"
+        "proj = QKVLinear(n_heads * head_sz, emb_dim)\n"
       ]
     }
     }@},
-    @Impl::Model::addernetmatmul{
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "### Impl: Projection",
-        "- **addernetmatmul**: `AdderConvLinear` (Toeplitz\u2013convolution with L1-distance)"
-      ]
-    },
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "proj = AdderConvLinear(n_heads * head_sz, emb_dim)\n"
-      ]
-    }
-    }@},
+    @Impl::Attn::vanillaatten{
     {
       "cell_type": "code",
       "execution_count": null,
@@ -675,7 +661,8 @@
         "multi_attn_out = proj(attn_out)\n",
         "print(f\"{multi_attn_out.shape=}\")\n"
       ]
-    },
+    }
+    }@},
     {
       "cell_type": "markdown",
       "metadata": {},
