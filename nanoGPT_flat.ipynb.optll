@@ -4,7 +4,7 @@
 @Technique::Model::[matmul, addernetmatmul]
 @Technique::State::[layernorm, regularisedbn]
 @Technique::Arch::[decoderonly, encoderdecoder]
-@Technique::Attn::[vanillaatten, mqa, gqa, mla, dsa]
+@Technique::Attn::[vanillaatten, mqa, gqa, mla, dsa, tokenformer, tpa]
 
 {
   "cells": [
@@ -518,6 +518,30 @@
       ]
     }
     }@},
+    @Impl::Attn::tokenformer{
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Token-parameter attention (TokenFormer, Wang et al. 2025)",
+        "Linear projections are replaced by attention over learnable parameter tokens: input tokens act as queries",
+        "while parameters serve as keys and values. Capacity grows by adding new key-value parameter pairs,",
+        "so the model scales without retraining from scratch."
+      ]
+    }
+    }@},
+    @Impl::Attn::tpa{
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Tensor Product Attention (Zhang et al. 2026)",
+        "Each projection is factorized as a sum of R rank-1 tensor products: a compact mixing factor times",
+        "token features. Only the small factors need caching, and the factorization composes with rotary",
+        "position embeddings, unlike KV-compression approaches."
+      ]
+    }
+    }@},
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -578,6 +602,21 @@
         "        self.k_up = QKVLinear(max(16, head_sz // 2), head_sz, bias=False)\n",
         "        self.v_up = QKVLinear(max(16, head_sz // 2), head_sz, bias=False)\n",
 }@}
+@Impl::Attn::tokenformer{
+        "        # Token-parameter tokens: parameters as keys/values (added pairs scale capacity)\n",
+        "        self.p_keys = nn.Parameter(torch.randn(64, head_sz) * 0.02)\n",
+        "        self.p_values = nn.Parameter(torch.randn(64, head_sz) * 0.02)\n",
+}@}
+@Impl::Attn::tpa{
+        "        # TPA: each projection is a sum of R rank-1 tensor products (Zhang et al. 2026)\n",
+        "        self.tpa_rank = 2\n",
+        "        self.a_q = QKVLinear(emb_dim, self.tpa_rank, bias=False)\n",
+        "        self.b_q = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(self.tpa_rank)])\n",
+        "        self.a_k = QKVLinear(emb_dim, self.tpa_rank, bias=False)\n",
+        "        self.b_k = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(self.tpa_rank)])\n",
+        "        self.a_v = QKVLinear(emb_dim, self.tpa_rank, bias=False)\n",
+        "        self.b_v = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(self.tpa_rank)])\n",
+}@}
         "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
         "\n",
         "    def forward(self, x, kv=None):\n",
@@ -589,6 +628,18 @@
         "        c = self.kv_down(x)\n",
         "        k = self.k_up(c)\n",
         "        v = self.v_up(c)\n",
+}@}
+@Impl::Attn::tpa{
+        "        # TPA: rebuild q/k/v from rank-R factors (mean over R outer products)\n",
+        "        aq = self.a_q(x)\n",
+        "        bq = torch.stack([l(x) for l in self.b_q], dim=-1)\n",
+        "        q = (aq.unsqueeze(-2) * bq).sum(-1) / self.tpa_rank\n",
+        "        ak = self.a_k(x)\n",
+        "        bk = torch.stack([l(x) for l in self.b_k], dim=-1)\n",
+        "        k = (ak.unsqueeze(-2) * bk).sum(-1) / self.tpa_rank\n",
+        "        av = self.a_v(x)\n",
+        "        bv = torch.stack([l(x) for l in self.b_v], dim=-1)\n",
+        "        v = (av.unsqueeze(-2) * bv).sum(-1) / self.tpa_rank\n",
 }@}
         "        if kv is not None:\n",
         "            k, v = kv\n",
@@ -605,6 +656,14 @@
 }@}
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = attn_combine(wei, v)\n",
+@Impl::Attn::tokenformer{
+        "        # Token-parameter attention overrides the token-mixing output above\n",
+        "        p_k = self.p_keys.unsqueeze(0).expand(B, -1, -1)\n",
+        "        p_v = self.p_values.unsqueeze(0).expand(B, -1, -1)\n",
+        "        tok_wei = attn_scores(q, p_k) * (C ** -0.5)\n",
+        "        tok_wei = F.softmax(tok_wei, dim=-1)\n",
+        "        out = attn_combine(tok_wei, p_v)\n",
+}@}
         "        return out\n"
       ]
     },
@@ -705,6 +764,14 @@
         "        # DSA: sparsity lives inside each Head\n",
         "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
 }@}
+@Impl::Attn::tokenformer{
+        "        # TokenFormer: capacity lives in each Head's parameter tokens\n",
+        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
+}@}
+@Impl::Attn::tpa{
+        "        # TPA: factorization lives inside each Head\n",
+        "        self.heads = nn.ModuleList([Head(head_sz, emb_dim) for _ in range(n_heads)])\n",
+}@}
         "        self.proj = QKVLinear(n_heads * head_sz, emb_dim)\n",
         "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
         "\n",
@@ -743,6 +810,12 @@
         "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
 }@}
 @Impl::Attn::dsa{
+        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
+}@}
+@Impl::Attn::tokenformer{
+        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
+}@}
+@Impl::Attn::tpa{
         "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
 }@}
         "        return self.proj(out)\n"
