@@ -110,6 +110,7 @@
     "had",
     "the"
   ],
+  "traj_in_band": true,
   "guide": {
     "wt2": "hyp",
     "ptb": "flat",

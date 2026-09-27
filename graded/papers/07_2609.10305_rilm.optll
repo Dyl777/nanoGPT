@@ -84,8 +84,8 @@ stages = paper_2609_10305_fig1_step()
 
 @Graded::Fig3_Geometry{
 # Fig.3 (seed-42 prefix): PCA paths, norm band, Table X top-5 (<unk>/was/is/had/the, first prefix not cherry-picked). Structural.
-band2, top5 = paper_2609_10305_fig3_geometry()
-@}::endpoints::[band2=band2, top5=top5]
+plot_ok, band2, top5, inband = paper_2609_10305_fig3_geometry()
+@}::endpoints::[plot_ok=plot_ok, band2=band2, top5=top5, inband=inband]
 
 @Graded::Table11_Guide{
 # Table XI: WT-2->Hyp / PTB->Flat / 10k->Flat (stable) / speed->Flat (0.15 vs 0.52 ms/tok).

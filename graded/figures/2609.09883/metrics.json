@@ -1,0 +1,81 @@
+{
+  "arxiv": "2609.09883",
+  "plot_table1": 1.0,
+  "gains_over_mag": [
+    12.970000000000006,
+    10.68,
+    14.049999999999997,
+    17.15,
+    16.29,
+    15.11
+  ],
+  "wrp_avg": 57.40833333333333,
+  "lorp_avg": 57.92666666666667,
+  "plot_fig1": 1.0,
+  "selector_zero_gpu": true,
+  "wrp_acc": 53.8,
+  "dense_acc": 67.7,
+  "stages": [
+    "activation-compare-only",
+    "weight-descriptors",
+    "group-allocate"
+  ],
+  "equations": {
+    "perm_inv": true,
+    "cka_self": 1.0,
+    "eigengaps": [
+      0.8019,
+      0.1595
+    ],
+    "r_example": 0.5,
+    "eps": 1e-12
+  },
+  "patterns": {
+    "noncontiguous": true,
+    "wrp_late_heavy": true,
+    "mag_early_heavy": true
+  },
+  "plot_fig4": 1.0,
+  "prefill_cut": [
+    21,
+    23
+  ],
+  "decode_cut": [
+    23,
+    25
+  ],
+  "mem_cut": [
+    21,
+    22
+  ],
+  "setup": {
+    "models": [
+      "LLaMA-3.1-8B/32",
+      "Qwen3-14B/40",
+      "Mistral-Nemo-12B/40"
+    ],
+    "budgets": [
+      "6/8",
+      "8/10"
+    ],
+    "tasks": 9,
+    "rho_K": [
+      [
+        0.778,
+        2
+      ],
+      [
+        0.084,
+        4
+      ],
+      [
+        1.0,
+        2
+      ]
+    ],
+    "mag_guard": "first4+last2",
+    "wrp_guard": "first+last",
+    "recovery": false
+  },
+  "repo_status": "no-public-code-found"
+}

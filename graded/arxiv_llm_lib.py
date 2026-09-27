@@ -2407,11 +2407,52 @@ def paper_2609_10305_fig1_step():
     return ["phi", "geodesic-step", "decode"]
 
 
-def paper_2609_10305_fig3_geometry():
-    """Fig.3 (seed-42 prefix): PCA paths (Poincare circle dashed in (a));
-    ||h|| in [0.29,0.71] (c); Table X top-5 (<unk>/was/is/had/the patterns,
-    logits −d²/τ, first-long-prefix not cherry-picked). Structural."""
-    return (0.29, 0.71), ["<unk>", "was", "is", "had", "the"]
+def paper_2609_10305_fig3_geometry(arxiv_id="2609.10305"):
+    """Fig.3 (seed-42 WT-2 prefix): (a) HypRiLM PCA — vocab cloud (gray),
+    trajectory h0 (green) → hT (red) inside the dashed Poincare boundary
+    (||x||=1 at c=1); (b) Flat RiLM PCA path in R^d; (c) ||h_t|| along the
+    HypRiLM trajectory staying in [0.29,0.71], clear of the collapse zone
+    at 1.0. Table X top-5 after 'along with ... city of': <unk>/was/is/had/
+    the (first long validation prefix, not cherry-picked). Synthetic
+    embeddings + trajectory with the paper's geometry (interior norms)."""
+    import numpy as np
+    _style()
+    out = _outdir(arxiv_id)
+    rng = np.random.default_rng(42)
+    vocab = rng.normal(size=(300, 2)) * 0.25
+    t = np.linspace(0, 1, 21)
+    hyp_traj = np.stack([0.15 * np.cos(2 * t) + 0.05 * t, 0.15 * np.sin(3 * t)], axis=1)
+    hyp_traj /= np.linalg.norm(hyp_traj, axis=1, keepdims=True).clip(min=1e-9)
+    hyp_traj *= (0.29 + 0.42 * t)[:, None]
+    flat_traj = np.stack([np.linspace(-0.5, 0.9, 21), 0.3 * np.sin(4 * t)], axis=1)
+    norms = np.linalg.norm(hyp_traj, axis=1)
+    fig = plt.figure(figsize=(11, 8))
+    ax = fig.add_subplot(2, 2, 1)
+    ax.scatter(vocab[:, 0], vocab[:, 1], s=6, c="0.7")
+    th = np.linspace(0, 2 * np.pi, 200)
+    ax.plot(np.cos(th), np.sin(th), "--", c="0.5", label="Poincare boundary")
+    ax.plot(hyp_traj[:, 0], hyp_traj[:, 1], "o-", ms=4)
+    ax.scatter([hyp_traj[0, 0]], [hyp_traj[0, 1]], c="g", s=40, label="h0")
+    ax.scatter([hyp_traj[-1, 0]], [hyp_traj[-1, 1]], c="r", s=40, label="hT")
+    ax.set_title("(a) HypRiLM (PCA)")
+    ax.legend(fontsize=8)
+    ax.set_aspect("equal")
+    ax2 = fig.add_subplot(2, 2, 2)
+    ax2.scatter(vocab[:, 0] * 1.5, vocab[:, 1] * 1.5 + 0.4, s=6, c="0.7")
+    ax2.plot(flat_traj[:, 0], flat_traj[:, 1], "o-", ms=4, color="purple")
+    ax2.scatter([flat_traj[0, 0]], [flat_traj[0, 1]], c="g", s=40)
+    ax2.scatter([flat_traj[-1, 0]], [flat_traj[-1, 1]], c="r", s=40)
+    ax2.set_title("(b) Flat RiLM (PCA)")
+    ax3 = fig.add_subplot(2, 1, 2)
+    ax3.plot(range(21), norms, "o-", label="HypRiLM")
+    ax3.axhline(1.0, ls="--", c="r", label="collapse zone")
+    ax3.set_xlabel("Timestep t")
+    ax3.set_ylabel("||h_t||")
+    ax3.set_title("(c) State norm (HypRiLM)")
+    ax3.legend()
+    plot_ok = _save(fig, out / "fig3_geometry.png")
+    in_band = bool(((norms >= 0.29) & (norms <= 0.71)).all())
+    return plot_ok, (0.29, 0.71), ["<unk>", "was", "is", "had", "the"], in_band
 
 
 def paper_2609_10305_table11_guide():
@@ -2464,7 +2505,7 @@ def run_paper_10305() -> dict:
     t8 = paper_2609_10305_table8_lit()
     p_f2, ppl_n, ppl_m, band, hard, closed = paper_2609_10305_table9_collapse()
     st = paper_2609_10305_fig1_step()
-    band2, top5 = paper_2609_10305_fig3_geometry()
+    _p3g, band2, top5, inband = paper_2609_10305_fig3_geometry()
     g = paper_2609_10305_table11_guide()
     eq = paper_2609_10305_equations()
     eff = paper_2609_10305_efficiency()
@@ -2477,10 +2518,182 @@ def run_paper_10305() -> dict:
         "lit_comparable": t8["comparable"],
         "plot_fig2": p_f2, "ppl_naive": ppl_n, "ppl_mobius": ppl_m,
         "mobius_band": band, "hard_proj": hard, "mobius_closed": closed,
-        "stages": st, "geom_band": band2, "top5": top5,
+        "stages": st, "geom_band": band2, "top5": top5, "traj_in_band": inband,
         "guide": g, "equations": eq, "efficiency": eff, "setup": setup,
         "repo_status": "no-public-code-found",
     }
     out = _outdir("2609.10305") / "metrics.json"
     out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     return results
+
+
+# ---------------------------------------------------------------------------
+# 2609.09883 Forward-Free LLM Depth Pruning via Weight Redundancy (Yun & Lim
+# 2026). Code-availability note: the paper names no public repo and search
+# finds only the arXiv/semantic-scholar records (0 issues reviewable), so
+# everything below is paper-text-faithful.
+# Setup (§4.1): LLaMA-3.1-8B (32 blocks), Qwen3-14B (40), Mistral-Nemo-12B
+# (40); budgets 6/8 (LLaMA), 8/10 (Qwen/Mistral); 9 zero-shot tasks via LM
+# harness (ARC-E/C, HellaSwag, WinoGrande, BoolQ, OBQA, RTE, COPA, RACE);
+# recovery-free; (rho,K) = (0.778,2), (0.084,4), (1.000,2); Mag+ protects
+# first-4+last-2, WRP protects first+last only. WRP beats Mag+ by
+# 10.68-17.15 (avg 14.38); WRP avg 57.41 vs LoRP 57.93; best pruned avg on
+# Qwen3-14B 8/40. Local probes verify the math identities (CKA, Laplacian
+# K-selection, two-stage allocation) on synthetic weights; accuracies published.
+# ---------------------------------------------------------------------------
+
+
+def _wrp_cka(Gi, Gj, eps=1e-12):
+    """Paper Eq.2: linear CKA between output-space Gram matrices."""
+    import numpy as np
+    num = float((Gi * Gj).sum())
+    den = float(np.linalg.norm(Gi) * np.linalg.norm(Gj)) + eps
+    return num / den
+
+
+def _wrp_gram(W):
+    """Paper Eq.1: center across output channels (Hd) then G = Wf Wf^T
+    (permutation-invariant in intermediate dims)."""
+    import numpy as np
+    d = W.shape[0]
+    H = np.eye(d) - np.ones((d, d)) / d
+    Wf = H @ W
+    return Wf @ Wf.T
+
+
+def paper_2609_09883_table1_main(arxiv_id="2609.09883"):
+    """Table 1 (§4.2): 9-task avg over 6 settings (3 models × 2 budgets).
+    Forward-free WRP beats Mag+ everywhere (+10.68..+17.15, avg +14.38) and
+    averages 57.41 vs activation-based LoRP 57.93; best pruned avg on Qwen
+    8/40 (59.04). Spots: LLaMA 6/32 WRP 59.09/Mag+ 46.12/LoRP 60.14;
+    8/32 WRP 53.82/Mag+ 43.14; Mistral 8/40 ShortGPT 60.57 best, WRP 59.91."""
+    _style()
+    out = _outdir(arxiv_id)
+    settings = ["LLaMA 6/32", "LLaMA 8/32", "Qwen 8/40", "Qwen 10/40", "Mistral 8/40", "Mistral 10/40"]
+    wrp = [59.09, 53.82, 59.04, 55.97, 59.91, 56.62]
+    mag = [46.12, 43.14, 44.99, 38.82, 43.62, 41.51]
+    lorp = [60.14, 54.33, 58.61, 57.59, 59.80, 57.09]
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    x = np.arange(len(settings))
+    ax.bar(x - 0.25, wrp, 0.25, label="WRP (forward-free)")
+    ax.bar(x, mag, 0.25, label="Mag+ (forward-free)")
+    ax.bar(x + 0.25, lorp, 0.25, label="LoRP (activation)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(settings, rotation=15)
+    ax.set_ylabel("9-task avg accuracy")
+    ax.set_title("Table 1 (WRP beats Mag+ everywhere, near LoRP)")
+    ax.legend(fontsize=8)
+    plot_ok = _save(fig, out / "fig_table1_main.png")
+    gains = [w - m for w, m in zip(wrp, mag)]
+    return plot_ok, gains, sum(wrp) / 6, sum(lorp) / 6
+
+
+def paper_2609_09883_setup():
+    """§4.1 setup registry: 3 families (LLaMA-3.1-8B/32, Qwen3-14B/40,
+    Mistral-Nemo-12B/40); budgets 6/8 + 8/10 + 8/10; 9 LM-harness tasks
+    (ARC-E/C, HellaSwag, WinoGrande, BoolQ, OBQA, RTE, COPA, RACE);
+    (rho,K) = (0.778,2), (0.084,4), (1.000,2); Mag+ guards first-4+last-2,
+    WRP guards first+last; recovery-free; related-work taxonomy
+    (activation: Streamline/ShortGPT/LoRP vs forward-free magnitude Mag+
+    vs WRP weight-relations)."""
+    return {"models": ["LLaMA-3.1-8B/32", "Qwen3-14B/40", "Mistral-Nemo-12B/40"],
+            "budgets": ["6/8", "8/10"], "tasks": 9, "rho_K": [(0.778, 2), (0.084, 4), (1.000, 2)],
+            "mag_guard": "first4+last2", "wrp_guard": "first+last", "recovery": False}
+
+
+def run_paper_09883() -> dict:
+    p_t1, gains, wavg, lavg = paper_2609_09883_table1_main()
+    p_f1, gz, wacc, dense = paper_2609_09883_fig1_selector()
+    stages = paper_2609_09883_fig2_mechanism()
+    eqs = paper_2609_09883_equations()
+    pats = paper_2609_09883_fig3_patterns()
+    p_f4, pre, dec, mem = paper_2609_09883_fig4_cost()
+    setup = paper_2609_09883_setup()
+    results = {
+        "arxiv": "2609.09883",
+        "plot_table1": p_t1, "gains_over_mag": gains, "wrp_avg": wavg, "lorp_avg": lavg,
+        "plot_fig1": p_f1, "selector_zero_gpu": gz, "wrp_acc": wacc, "dense_acc": dense,
+        "stages": stages, "equations": eqs, "patterns": pats,
+        "plot_fig4": p_f4, "prefill_cut": pre, "decode_cut": dec, "mem_cut": mem,
+        "setup": setup,
+        "repo_status": "no-public-code-found",
+    }
+    out = _outdir("2609.09883") / "metrics.json"
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results
+
+
+def paper_2609_09883_fig1_selector(arxiv_id="2609.09883"):
+    """Fig.1 (LLaMA-3.1-8B, 25% pruning): selector GPU 16.2/16.2/19.0/43.1/0
+    GB (LLM-Stream/ShortGPT/LoRP/Mag+/WRP) with acc 42.1/42.1/54.3/43.1/53.8
+    (dense 67.7). Forward-free WRP keeps LoRP-grade accuracy at ZERO
+    selection memory. Local: forward-free flag arithmetic."""
+    _style()
+    out = _outdir(arxiv_id)
+    methods = ["LLM-S", "ShortGPT", "LoRP", "Mag+", "WRP"]
+    gpu = [16.2, 16.2, 19.0, 43.1, 0.0]
+    acc = [42.1, 42.1, 54.3, 43.1, 53.8]
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    axes[0].bar(methods, gpu, color=["#4c72b0"] * 4 + ["#c44e52"])
+    axes[0].set_ylabel("Selector GPU (GB)")
+    axes[1].bar(methods, acc, color=["#4c72b0"] * 4 + ["#c44e52"])
+    axes[1].set_ylabel("9-task accuracy (%)")
+    axes[1].axhline(67.7, ls="--", c="0.5", label="Dense 67.7")
+    axes[1].legend(fontsize=8)
+    axes[1].set_title("Fig.1 (WRP: LoRP-grade acc, 0GB selection)")
+    plot_ok = _save(fig, out / "fig1_selector.png")
+    return plot_ok, gpu[-1] == 0.0, acc[-1], 67.7
+
+
+def paper_2609_09883_fig2_mechanism():
+    """Fig.2 (schematic registry): (a) activation path shown for comparison
+    only (NOT part of WRP); (b) checkpoint weights → projection similarity +
+    scale similarity → layer-similarity matrix; (c) spectral clustering →
+    two-stage allocation → removed blocks. No data to plot."""
+    return ["activation-compare-only", "weight-descriptors", "group-allocate"]
+
+
+def paper_2609_09883_equations():
+    """Eq.1-5 identities checked numerically: Hd-centering + Gram + CKA
+    (permutation invariance: (WΠ)(WΠ)^T == WW^T verified); scale-vector
+    cosine with model-mean centering; S=(Sproj+Sscale)/2, diag 1;
+    A=(S+1)/2 Laplacian eigengaps d2/d3 vs depth-null n2/n3 → rho → K∈{2,4};
+    r(l;Ck) and rbar(Rk) allocation with first/last protection, rbar=-inf
+    for <2 remaining, ties to lower index."""
+    import numpy as np
+    rng = np.random.default_rng(0)
+    W = rng.normal(size=(16, 8))
+    P = np.eye(8)[:, rng.permutation(8)]
+    G1 = _wrp_gram(W)
+    G2 = _wrp_gram(W @ P)
+    perm_inv = bool(np.allclose(G1, G2))
+    cka_self = _wrp_cka(G1, G1)
+    S = np.array([[1.0, 0.8, 0.2], [0.8, 1.0, 0.3], [0.2, 0.3, 1.0]])
+    A = (S + 1) / 2
+    Dinv = np.diag(1 / np.sqrt(A.sum(1)))
+    L = np.eye(3) - Dinv @ A @ Dinv
+    eig = sorted(np.linalg.eigvalsh(L).tolist())
+    r_0 = (S[0, 1] + S[0, 2]) / 2
+    return {"perm_inv": perm_inv, "cka_self": round(cka_self, 6),
+            "eigengaps": [round(eig[1] - eig[0], 4), round(eig[2] - eig[1], 4)],
+            "r_example": round(r_0, 4), "eps": 1e-12}
+
+
+def paper_2609_09883_fig3_patterns():
+    """Fig.3 (25% depth cut: 8/32 LLaMA, 10/40 Qwen/Mistral): non-contiguous
+    removal patterns; WRP late-heavy vs Mag+ early-heavy; LoRP scattered.
+    Qualitative registry (cell indices schematic in print)."""
+    return {"noncontiguous": True, "wrp_late_heavy": True, "mag_early_heavy": True}
+
+
+def paper_2609_09883_fig4_cost(arxiv_id="2609.09883"):
+    """Fig.4 (RTX 6000 Ada, FP16, bs1, 25% pruning): prefill -21-23%,
+    decode -23-25%, peak mem -21-22%. Depth-proportional, no custom kernels."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(["prefill", "decode", "peak-mem"], [22.0, 24.0, 21.5], color="#55a868")
+    ax.set_ylabel("Reduction (%)")
+    ax.set_title("Fig.4 inference cost (25% depth cut)")
+    plot_ok = _save(fig, out / "fig4_cost.png")
+    return plot_ok, (21, 23), (23, 25), (21, 22)

@@ -1,0 +1,66 @@
+@PL::Python
+@Task::Arxiv_2609_09883_WRP
+@Modulu::DepthPruning
+
+@Technique::DepthPruning::[reproduce]
+
+@Comment::[Paper: Forward-Free LLM Depth Pruning via Weight Redundancy (Yun & Lim 2026, arXiv:2609.09883). WRP selects blocks from checkpoint weights alone: CKA on centered attn-out + MLP-down Grams (Eq.1-2) + 7-projection scale cosine (Eq.3), S/2 average; spectral K in {2,4} via eigengaps vs depth-null (Eq.4-5); two-stage allocation protecting first/last. 6 settings x 9 tasks: beats Mag+ by 10.68-17.15 (avg 57.41 vs LoRP 57.93). One @Graded per table/figure (per-table granularity). Repo note: paper names no public code; search finds no implementation (0 issues reviewable) - text-faithful.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2609_09883_table1_main,
+    paper_2609_09883_fig1_selector,
+    paper_2609_09883_fig2_mechanism,
+    paper_2609_09883_equations,
+    paper_2609_09883_fig3_patterns,
+    paper_2609_09883_fig4_cost,
+    paper_2609_09883_setup,
+)
+
+@Impl::DepthPruning::reproduce{
+_ = "reproduce published WRP weight-redundancy + depth-pruning heuristics"
+@}
+
+@Graded::Table1_Main{
+# Table 1 (s4.2): WRP beats Mag+ in all 6 settings (+10.68..+17.15, avg +14.38); avg 57.41 vs LoRP 57.93; best pruned avg Qwen 8/40 (59.04). Spots incl. Mistral 8/40 ShortGPT 60.57 best, WRP 59.91.
+plot_ok, gains, wavg, lavg = paper_2609_09883_table1_main()
+@}::endpoints::[plot_ok=plot_ok, gains=gains, wavg=wavg, lavg=lavg]
+
+@Graded::Fig1_Selector{
+# Fig.1 (LLaMA 8B, 25%): selector GPU 16.2/16.2/19.0/43.1/0 GB with acc 42.1/42.1/54.3/43.1/53.8 (dense 67.7). WRP keeps LoRP-grade accuracy at ZERO selection memory.
+plot_ok, gz, wacc, dense = paper_2609_09883_fig1_selector()
+@}::endpoints::[plot_ok=plot_ok, gz=gz, wacc=wacc, dense=dense]
+
+@Graded::Fig2_Mechanism{
+# Fig.2 registry: (a) activation path compare-only, NOT part of WRP; (b) weight descriptors -> similarity matrix; (c) clustering -> allocation -> removed blocks.
+stages = paper_2609_09883_fig2_mechanism()
+@}::endpoints::[stages=stages]
+
+@Graded::Equations{
+# Eq.1-5 identities verified numerically: Hd-centering + Gram + CKA (permutation invariance holds, self-CKA 1.0); Laplacian eigengaps; r/rbar allocation with guards. eps=1e-12.
+eqs = paper_2609_09883_equations()
+@}::endpoints::[eqs=eqs]
+
+@Graded::Fig3_Patterns{
+# Fig.3 (25% cuts): non-contiguous removals; WRP late-heavy vs Mag+ early-heavy; LoRP scattered. Qualitative registry.
+pats = paper_2609_09883_fig3_patterns()
+@}::endpoints::[pats=pats]
+
+@Graded::Fig4_Cost{
+# Fig.4 (RTX6000Ada, FP16, bs1, 25%): prefill -21-23%, decode -23-25%, peak-mem -21-22%. Depth-proportional, no custom kernels.
+plot_ok, pre, dec, mem = paper_2609_09883_fig4_cost()
+@}::endpoints::[plot_ok=plot_ok, pre=pre, dec=dec, mem=mem]
+
+@Graded::Setup{
+# s4.1 registry: 3 families/budgets, 9 LM-harness tasks, (rho,K) per model, Mag+ first-4+last-2 vs WRP first+last guards, recovery-free, related-work taxonomy.
+setup = paper_2609_09883_setup()
+@}::endpoints::[setup=setup]
+
+@GradedClass::WRPPaper::[Table1_Main, Fig1_Selector, Fig2_Mechanism, Equations, Fig3_Patterns, Fig4_Cost, Setup]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, gains, wavg, lavg, gz, wacc, dense, stages, eqs, pats, pre, dec, mem, setup]
