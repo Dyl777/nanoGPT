@@ -1,0 +1,122 @@
+{
+  "arxiv": "2609.10441",
+  "plot_table1": 1.0,
+  "convmem_hotpot_f1": [
+    67.44,
+    67.86,
+    57.81,
+    63.27,
+    56.14,
+    63.09
+  ],
+  "convmem_wiki_f1": [
+    72.3,
+    71.25,
+    67.21,
+    61.96,
+    61.33,
+    59.06
+  ],
+  "mech_depth_example": 4,
+  "overscan": 77.3,
+  "skip_yes": 77.3,
+  "skip_no": 65.6,
+  "stages": [
+    "decompose",
+    "per-channel-conv",
+    "sub-answer",
+    "aggregate"
+  ],
+  "equations": {
+    "r_levels": [
+      0,
+      1,
+      2
+    ],
+    "logN_depth": 19.9,
+    "rss_exit": true
+  },
+  "plot_fig3": 1.0,
+  "backbones_flat": true,
+  "plot_fig4": 1.0,
+  "best_overscan": 5,
+  "plot_fig5": 1.0,
+  "channel_gain": 9.299999999999997,
+  "kernel_opt": 8000,
+  "cases_12": [
+    [
+      "shirley-temple",
+      "sequential-forgets",
+      "parallel-keeps"
+    ],
+    [
+      "lev-yilmaz-typo",
+      "memagent-Levni",
+      "convmem-Lev"
+    ]
+  ],
+  "cases_appD": [
+    "disconnected-evidence",
+    "retrospective",
+    "parametric-bias",
+    "hallucinating-collaborators"
+  ],
+  "metrics_demo": {
+    "EM": 0,
+    "SubEM": 1,
+    "ACCL_cases": 3,
+    "rule_ok": true
+  },
+  "datasets": [
+    "HotpotQA",
+    "2WikiMultiHopQA",
+    "RULER-HotpotQA",
+    "RULER-2WikiMultiHopQA"
+  ],
+  "ctx_range": [
+    28000,
+    896000
+  ],
+  "bestof2": true,
+  "hyperparams": {
+    "W": 8000,
+    "S": 1600,
+    "overscan": 5,
+    "Cmax_text": 5,
+    "Cmax_table": 10,
+    "temp": 0.7,
+    "topp": 0.95,
+    "skip": true
+  },
+  "conv_f1_28k": {
+    "hotpot": 67.44,
+    "wiki": 72.3
+  },
+  "memalpha_em_zero": true,
+  "base_collapse": 45.12,
+  "templates": [
+    "decompose",
+    "skip",
+    "summarize",
+    "hidden-agg",
+    "sub-answer",
+    "final",
+    "judge"
+  ],
+  "setup": {
+    "paradigms": 3,
+    "backbones": [
+      "7B",
+      "32B",
+      "72B"
+    ],
+    "main_metrics": [
+      "F1",
+      "Sub-EM"
+    ],
+    "W": 8000,
+    "S": 1600,
+    "limits": 2
+  },
+  "repo_status": "no-public-code-found"
+}

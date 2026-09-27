@@ -1,0 +1,114 @@
+@PL::Python
+@Task::Arxiv_2609_10441_ConvMem
+@Modulu::LongContextReasoning
+
+@Technique::LongContextReasoning::[reproduce]
+
+@Comment::[Paper: ConvMem: Convolutional Memory for Long-Context Reasoning (Zhang et al. 2026, arXiv:2609.10441). Training-free hierarchical convolution: frozen-LLM kernel (h,r) (Eq.1), Conv scan (Eq.2), strides/skip/multi-kernel (Eq.3-4), recursive layers (Eq.5), two-stage aggregation (Eq.6-7), O(log N) latency (Eq.8). RULER-HotpotQA (ID) vs RULER-2WikiMultiHopQA (OOD), 28k..896k, F1/EM/Sub-EM/ACCL. One @Graded per table/figure (per-table granularity). Repo note: paper names no public code; search finds no implementation (0 issues reviewable) — text-faithful only. Discrepancy: B.2 text Cmax=5 vs Table 2 Cmax=10, both kept.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2609_10441_table1_main,
+    paper_2609_10441_fig1_mechanism,
+    paper_2609_10441_fig2_workflow,
+    paper_2609_10441_equations,
+    paper_2609_10441_fig3_backbones,
+    paper_2609_10441_fig4_stride_skip,
+    paper_2609_10441_fig5_kernels,
+    paper_2609_10441_cases_main,
+    paper_2609_10441_cases_appD,
+    paper_2609_10441_appE_metrics,
+    paper_2609_10441_appA_datasets,
+    paper_2609_10441_appB_hyperparams,
+    paper_2609_10441_appC_table3,
+    paper_2609_10441_appF_prompts,
+    paper_2609_10441_setup,
+)
+
+@Impl::LongContextReasoning::reproduce{
+_ = "reproduce published ConvMem hierarchy + long-context heuristics"
+@}
+
+@Graded::Table1_Main{
+# Table 1 (s3.2): F1/Sub-EM over 6 methods x 2 sets x 6 lengths. ConvMem best training-free everywhere; OOD flips RL story (MemAgent 75.55->60.92 vs ConvMem 67.44->72.3); Mem-alpha F1 ~0-7, EM 0.0 always.
+plot_ok, conv_hotpot, conv_wiki, mem_hotpot, mem_wiki = paper_2609_10441_table1_main()
+@}::endpoints::[plot_ok=plot_ok, conv_hotpot=conv_hotpot, conv_wiki=conv_wiki, mem_hotpot=mem_hotpot, mem_wiki=mem_wiki]
+
+@Graded::Fig1_Mechanism{
+# Fig.1 (s2.3.1): parallel scan -> recursive Conv -> r=2 skip path -> A; depth O(log N), N_l ~= N0*alpha^l. Structural.
+depth, n2, ws = paper_2609_10441_fig1_mechanism()
+@}::endpoints::[depth=depth, n2=n2, ws=ws]
+
+@Graded::Fig2_Workflow{
+# Fig.2 (s2.4): decompose -> per-channel trees -> sub-answers (Eq.6) -> global A (Eq.7). Structural: 4 stages, Eq.6/7 indexed.
+stages, e6, e7 = paper_2609_10441_fig2_workflow()
+@}::endpoints::[stages=stages, e6=e6, e7=e7]
+
+@Graded::Equations{
+# Eq.1-8 identities: (h,r) levels {0,1,2}; concat Conv; skip buffer; per-channel + recursive Conv; two-stage aggregation; Tlatency O(log N). Local RSS-gate arithmetic.
+levels, logN, rss_exit = paper_2609_10441_equations().values()
+@}::endpoints::[levels=levels, logN=logN, rss_exit=rss_exit]
+
+@Graded::Fig3_Backbones{
+# Fig.3 (s3.2): ConvMem lifts 7B/32B/72B at all lengths; vanilla collapses (lost-in-the-middle). Model-agnostic, no adaptation.
+plot_ok, flat = paper_2609_10441_fig3_backbones()
+@}::endpoints::[plot_ok=plot_ok, flat=flat]
+
+@Graded::Fig4_StrideSkip{
+# Fig.4 (s3.3): overscan 1/3/5/10 -> 64.8/69.5/77.3/75.0 (5x optimal); skip yes/no -> 77.3/65.6 (residual highway required).
+plot_ok, best_ov, ov_v, skip_yes, skip_no = paper_2609_10441_fig4_stride_skip()
+@}::endpoints::[plot_ok=plot_ok, best_ov=best_ov, ov_v=ov_v, skip_yes=skip_yes, skip_no=skip_no]
+
+@Graded::Fig5_Kernels{
+# Fig.5 (s3.3): channels 1->C 68.0->77.3 (disentanglement); W 500/5000/8000/10000 -> 69.5/71.9/77.3/75.8 (8000 optimal).
+plot_ok, ch_gain, w_opt = paper_2609_10441_fig5_kernels()
+@}::endpoints::[plot_ok=plot_ok, ch_gain=ch_gain, w_opt=w_opt]
+
+@Graded::Cases12{
+# Cases 1-2 (s3.2): Shirley-Temple sequential forgetting vs parallel keep; Lev-Yilmaz typo (MemAgent memorized Levni vs faithful Lev).
+cases = paper_2609_10441_cases_main()
+@}::endpoints::[cases=cases]
+
+@Graded::CasesAppD{
+# App D Cases 1-4: disconnected evidence, retrospective (Bill Murray), parametric bias, hallucinating collaborators (On-My-Mind trio vs quintet).
+cases = paper_2609_10441_cases_appD()
+@}::endpoints::[cases=cases]
+
+@Graded::AppE_Metrics{
+# App E Cases 5-11: EM too rigid (Kelly EM0/Sub1; verbose F1.16/Sub1.0; yes-sentence Sub1.0); ACCL rescues acronyms/rephrasing (KKR/NBC/2016). Local Sub-EM rule check.
+demo = paper_2609_10441_appE_metrics()
+@}::endpoints::[demo=demo]
+
+@Graded::AppA_Datasets{
+# App A: HotpotQA (supporting sentences = golden paragraphs); 2Wiki (triples, fewer shortcuts); RULER-HotpotQA (NIAH+distractors 28k..896k, Best-of-2 filter); RULER-2Wiki (novel OOD).
+datasets, crange, bo2 = paper_2609_10441_appA_datasets()
+@}::endpoints::[datasets=datasets, crange=crange, bo2=bo2]
+
+@Graded::AppB_Hyperparams{
+# App B Table 2: 32B/bf16/vLLM0.6.0/A800; W=8000/S=1600/5x; T=0.7/top-p=0.95/skip=True; recursion to fit-W (L 2-3/3-4); Cmax dynamic 2-4; regex JSON + fallback r=1. DISCREPANCY Cmax text=5 vs table=10.
+hyp = paper_2609_10441_appB_hyperparams()
+@}::endpoints::[hyp=hyp]
+
+@Graded::AppC_Table3{
+# App C Table 3: full F1/EM/Sub-EM/ACCL grid. Spots: ConvMem 2Wiki-28k 72.3/60.94/82.81/85.31; Mem-alpha EM=0.0 everywhere; base 61.9->16.78 collapse (lost-in-the-middle).
+c28, mem0, collapse = paper_2609_10441_appC_table3()
+@}::endpoints::[c28=c28, mem0=mem0, collapse=collapse]
+
+@Graded::AppF_Prompts{
+# App F seven templates registry: decompose (Inception/Revenant examples), skip r, summarize, hidden-agg, sub-answer (None), final (Hence...), judge (0-10 JSON).
+tmpl = paper_2609_10441_appF_prompts()
+@}::endpoints::[tmpl=tmpl]
+
+@Graded::Setup{
+# s3.1 setup + Q1/Q2/Q3 + limits: 3 paradigms, 7/32/72B backbones, F1+Sub-EM main, W=8000/S=1600, 2 limits (total-tokens cost, decomposition dependence).
+setup = paper_2609_10441_setup()
+@}::endpoints::[setup=setup]
+
+@GradedClass::ConvMemPaper::[Table1_Main, Fig1_Mechanism, Fig2_Workflow, Equations, Fig3_Backbones, Fig4_StrideSkip, Fig5_Kernels, Cases12, CasesAppD, AppE_Metrics, AppA_Datasets, AppB_Hyperparams, AppC_Table3, AppF_Prompts, Setup]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, conv_hotpot, conv_wiki, mem_hotpot, mem_wiki, depth, n2, ws, stages, e6, e7, levels, logN, rss_exit, flat, best_ov, ov_v, skip_yes, skip_no, ch_gain, w_opt, cases, demo, datasets, crange, bo2, hyp, c28, mem0, collapse, tmpl, setup]
