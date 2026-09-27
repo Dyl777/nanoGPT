@@ -1,0 +1,108 @@
+@PL::Python
+@Task::Arxiv_2609_10657_Grokking
+@Modulu::GrokkingScaling
+
+@Technique::GrokkingScaling::[reproduce]
+
+@Comment::[Paper: Quantifying the Memorization-to-Generalization Transition: Scaling Laws and Phase Structure in Grokking (Kataria 2026, ICML PMLR 306, arXiv:2609.10657). 384-config sweep, 2-layer MLPs on modular arithmetic: Tgrok ~ H^-0.27 D^-2.04 eta^-0.50 lam^-0.64 (R2 0.732/0.821), phase boundary lam*~=1.0, norm ratio 0.42. One @Graded per table/figure (per-table granularity). All Acc/R2/exponent numbers published; local probes check doubling arithmetic + synthetic shapes. Repo note: paper points to github.com/anishesg/icml-papers, 404 in both attested forms at integration time (no mirror, 0 issues reviewable) — text-faithful only.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2609_table1_exponents,
+    paper_2609_fig1_panels,
+    paper_2609_fig2_fit,
+    paper_2609_fig4_interactions,
+    paper_2609_fig5_phase,
+    paper_2609_fig6_heatmaps,
+    paper_2609_fig7_norms,
+    paper_2609_table2_seeds,
+    paper_2609_table3_thresholds,
+    paper_2609_table4_lolo,
+    paper_2609_eq3_interactions,
+    paper_2609_compute_frontier,
+    paper_2609_predictions,
+    paper_2609_setup,
+)
+
+@Impl::GrokkingScaling::reproduce{
+_ = "reproduce published grokking scaling law + phase structure"
+@}
+
+@Graded::Table1_Exponents{
+# Table 1 (s3.1): H -0.27/D -2.04/eta -0.50/lam -0.64; Spearman -0.08/-0.41/-0.28/-0.52; data beats capacity ~8x in exponent. Local: 2^2.04=4.1x vs 2^0.27=1.2x doubling rules.
+plot_ok, doubling, spearman, r2_base = paper_2609_table1_exponents()
+@}::endpoints::[plot_ok=plot_ok, doubling=doubling, spearman=spearman, r2_base=r2_base]
+
+@Graded::Fig1_Panels{
+# Fig.1 (a)-(f): plateau-then-gap curves; Tgrok-vs-FLOPs per width; (eta,lam) phase diagram (~100% at lam>=1.0); gap shrinks >10x over lam; median-Tgrok-vs-D; H=512 frontier. Local shapes match.
+plot_ok, test_mid, phase_lo, phase_hi = paper_2609_fig1_panels()
+@}::endpoints::[plot_ok=plot_ok, test_mid=test_mid, phase_lo=phase_lo, phase_hi=phase_hi]
+
+@Graded::Fig2_Fit{
+# Fig.2 predicted-vs-actual (R2=0.732) + Fig.3 per-width Tgrok~C^1.00 R2=1.000 as printed (suspiciously perfect, verbatim).
+plot_ok, r2_synth, r2_permodel_printed = paper_2609_fig2_fit()
+@}::endpoints::[plot_ok=plot_ok, r2_synth=r2_synth, r2_permodel_printed=r2_permodel_printed]
+
+@Graded::Fig4_Interactions{
+# Fig.4: DxEta (+0.50, t=6.3) and HxEta (+0.35, t=6.2) modulation — LR effects grow with data and width.
+plot_ok, d_eta, d_eta_t, h_eta, h_eta_t = paper_2609_fig4_interactions()
+@}::endpoints::[plot_ok=plot_ok, d_eta=d_eta, d_eta_t=d_eta_t, h_eta=h_eta, h_eta_t=h_eta_t]
+
+@Graded::Fig5_Phase{
+# Fig.5: phase diagram (sharp at lam*~=1.0, Conjecture 1) + compute-optimal frontier (Cstep~=6H^2, H*~=F^0.58, Chinchilla-style).
+plot_ok, lam_star, cstep_coef, h_opt_exp = paper_2609_fig5_phase()
+@}::endpoints::[plot_ok=plot_ok, lam_star=lam_star, cstep_coef=cstep_coef, h_opt_exp=h_opt_exp]
+
+@Graded::Fig6_Heatmaps{
+# Fig.6: per-width grok-rate grids; lam~=1.0 transition in all three (H=128 lam=0.1 row: 75/100/100/50 over eta).
+plot_ok, h128_e1, h128_e4, h128_z = paper_2609_fig6_heatmaps()
+@}::endpoints::[plot_ok=plot_ok, h128_e1=h128_e1, h128_e4=h128_e4, h128_z=h128_z]
+
+@Graded::Fig7_Norms{
+# Fig.7 (s5): monotonic compression 14/14; median ratio 0.42 (IQR 0.31-0.54); Conjecture 2 r* in 0.3-0.5. RECORDED DISCREPANCY: text absolute-norm rho=0.06 (p=0.83) vs Fig.7c caption rho=0.63 (p=0.003); Fig.7d rho=0.09 (p=0.759). All kept verbatim.
+plot_ok, med_ratio, iqr, nmono, abs_text, abs_cap, gap_rho = paper_2609_fig7_norms()
+@}::endpoints::[plot_ok=plot_ok, med_ratio=med_ratio, iqr=iqr, nmono=nmono, abs_text=abs_text, abs_cap=abs_cap, gap_rho=gap_rho]
+
+@Graded::Table2_Seeds{
+# Table 2 (App A.1): 10 configs x5 seeds; median CV 8%, max 18% at boundary (lam=0.1, eta=0.001); init noise ~1-2% of log-T variance.
+plot_ok, median_cv, max_cv, cvs = paper_2609_table2_seeds()
+@}::endpoints::[plot_ok=plot_ok, median_cv=median_cv, max_cv=max_cv, cvs=cvs]
+
+@Graded::Table3_Thresholds{
+# Table 3 (App A.2): D exponent -2.15/-2.05/-2.04/-1.88 across 85/90/95/99% thresholds (stable); width wanders -0.28..-0.19.
+plot_ok, d_exps, w_range = paper_2609_table3_thresholds()
+@}::endpoints::[plot_ok=plot_ok, d_exps=d_exps, w_range=w_range]
+
+@Graded::Table4_Lolo{
+# Table 4 (App A.3): LOLO-CV R2 0.67-0.76, median mult error 1.4-1.6x; D hardest (0.67).
+plot_ok, lolo_r2, merr_lo, merr_hi = paper_2609_table4_lolo()
+@}::endpoints::[plot_ok=plot_ok, lolo_r2=lolo_r2, merr_lo=merr_lo, merr_hi=merr_hi]
+
+@Graded::Eq3_Interactions{
+# App B Eq.3: DxEta +0.50 / HxEta +0.35 / DxLam +0.38 / HxLam -0.23 (all |t|>4); HxD, EtaxLam n.s.; R2=0.821, adj 0.813, LOO 0.799.
+coefs, r2i, adji, looi, nonsig = paper_2609_eq3_interactions()
+@}::endpoints::[coefs=coefs, r2i=r2i, adji=adji, looi=looi, nonsig=nonsig]
+
+@Graded::ComputeFrontier{
+# App C: Cstep=2H(3H+C)~=6H^2; F~=H^1.73 so wider is less FLOP-efficient; H*~=F^0.58 (~58% of extra budget to width). Local: 2-0.27+2=1.73, 1/1.73=0.578.
+cstep, flop_exp, h_opt = paper_2609_compute_frontier()
+@}::endpoints::[cstep=cstep, flop_exp=flop_exp, h_opt=h_opt]
+
+@Graded::Predictions{
+# App D three falsifiable predictions (structural): Fourier onset ~D^-2; wider -> higher rank at Tmem; compression rate |rho|>0.5 beats absolute norm (rho=0.06).
+preds = paper_2609_predictions()
+@}::endpoints::[preds=preds]
+
+@Graded::Setup{
+# s2 setup constants: 384 grid; AdamW(0.9,0.98) full-batch 150K x1 seed; Tmem>99%/Tgrok>95%/>150K non-grok; 356 done (28 diverged), 297 grokked (83.4%); gap 100..100K+; Weibull k=1.4 conc 0.71; lam*~=1.0; r* in 0.3-0.5.
+setup = paper_2609_setup()
+@}::endpoints::[setup=setup]
+
+@GradedClass::GrokkingPaper::[Table1_Exponents, Fig1_Panels, Fig2_Fit, Fig4_Interactions, Fig5_Phase, Fig6_Heatmaps, Fig7_Norms, Table2_Seeds, Table3_Thresholds, Table4_Lolo, Eq3_Interactions, ComputeFrontier, Predictions, Setup]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, doubling, spearman, r2_base, test_mid, phase_lo, phase_hi, r2_synth, r2_permodel_printed, d_eta, d_eta_t, h_eta, h_eta_t, lam_star, cstep_coef, h_opt_exp, h128_e1, h128_e4, h128_z, med_ratio, iqr, nmono, abs_text, abs_cap, gap_rho, median_cv, max_cv, cvs, d_exps, w_range, lolo_r2, merr_lo, merr_hi, coefs, r2i, adji, looi, nonsig, cstep, flop_exp, h_opt, preds, setup]

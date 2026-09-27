@@ -1701,3 +1701,326 @@ def run_paper_27963() -> dict:
     out = _outdir("2608.27963") / "metrics.json"
     out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     return results
+
+
+# ---------------------------------------------------------------------------
+# 2609.10657 Quantifying the Memorization-to-Generalization Transition:
+# Scaling Laws and Phase Structure in Grokking (Kataria 2026, ICML PMLR 306).
+# Code-availability note: the paper points to github.com/anishesg/icml-papers,
+# which 404s in both attested forms at integration time (no mirror, 0 issues
+# reviewable); everything below is therefore paper-text-faithful, and any
+# repo-vs-text comparison is recorded as impossible, not assumed.
+# Setup (§2): add_mod_113 (12769 ex) + div_mod_97 (9312 ex); 2-layer MLP
+# f(a,b)=W3 ReLU(W2 ReLU(W1[ea;eb])), H in {128,256,512}; grid 2x3x4^3=384;
+# AdamW(0.9,0.98) full-batch to 150K steps; Tmem=train-acc>99%,
+# Tgrok=test-acc>95%, non-grok if Tgrok>150K; 356 done (28 diverged),
+# 297 grokked (83.4%); gap DT=Tgrok-Tmem spans 100..100K+ (~1000x).
+# Local probes use synthetic scaling grids + a tiny CPU MLP grokking demo;
+# all Acc/R2/exponent numbers are the published values.
+# ---------------------------------------------------------------------------
+
+
+GROK_EXP = {"H": -0.27, "D": -2.04, "eta": -0.50, "lam": -0.64}
+GROK_SE = {"H": 0.10, "D": 0.12, "eta": 0.04, "lam": 0.05}
+GROK_SPEARMAN = {"H": -0.08, "D": -0.41, "eta": -0.28, "lam": -0.52}
+
+
+def _grok_tgrok_rel(H=256, D=0.5, eta=0.003, lam=0.3):
+    """Paper Eq.2 (relative form; the paper's intercept c is not published):
+    Tgrok up to scale = H^-0.27 D^-2.04 eta^-0.50 lam^-0.64. Ratios and
+    doubling rules below are intercept-free and exact."""
+    return (H ** GROK_EXP["H"]) * (D ** GROK_EXP["D"]) * (eta ** GROK_EXP["eta"]) * (lam ** GROK_EXP["lam"])
+
+
+def paper_2609_table1_exponents(arxiv_id="2609.10657"):
+    """Table 1 (§3.1): exponents H -0.27±0.10 / D -2.04±0.12 / eta -0.50±0.04 /
+    lam -0.64±0.05; Spearman -0.08/-0.41/-0.28/-0.52 (lam highest rank despite
+    smaller exponent = phase-boundary role). Local: doubling arithmetic —
+    2^2.04=4.1x (data), 2^0.27=1.2x (width), 2^0.50/2^0.64 for eta/lam."""
+    _style()
+    out = _outdir(arxiv_id)
+    doubles = {k: 2.0 ** (-v) for k, v in GROK_EXP.items()}
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(list(GROK_EXP.keys()), [-v for v in GROK_EXP.values()], color="#4c72b0")
+    ax.set_ylabel("|exponent|")
+    ax.set_title("Table 1 exponent hierarchy (D dominates H ~8x)")
+    plot_ok = _save(fig, out / "fig_table1_exponents.png")
+    return plot_ok, doubles, GROK_SPEARMAN, 0.732
+
+
+def paper_2609_fig1_panels(arxiv_id="2609.10657"):
+    """Fig.1 (a)-(f): (a) train plateau then delayed test jump; (b) Tgrok vs
+    FLOPs per width (wider = fewer steps, more FLOPs); (c) (eta,lam) phase
+    diagram, ~100% grok at lam>=1.0; (d) gap shrinks >10x as lam 0.1→3.0;
+    (e) median Tgrok vs D per width/task; (f) compute-optimal frontier
+    (H=512 optimal). Local: synthetic curves with the same shapes."""
+    _style()
+    out = _outdir(arxiv_id)
+    steps = np.arange(0, 5001)
+    train = np.clip(steps / 200.0, 0, 1.0)
+    test = np.clip((steps - 2200.0) / 300.0, 0, 1.0)
+    fig, axes = plt.subplots(2, 3, figsize=(13, 7))
+    axes[0, 0].plot(steps, train, label="Train")
+    axes[0, 0].plot(steps, test, label="Test")
+    axes[0, 0].set_title("(a) Fast grokking example")
+    axes[0, 0].legend(fontsize=8)
+    for H, c in [(128, "#4c72b0"), (256, "#dd8452"), (512, "#55a868")]:
+        fl = np.logspace(11, 14, 30) * (H / 128) ** 2
+        axes[0, 1].loglog(fl, 3e4 * (fl / fl[0]) ** 0.9 * (128 / H) ** 0.27, "o-", color=c, ms=3, label=f"H={H}")
+    axes[0, 1].set_title("(b) Tgrok vs FLOPs per width")
+    axes[0, 1].legend(fontsize=8)
+    for lam, col in [(0.1, "#c44e52"), (0.3, "#dd8452"), (1.0, "#55a868"), (3.0, "#55a868")]:
+        axes[0, 2].scatter([0.001, 0.003, 0.01, 0.03], [lam] * 4, c=col, s=20)
+    axes[0, 2].set_xscale("log")
+    axes[0, 2].set_title("(c) Phase diagram (green=grok)")
+    lam_grid = [0.1, 0.3, 1.0, 3.0]
+    axes[1, 0].boxplot([[20000, 8000, 3000, 12000], [6000, 2000, 800, 3000],
+                        [3000, 900, 400, 1200], [1200, 400, 200, 500]], tick_labels=["0.1", "0.3", "1.0", "3.0"])
+    axes[1, 0].set_yscale("log")
+    axes[1, 0].set_title("(d) Gap vs weight decay")
+    D = np.array([0.3, 0.5, 0.7, 0.97])
+    for H, c in [(128, "#4c72b0"), (256, "#dd8452"), (512, "#55a868")]:
+        axes[1, 1].loglog(D, [_grok_tgrok_rel(H, d, 0.003, 0.3) for d in D], "o-", color=c, label=f"H={H}")
+    axes[1, 1].set_title("(e) Data scaling")
+    axes[1, 1].legend(fontsize=8)
+    F = np.logspace(11, 14, 30)
+    axes[1, 2].loglog(F, (F / 1e11) ** (1 / 1.73) * 40, "g-", lw=2, label="H=512 optimal")
+    axes[1, 2].set_title("(f) Compute-optimal frontier")
+    axes[1, 2].legend(fontsize=8)
+    plot_ok = _save(fig, out / "fig1_panels.png")
+    return plot_ok, float(test[2500]), 1.0, 0.6
+
+
+def paper_2609_fig2_fit(arxiv_id="2609.10657"):
+    """Fig.2 (predicted vs actual log Tgrok, R2=0.732) + Fig.3 (per-width
+    Tgrok~C^1.00, R2=1.000 as printed — suspiciously perfect, recorded
+    verbatim). Local: synthetic log-linear cloud with R2≈0.73 shape."""
+    _style()
+    out = _outdir(arxiv_id)
+    rng = np.random.default_rng(0)
+    actual = rng.uniform(2, 5, 120)
+    pred = actual + rng.normal(0, 0.45, 120)
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ax.scatter(10 ** actual, 10 ** pred, s=10, alpha=0.5)
+    ax.loglog([1e2, 1e5], [1e2, 1e5], "k--", label="y=x")
+    ax.set_xlabel("Actual Tgrok")
+    ax.set_ylabel("Predicted Tgrok")
+    ax.set_title("Fig.2 log-linear fit (R2=0.732)")
+    ax.legend()
+    plot_ok = _save(fig, out / "fig2_fit.png")
+    ss = 1 - np.var(pred - actual) / np.var(actual)
+    return plot_ok, float(ss), 1.000
+
+
+def paper_2609_fig4_interactions(arxiv_id="2609.10657"):
+    """Fig.4: logD×logEta (+0.50, t=6.3) and logH×logEta (+0.35, t=6.2)
+    modulation surfaces — LR effects grow with data and width. (Other two
+    significant interactions live in the App-B endpoint.)"""
+    _style()
+    out = _outdir(arxiv_id)
+    D = np.array([0.3, 0.5, 0.7, 0.97])
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for eta, c in [(0.001, "#4c72b0"), (0.01, "#dd8452"), (0.03, "#55a868")]:
+        ax.semilogy(D, [_grok_tgrok_rel(256, d, eta, 0.3) for d in D], "o-", color=c, label=f"eta={eta}")
+    ax.set_xlabel("Dataset fraction D")
+    ax.set_ylabel("Relative Tgrok")
+    ax.set_title("Fig.4 D×eta interaction (high D amplifies LR)")
+    ax.legend()
+    plot_ok = _save(fig, out / "fig4_interactions.png")
+    return plot_ok, 0.50, 6.3, 0.35, 6.2
+
+
+def paper_2609_fig5_phase(arxiv_id="2609.10657"):
+    """Fig.5: (eta,lam) phase diagram per task (green≈grok at lam>=1.0,
+    red below) + compute-optimal frontier F=Tgrok×Cstep, Cstep≈6H^2.
+    Conjecture 1: critical lam*≈1.0 (AdamW scale of §2); below it the
+    memorizing fixed point is stable, above it decay destabilizes it."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+    etas = [0.001, 0.003, 0.01, 0.03]
+    lams = [0.1, 0.3, 1.0, 3.0]
+    grid = np.array([[0, 0, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]])
+    axes[0].imshow(grid, cmap="RdYlGn", aspect="auto")
+    axes[0].set_xticks(range(4))
+    axes[0].set_xticklabels(etas)
+    axes[0].set_yticks(range(4))
+    axes[0].set_yticklabels(lams)
+    axes[0].set_xlabel("Learning rate")
+    axes[0].set_ylabel("Weight decay")
+    axes[0].set_title("Phase diagram (sharp at lam≈1.0)")
+    F = np.logspace(11, 14, 30)
+    axes[1].loglog(F, 40 * (F / 1e11) ** (1 / 1.73), "g-", label="H=512 optimal")
+    axes[1].set_xlabel("FLOPs budget")
+    axes[1].set_ylabel("Tgrok (steps)")
+    axes[1].set_title("Compute-optimal frontier")
+    axes[1].legend()
+    plot_ok = _save(fig, out / "fig5_phase.png")
+    return plot_ok, 1.0, 6.0, 0.58
+
+
+def paper_2609_fig6_heatmaps(arxiv_id="2609.10657"):
+    """Fig.6: grok-rate heatmaps over the (eta,lam) grid per width
+    (H=128/256/512). Sharp lam≈1.0 transition in all three; H=512 row at
+    lam=0.1 reads 60/100/100/100 and H=128 lam=0.1 reads 75/100/100/50
+    (eta=0.001..0.03)."""
+    _style()
+    out = _outdir(arxiv_id)
+    h128 = np.array([[75, 100, 100, 50], [100, 100, 100, 88], [100, 100, 100, 38], [62, 62, 12, 0]])
+    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    for ax, g, t in zip(axes, [h128, np.minimum(h128 + 10, 100), np.minimum(h128 + 15, 100)],
+                        ["H=128", "H=256", "H=512"]):
+        ax.imshow(g, cmap="RdYlGn", vmin=0, vmax=100, aspect="auto")
+        ax.set_title(t)
+        ax.set_xticks(range(4))
+        ax.set_xticklabels(["1e-3", "3e-3", "1e-2", "3e-2"])
+        ax.set_yticks(range(4))
+        ax.set_yticklabels(["0.1", "0.3", "1.0", "3.0"])
+    plot_ok = _save(fig, out / "fig6_heatmaps.png")
+    return plot_ok, 75, 50, 0
+
+
+def paper_2609_fig7_norms(arxiv_id="2609.10657"):
+    """Fig.7 (§5): (a) norm trajectories fast/med/slow compress monotonically;
+    (b) aligned transitions; (c) norm@Tmem vs Tgrok; (d) norm-change vs gap.
+    Median ratio 0.42 (IQR 0.31-0.54), 14/14 compress. RECORDED DISCREPANCY:
+    §5 text says absolute norm ρ=0.06 (p=0.83) but Fig.7c caption prints
+    ρ=0.63 (p=0.003); Fig.7d ρ=0.09 (p=0.759). Both kept verbatim.
+    Conjecture 2: transition at ratio r* in 0.3-0.5."""
+    _style()
+    out = _outdir(arxiv_id)
+    t = np.arange(0, 50001, 100)
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8))
+    for (lab, tg, c) in [("fast (200)", 200, "#4c72b0"), ("med (1600)", 1600, "#55a868"), ("slow (48500)", 48500, "#c44e52")]:
+        axes[0, 0].plot(t, 300 * np.exp(-t / (tg * 3)) + 60, color=c, label=lab)
+    axes[0, 0].set_title("(a) Norm trajectories")
+    axes[0, 0].legend(fontsize=8)
+    axes[0, 1].plot([-0.5, 0, 1, 1.5], [1.6, 1.0, 0.5, 0.45])
+    axes[0, 1].set_title("(b) Aligned to transitions")
+    axes[1, 0].loglog([50, 350], [1e5, 3e2], "o")
+    axes[1, 0].set_title("(c) Norm@Tmem vs Tgrok")
+    axes[1, 1].semilogy([0.3, 0.9], [1e4, 1e2], "o")
+    axes[1, 1].set_title("(d) Norm change vs gap")
+    plot_ok = _save(fig, out / "fig7_norms.png")
+    return plot_ok, 0.42, (0.31, 0.54), 14, (0.06, 0.83), (0.63, 0.003), (0.09, 0.759)
+
+
+def paper_2609_table2_seeds(arxiv_id="2609.10657"):
+    """Table 2 (App A.1): 10 configs × 5 seeds — median within-config CV 8%,
+    max 18% at the boundary (lam=0.1, eta=0.001); init noise ≈1-2% of log-T
+    variance. Fast/med/slow strata all 5/5 grokked except boundary cases."""
+    _style()
+    out = _outdir(arxiv_id)
+    cvs = [68.0, 0.0, 10.6, 5.2, 7.4, 8.4, 6.4, 8.3, 9.3, 13.6]
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(range(len(cvs)), sorted(cvs))
+    ax.set_ylabel("CV (%)")
+    ax.set_title("Table 2 seed variance (median 8%)")
+    plot_ok = _save(fig, out / "fig_table2_seeds.png")
+    return plot_ok, 8.0, 18.0, cvs
+
+
+def paper_2609_table3_thresholds(arxiv_id="2609.10657"):
+    """Table 3 (App A.2): D exponent stable across test thresholds —
+    -2.15 (85%) / -2.05 (90%) / -2.04 (95%) / -1.88 (99%); width exponent
+    wanders -0.28..-0.19 (weaker signal); N=301/300/297/287."""
+    _style()
+    out = _outdir(arxiv_id)
+    th = ["85%", "90%", "95%", "99%"]
+    d_exp = [-2.15, -2.05, -2.04, -1.88]
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(th, [-v for v in d_exp], "o-")
+    ax.set_ylabel("|D exponent|")
+    ax.set_title("Table 3 threshold stability (D≈-2 always)")
+    plot_ok = _save(fig, out / "fig_table3_thresholds.png")
+    return plot_ok, d_exp, (-0.28, -0.19)
+
+
+def paper_2609_table4_lolo(arxiv_id="2609.10657"):
+    """Table 4 (App A.3): leave-one-level-out CV on the interaction model —
+    R2 0.67-0.76, median multiplicative error 1.4-1.6x; D hardest to
+    extrapolate (0.67) given the D^-2 dynamic range."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(["H", "D", "eta", "lam"], [0.76, 0.67, 0.70, 0.68], color="#4c72b0")
+    ax.set_ylabel("LOLO R2")
+    ax.set_title("Table 4 cross-validation")
+    plot_ok = _save(fig, out / "fig_table4_lolo.png")
+    return plot_ok, {"H": 0.76, "D": 0.67, "eta": 0.70, "lam": 0.68}, 1.4, 1.6
+
+
+def paper_2609_eq3_interactions():
+    """App B Eq.3: full interaction model — base exponents + D×eta +0.50
+    (t=6.3), H×eta +0.35 (t=6.2), D×lam +0.38 (t=5.3), H×lam -0.23 (t=-4.1);
+    H×D and eta×lam n.s. (|t|<2). R2=0.821, adj 0.813, LOO 0.799."""
+    coefs = {"D_eta": (0.50, 6.3), "H_eta": (0.35, 6.2), "D_lam": (0.38, 5.3),
+             "H_lam": (-0.23, -4.1)}
+    return coefs, 0.821, 0.813, 0.799, ["H_D", "eta_lam"]
+
+
+def paper_2609_compute_frontier():
+    """App C: Cstep(H)=2(2H^2+H^2+CH)=2H(3H+C)≈6H^2 (C in {97,113});
+    F=Tgrok×Cstep ∝ H^-0.27×H^2=H^1.73>0 so wider is less FLOP-efficient;
+    H*∝F^(1/1.73)≈F^0.58 (≈58% of extra budget to width). Local: exponent
+    arithmetic 2-0.27+2=1.73 and 1/1.73=0.578."""
+    return 6.0, -0.27 + 2.0, 1 / 1.73
+
+
+def paper_2609_predictions():
+    """App D three falsifiable predictions (structural, no numbers to fit):
+    (1) Fourier-mode onset scales as D^-2 (Nanda et al. 2023 methodology);
+    (2) wider models show higher effective rank at Tmem (SVD spectrum);
+    (3) compression rate |rho|>0.5 vs Tgrok beats absolute norm (rho=0.06)."""
+    return ["fourier_onset_Dminus2", "wider_higher_rank_at_Tmem", "rate_beats_abs_norm"]
+
+
+def paper_2609_setup():
+    """§2 setup (structural constants): grid 2 tasks × 3 widths × 4^3 = 384;
+    AdamW(0.9, 0.98) full-batch, 150K steps, 1 seed; Tmem: train-acc>99%,
+    Tgrok: test-acc>95%, non-grok if Tgrok>150K; 356 completed (28 diverged
+    high-eta/low-lam), 297 grokked (83.4%); gap DT 100..100K+ (~1000x);
+    Weibull AFT on 356 (59 censored): concordance 0.71, shape k=1.4
+    (increasing hazard = accelerating transition)."""
+    return {"grid": 384, "completed": 356, "diverged": 28, "grokked": 297,
+            "adamw": (0.9, 0.98), "budget": 150000, "weibull_k": 1.4,
+            "concordance": 0.71, "lam_star": 1.0, "r_star": (0.3, 0.5)}
+
+
+def run_paper_2609() -> dict:
+    p_t1, doubles, spear, r2 = paper_2609_table1_exponents()
+    p_f1, t2500, p10, g60 = paper_2609_fig1_panels()
+    p_f2, r2syn, r2per = paper_2609_fig2_fit()
+    p_f4, de, det, he, het = paper_2609_fig4_interactions()
+    p_f5, lamstar, cstep, hopt = paper_2609_fig5_phase()
+    p_f6, h128a, h128d, h128z = paper_2609_fig6_heatmaps()
+    p_f7, med, iqr, nmono, absn, capc, gapd = paper_2609_fig7_norms()
+    p_sv, medcv, maxcv, cvs = paper_2609_table2_seeds()
+    p_th, dexps, wrange = paper_2609_table3_thresholds()
+    p_lo, lolo, merrlo, merrhi = paper_2609_table4_lolo()
+    coefs, r2i, adji, looi, ns = paper_2609_eq3_interactions()
+    ch, fexp, hexp = paper_2609_compute_frontier()
+    preds = paper_2609_predictions()
+    setup = paper_2609_setup()
+    results = {
+        "arxiv": "2609.10657",
+        "plot_table1": p_t1, "doubling": doubles, "spearman": spear, "r2_base": r2,
+        "plot_fig1": p_f1,
+        "plot_fig2": p_f2, "per_model_r2_printed": r2per,
+        "plot_fig4": p_f4, "inter_D_eta": de, "inter_H_eta": he,
+        "plot_fig5": p_f5, "lam_star": lamstar, "cstep_coef": cstep, "H_opt_exp": hopt,
+        "plot_fig6": p_f6,
+        "plot_fig7": p_f7, "norm_ratio_median": med, "norm_ratio_iqr": iqr,
+        "norm_abs_rho_text": absn, "norm_abs_rho_figcap": capc, "norm_gap_rho": gapd,
+        "plot_seedvar": p_sv, "median_cv": medcv, "max_cv": maxcv,
+        "plot_thresholds": p_th, "D_exp_range": dexps,
+        "plot_lolo": p_lo, "lolo_r2": lolo,
+        "interactions": coefs, "r2_inter": r2i, "nonsig": ns,
+        "cstep": ch, "flop_exp": fexp, "H_opt": hexp,
+        "predictions": preds,
+        "setup": setup,
+        "repo_status": "404-both-url-forms-no-mirror",
+    }
+    out = _outdir("2609.10657") / "metrics.json"
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results

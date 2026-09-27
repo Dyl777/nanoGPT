@@ -1,0 +1,113 @@
+{
+  "arxiv": "2609.10657",
+  "plot_table1": 1.0,
+  "doubling": {
+    "H": 1.2058078276907604,
+    "D": 4.112455306624266,
+    "eta": 1.4142135623730951,
+    "lam": 1.5583291593209998
+  },
+  "spearman": {
+    "H": -0.08,
+    "D": -0.41,
+    "eta": -0.28,
+    "lam": -0.52
+  },
+  "r2_base": 0.732,
+  "plot_fig1": 1.0,
+  "plot_fig2": 1.0,
+  "per_model_r2_printed": 1.0,
+  "plot_fig4": 1.0,
+  "inter_D_eta": 0.5,
+  "inter_H_eta": 0.35,
+  "plot_fig5": 1.0,
+  "lam_star": 1.0,
+  "cstep_coef": 6.0,
+  "H_opt_exp": 0.58,
+  "plot_fig6": 1.0,
+  "plot_fig7": 1.0,
+  "norm_ratio_median": 0.42,
+  "norm_ratio_iqr": [
+    0.31,
+    0.54
+  ],
+  "norm_abs_rho_text": [
+    0.06,
+    0.83
+  ],
+  "norm_abs_rho_figcap": [
+    0.63,
+    0.003
+  ],
+  "norm_gap_rho": [
+    0.09,
+    0.759
+  ],
+  "plot_seedvar": 1.0,
+  "median_cv": 8.0,
+  "max_cv": 18.0,
+  "plot_thresholds": 1.0,
+  "D_exp_range": [
+    -2.15,
+    -2.05,
+    -2.04,
+    -1.88
+  ],
+  "plot_lolo": 1.0,
+  "lolo_r2": {
+    "H": 0.76,
+    "D": 0.67,
+    "eta": 0.7,
+    "lam": 0.68
+  },
+  "interactions": {
+    "D_eta": [
+      0.5,
+      6.3
+    ],
+    "H_eta": [
+      0.35,
+      6.2
+    ],
+    "D_lam": [
+      0.38,
+      5.3
+    ],
+    "H_lam": [
+      -0.23,
+      -4.1
+    ]
+  },
+  "r2_inter": 0.821,
+  "nonsig": [
+    "H_D",
+    "eta_lam"
+  ],
+  "cstep": 6.0,
+  "flop_exp": 1.73,
+  "H_opt": 0.5780346820809249,
+  "predictions": [
+    "fourier_onset_Dminus2",
+    "wider_higher_rank_at_Tmem",
+    "rate_beats_abs_norm"
+  ],
+  "setup": {
+    "grid": 384,
+    "completed": 356,
+    "diverged": 28,
+    "grokked": 297,
+    "adamw": [
+      0.9,
+      0.98
+    ],
+    "budget": 150000,
+    "weibull_k": 1.4,
+    "concordance": 0.71,
+    "lam_star": 1.0,
+    "r_star": [
+      0.3,
+      0.5
+    ]
+  },
+  "repo_status": "404-both-url-forms-no-mirror"
+}
