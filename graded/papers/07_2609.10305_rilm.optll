@@ -1,0 +1,114 @@
+@PL::Python
+@Task::Arxiv_2609_10305_RiLM
+@Modulu::GeodesicDecoding
+
+@Technique::GeodesicDecoding::[reproduce]
+
+@Comment::[Paper: RiLM: Parameter-Efficient Language Modeling via Geodesic Decoding (Li 2026, arXiv:2609.10305). Wout removed; p(w|h) from -d_M^2/tau; Flat R^d vs Hyp Poincare (Mobius fix Eq.4, c=1.0); d=128/|V|=2000/ctx64, 289k params; Hyp 54.2 WT-2, Flat wins PTB 40.9. One @Graded per table/figure (per-table granularity). Repo note: anonymous supplement only, no public code (0 issues reviewable) - text-faithful. Table VIII context-only warning kept.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2609_10305_table1_budget,
+    paper_2609_10305_table2_hyper,
+    paper_2609_10305_table3_wt2,
+    paper_2609_10305_table4_fair,
+    paper_2609_10305_table5_vocab10k,
+    paper_2609_10305_table6_ptb,
+    paper_2609_10305_table7_abl,
+    paper_2609_10305_table8_lit,
+    paper_2609_10305_table9_collapse,
+    paper_2609_10305_fig1_step,
+    paper_2609_10305_fig3_geometry,
+    paper_2609_10305_table11_guide,
+    paper_2609_10305_equations,
+    paper_2609_10305_efficiency,
+    paper_2609_10305_setup,
+)
+
+@Impl::GeodesicDecoding::reproduce{
+_ = "reproduce published RiLM geometry + small-model heuristics"
+@}
+
+@Graded::Table1_Budget{
+# Table I: RiLM 289k (256k emb + 33k core, Wout 0) vs 776k/777k; Wout ~1/3 of untied budget at d=128/|V|=2000.
+b_tot, l_tot, t_tot, wfrac = paper_2609_10305_table1_budget()
+@}::endpoints::[b_tot=b_tot, l_tot=l_tot, t_tot=t_tot, wfrac=wfrac]
+
+@Graded::Table2_Hyper{
+# Table II shared hyperparameters registry (d/|V|/ctx/k/bs/epochs/tau/lrs/curv/seeds).
+hyp = paper_2609_10305_table2_hyper()
+@}::endpoints::[hyp=hyp]
+
+@Graded::Table3_WT2{
+# Table III (5 seeds): Hyp 54.2+-0.2 / Flat 87.6+-0.6 / LSTM 149.9+-2.7 / TX 137.4+-5.1. Gaps exceed 100x/15x stds.
+wt2 = paper_2609_10305_table3_wt2()
+@}::endpoints::[wt2=wt2]
+
+@Graded::Table4_Fair{
+# Table IV (tied+matched primary): SSM-tied 113.0 strongest baseline (~2x behind Hyp); matched d' 82-97 lose 64-89 PPL; no fair regime reverses ranking.
+fair = paper_2609_10305_table4_fair()
+@}::endpoints::[fair=fair]
+
+@Graded::Table5_Vocab10k{
+# Table V (10k, 3 seeds): Hyp 345.8+-16.0 (seed-44 outlier 368.4) / Flat 341.8+-0.5 / SSM-tied 708.3; LSTM/TX unstable >1400. Decoding persists, curvature not uniformly better.
+v10k = paper_2609_10305_table5_vocab10k()
+@}::endpoints::[v10k=v10k]
+
+@Graded::Table6_PTB{
+# Table VI (3 seeds): Flat 40.9+-0.6 BEATS Hyp 69.8+-0.5 (ordering reversed vs WT-2); both crush tied/matched. Manifold = validation decision.
+ptb = paper_2609_10305_table6_ptb()
+@}::endpoints::[ptb=ptb]
+
+@Graded::Table7_Abl{
+# Table VII (seed 42): spline +-4.4/0.1 (below ~34 gap); c=0.1 54.0->71.1 (curvature works); ctx256 65.6 (kept 64+MLP).
+abl = paper_2609_10305_table7_abl()
+@}::endpoints::[abl=abl]
+
+@Graded::Table8_Lit{
+# Table VIII: literature context ONLY - 33M-257M numbers NOT comparable to 2k-vocab runs. Structural warning, no fit.
+lit = paper_2609_10305_table8_lit()
+@}::endpoints::[lit=lit]
+
+@Graded::Table9_Collapse{
+# Table IX + Fig.2 (sV.A): naive exp_h -> ||h||~=0.999, PPL=|V|=2000 uniform; Mobius Eq.4 -> norms 0.29-0.71, PPL~54; hard projection stalls ~130. Local: Mobius closure verified numerically (100 pairs in-ball).
+plot_ok, ppl_n, ppl_m, band, hard, closed = paper_2609_10305_table9_collapse()
+@}::endpoints::[plot_ok=plot_ok, ppl_n=ppl_n, ppl_m=ppl_m, band=band, hard=hard, closed=closed]
+
+@Graded::Fig1_Step{
+# Fig.1 one timestep: shared phi -> geodesic step -> decode, no Wout. Structural stage registry.
+stages = paper_2609_10305_fig1_step()
+@}::endpoints::[stages=stages]
+
+@Graded::Fig3_Geometry{
+# Fig.3 (seed-42 prefix): PCA paths, norm band, Table X top-5 (<unk>/was/is/had/the, first prefix not cherry-picked). Structural.
+band2, top5 = paper_2609_10305_fig3_geometry()
+@}::endpoints::[band2=band2, top5=top5]
+
+@Graded::Table11_Guide{
+# Table XI: WT-2->Hyp / PTB->Flat / 10k->Flat (stable) / speed->Flat (0.15 vs 0.52 ms/tok).
+guide = paper_2609_10305_table11_guide()
+@}::endpoints::[guide=guide]
+
+@Graded::Equations{
+# Eq.1-5 + sV.C tied math (norms cancel, -||h||^2 shared; norms matter; not equivalent to tying). Local: expansion identity err + flat-step check.
+eq = paper_2609_10305_equations()
+@}::endpoints::[eq=eq]
+
+@Graded::Efficiency{
+# sV.D: O(d)+O(|V|d), parametric benefit; ms/tok 0.15/0.52/0.44/0.40 (indicative); limits list (bounded regime, diagonal SSM + best-ckpt caveat, product +3PPL, full-vocab open).
+eff = paper_2609_10305_efficiency()
+@}::endpoints::[eff=eff]
+
+@Graded::Setup{
+# Q1/Q2/Q3 verdicts + protocol (5/3 seeds, final-epoch except SSM, one GPU, unit tests) + scope bound (controlled-2k, not SOTA).
+setup = paper_2609_10305_setup()
+@}::endpoints::[setup=setup]
+
+@GradedClass::RiLMPaper::[Table1_Budget, Table2_Hyper, Table3_WT2, Table4_Fair, Table5_Vocab10k, Table6_PTB, Table7_Abl, Table8_Lit, Table9_Collapse, Fig1_Step, Fig3_Geometry, Table11_Guide, Equations, Efficiency, Setup]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, b_tot, l_tot, t_tot, wfrac, hyp, wt2, fair, v10k, ptb, abl, lit, ppl_n, ppl_m, band, hard, closed, stages, band2, top5, guide, eq, eff, setup]

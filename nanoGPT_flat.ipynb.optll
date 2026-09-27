@@ -1,7 +1,7 @@
 @PL::ipynb
 @Task::NanoGPTMatmuls
 @Modulu::Model
-@Technique::Model::[matmul, addernetmatmul]
+@Technique::Model::[matmul, addernetmatmul, geodesicflat]
 @Technique::State::[layernorm, regularisedbn]
 @Technique::Arch::[decoderonly, encoderdecoder]
 @Technique::Attn::[vanillaatten, mqa, gqa, mla, dsa, tokenformer, tpa, slidingwindow]
@@ -3686,6 +3686,114 @@
         "    for q, gold in queries:\n",
         "        outs.append((q, convmem_run(text, q, W, S)))\n",
         "    return {\"note\": scale_note, \"runs\": [(q, o[\"answer\"][:200]) for q, o in outs]}\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 19. Geodesic Decoding \u2013 RiLM: Parameter-Efficient Language Modeling via Geodesic Decoding (Li 2026, arXiv:2609.10305; no public code found)",
+        "",
+        "**Paper in one paragraph.** Below ~1M params, Wout (d x |V|) eats a third of the budget (Table I: 289k vs 776k/777k). RiLM deletes it: p(w|h) comes from -d_M(h,e_w)^2/tau over the SHARED embedding table (Eq.3), flat R^d (h+v steps) or Poincare ball (Mobius Eq.4, c=1.0 - naive exp_h collapses to uniform |V|, Table IX). Results: Hyp 54.2 WT-2 (~2x over SSM-tied 113.0, Table IV); Flat wins PTB 40.9 vs 69.8 (Table VI, curvature is validation-choice); 10k vocab persists ~2x (Table V); tied-math: -||h||^2 cancels in softmax so word NORMs carry the difference vs tying (sV.C). Scoped to controlled 2k-vocab comparisons (Table VIII warning).",
+        "",
+        "**Repo note:** anonymous supplement only, no public code (0 issues reviewable) - text-faithful. Integration reasoning (s17 rule): replacing lm_head changes the compiled model, so Flat geodesic decoding is a genuine Model Impl (same site as the Linear/AdderConvLinear lm_head: (B,T,emb)->(B,T,vocab) logits), following the RegularisedBN post-init swap precedent - no class duplication. Hyperbolic variant deferred (needs manifold stack: Mobius ops, ball projection, c=1.0, lr 3e-3, clip 1.0); flat-first is paper-justified (Table XI: compact corpora -> Flat; Shakespeare is compact). Tying constraint: the head MUST share token_embedding - a separate copy is a NEVER, it doubles params and breaks the design.",
+        ""
+      ]
+    },
+    @Impl::Model::geodesicflat{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"GeodesicFlat lm_head swap (Paper Eq.3, tau=1.0; Table I budget logic).\"\"\"\n",
+        "\"\"\"Logits = -||h - E||^2 / tau computed against the SHARED token_embedding table; \"\"\"\n",
+        "\"\"\"no Wout allocated. Follows the RegularisedBN precedent: post-init submodule swap on \"\"\"\n",
+        "\"\"\"the live model object, so it composes with every Scale/Vocab/Context/State/Arch/Attn \"\"\"\n",
+        "\"\"\"path (shapes: (B,T,emb) -> (B,T,vocab)). NEVER a separate embedding copy.\"\"\"\n",
+        "class GeodesicHead(torch.nn.Module):\n",
+        "    def __init__(self, token_embedding, tau=1.0):\n",
+        "        super().__init__()\n",
+        "        self.emb = token_embedding\n",
+        "        self.tau = tau\n",
+        "\n",
+        "    def forward(self, h):\n",
+        "        E = self.emb.weight\n",
+        "        d2 = (h.unsqueeze(-2) - E.unsqueeze(0).unsqueeze(0)).pow(2).sum(-1)\n",
+        "        return -d2 / self.tau\n",
+        "\n",
+        "model.lm_head = GeodesicHead(model.token_embedding, tau=1.0)\n",
+        "n_wout = vocab_sz * model.token_embedding.weight.shape[1]\n",
+        "n_params_tot = sum(p.numel() for p in model.parameters())\n",
+        "print(f\"geodesicflat: Wout params removed={n_wout}, total now={n_params_tot} (Table I analog)\")\n"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ALWAYS-PRESENT RiLM budget + smoke comparison | Paper Table I (param ledger), Table II (ctx64/bs128/ep10 schedule), sIV baselines | graded 07_Table1_Budget | plain codeblock (orchestrator), no Impl tag by design.\n",
+        "\"\"\"Param ledger for the live model (emb/Wout/core split) + tiny train-briefly-and-compare \"\"\"\n",
+        "\"\"\"harness: same data/steps for linear-head vs geodesic-head paths, reports val PPL + \"\"\"\n",
+        "\"\"\"params. Smoke-scale only (not the paper's 10-epoch protocol); decides whether the \"\"\"\n",
+        "\"\"\"geodesic claim visibly holds on nanoGPT before any serious budget is spent.\"\"\"\n",
+        "def rilm_budget(model, vocab_sz):\n",
+        "    d = model.token_embedding.weight.shape[1]\n",
+        "    emb = d * vocab_sz\n",
+        "    tot = sum(p.numel() for p in model.parameters())\n",
+        "    return {\"emb\": emb, \"wout\": 0 if isinstance(model.lm_head, GeodesicHead) else emb,\n",
+        "            \"total\": tot, \"wout_frac\": (0.0 if isinstance(model.lm_head, GeodesicHead) else emb / max(1, tot))}\n",
+        "\n",
+        "def run_rilm_smoke_comparison(make_model_fn, get_batch_fn, steps=300, out_path=\"outputs/rilm_results.json\"):\n",
+        "    import json as _json5\n",
+        "    from pathlib import Path as _P\n",
+        "    rec = {}\n",
+        "    for name in (\"linear\", \"geodesic\"):\n",
+        "        m = make_model_fn().to(device)\n",
+        "        if name == \"geodesic\":\n",
+        "            m.lm_head = GeodesicHead(m.token_embedding, tau=1.0)\n",
+        "        opt = torch.optim.Adam(m.parameters(), lr=1e-3)\n",
+        "        lf = torch.nn.CrossEntropyLoss()\n",
+        "        m.train()\n",
+        "        for s in range(steps):\n",
+        "            xb, yb = get_batch_fn(\"train\")\n",
+        "            xb, yb = xb.to(device), yb.to(device)\n",
+        "            opt.zero_grad()\n",
+        "            lf(m(xb).view(-1, m.lm_head.out_features if hasattr(m.lm_head, \"out_features\") else vocab_sz), yb.view(-1)).backward()\n",
+        "            opt.step()\n",
+        "        m.eval()\n",
+        "        with torch.no_grad():\n",
+        "            xb, yb = get_batch_fn(\"train\")\n",
+        "            lv = lf(m(xb.to(device)).view(-1, vocab_sz), yb.to(device).view(-1)).item()\n",
+        "        rec[name] = {\"loss\": lv, \"ppl\": float(torch.tensor(lv).exp()),\n",
+        "                   \"budget\": rilm_budget(m, vocab_sz)}\n",
+        "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
+        "    _P(out_path).write_text(_json5.dumps(rec, indent=2))\n",
+        "    return rec\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Compatibility: RiLM: Parameter-Efficient Language Modeling via Geodesic Decoding (Li 2026, arXiv:2609.10305)",
+        "",
+        "- **STACK:** geodesic head + every Vocab (savings grow with |V|; head shares the table by construction) / Scale / Context / State / Arch / Attn path; budget cell + any live model; smoke runner + any get_batch; checkpoint probing tracks PPL either way.",
+        "- **ALTERNATIVE (pick 1):** lm_head Linear (matmul) | AdderConvLinear (addernetmatmul) | GeodesicHead (geodesicflat) - same site, same shapes; flat | hyp (hyp unimplemented: needs Mobius stack, ball projection, c=1.0/lr 3e-3/clip; Table IX collapse is the failure mode to re-test when built).",
+        "- **NEVER-SAME-PATH:** separate (untied) embedding copy alongside GeodesicHead (doubles params, breaks tying-constraint design); hyp Mobius ops applied to Euclidean states; Table VIII-style full-vocab leaderboard claims from 2k-vocab runs (paper's own warning).",
+        "",
+        "### Relations: RiLM (arXiv:2609.10305) x All Previous Papers (standing rule)",
+        "",
+        "- **vs LayerMix (arXiv:2608.28930, s10-12): STACK (expected).** Flat-variant states stay Euclidean, so L2-LR/PLS probes apply unchanged - probe the geodesic model with the same heads. Hyp states would break probe geometry assumptions (non-Euclidean distances); probes on HypRiLM are untested by design.",
+        "- **vs SABER (arXiv:2608.27963, s13): STACK (expected).** Confidence comes from the same softmax (geodesic logits feed Eq.4 math identically); CS/RSS arithmetic is decoder-agnostic. Untested combo, no shared state.",
+        "- **vs Grokking (arXiv:2609.10657, s14/s16): THEME LINK, no code path shared.** Both are param-scarcity stories (Wout budget pressure ~= capacity pressure); grokking clocks could track a geodesic-head run (norm dynamics under tying are unmeasured - open experiment).",
+        "- **vs ConvMem (arXiv:2609.10441, s15): NONE.** Different stages (readout geometry vs long-context scaffolding); no shared code path. Forced relations would be fake - recorded as none.",
+        "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): NONE beyond backbone.** GeodesicHead replaces the readout of whatever backbone path is live, including Attn:: variants (composition by design).",
+        ""
       ]
     }
   ],
