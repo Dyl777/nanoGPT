@@ -1,0 +1,162 @@
+@PL::Python
+@Task::Arxiv_2608_28930_LayerMix
+@Modulu::HallucinationProbing
+
+@Technique::HallucinationProbing::[reproduce]
+
+@Comment::[Paper: The Hallucination Signal Is a Mean Shift: Why Simple Probes Suffice (Lee, Seo, Lim 2026, arXiv:2608.28930). The hallucination signal is a single mean-shift direction; L2-LR (C=0.001) bounds 12 alternatives; LayerMix (CV top-5 + average) matches oracle without oracle access. Paradigm: paired-example, last-token states, StandardScaler, stratified 5-fold CV. One @Graded per table/figure (per-table granularity). Local probes check the same geometric identities on synthetic nanoGPT-scale states; AUROC numbers are the published 7B values.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2608_fig1_projection,
+    paper_2608_table1_decomposition,
+    paper_2608_table2_fisher_gap,
+    paper_2608_fig2_layerwise,
+    paper_2608_table7_optimal_layer,
+    paper_2608_table3_main,
+    paper_2608_table4_fairness,
+    paper_2608_fig3_scaling,
+    paper_2608_fig5_regsweep,
+    paper_2608_table9_adaptation,
+    paper_2608_table10_cosine,
+    paper_2608_table12_covariance,
+    paper_2608_table13_sparse,
+    paper_2608_table14_mlp,
+    paper_2608_table15_ablation,
+    paper_2608_table16_taxonomy,
+    paper_2608_table17_layermix_abl,
+    paper_2608_fig7_labeleff,
+    paper_2608_table18_signif,
+    paper_2608_table19_instruct,
+    paper_2608_fig4_intervention,
+    paper_2608_table8_full,
+    paper_2608_length_confound,
+)
+
+@Impl::HallucinationProbing::reproduce{
+_ = "reproduce published LayerMix geometry + probe heuristics"
+@}
+
+@Graded::Fig1_Projection{
+# Fig.1 (Qwen2.5-7B L18 TQA): 2D scatter — x separates along delta-hat, y (orthogonal PC1) overlaps. Endpoints: plot flag, local Cohen's d along delta (paper 1.2-1.6), residual-axis AUROC (~0.5).
+plot_ok, fig1_cohens_d, fig1_residual_auc = paper_2608_fig1_projection()
+@}::endpoints::[plot_ok=plot_ok, fig1_cohens_d=fig1_cohens_d, fig1_residual_auc=fig1_residual_auc]
+
+@Graded::Table1_Decomposition{
+# Table 1 (9-cond avg): UnregLR .928 / 1D .834 / 5D .891 / w/o-MS .499 / centered .503. Delta necessary (removal→chance) and largely sufficient.
+plot_ok, t1_unreg, t1_1d, t1_5d, t1_wo_ms = paper_2608_table1_decomposition()
+@}::endpoints::[plot_ok=plot_ok, t1_unreg=t1_unreg, t1_1d=t1_1d, t1_5d=t1_5d, t1_wo_ms=t1_wo_ms]
+
+@Graded::Table2_FisherGap{
+# Table 2: raw 1D (.834) vs L2-LR oracle (.952), mean gap +.118 in all 9 conditions — structure beyond delta exists everywhere.
+plot_ok, t2_fisher_mean, t2_l2_mean, t2_gap_mean, t2_gap_local = paper_2608_table2_fisher_gap()
+@}::endpoints::[plot_ok=plot_ok, t2_fisher_mean=t2_fisher_mean, t2_l2_mean=t2_l2_mean, t2_gap_mean=t2_gap_mean, t2_gap_local=t2_gap_local]
+
+@Graded::Fig2_Layerwise{
+# Fig.2: layer-wise AUROC curves (3 models × 3 sets, ±1std, oracle dots). Optima vary (L14/L16/L18) — no fixed heuristic optimal; signal is a contiguous band.
+plot_ok, opt_llama, opt_mistral, opt_qwen = paper_2608_fig2_layerwise()
+@}::endpoints::[plot_ok=plot_ok, opt_llama=opt_llama, opt_mistral=opt_mistral, opt_qwen=opt_qwen]
+
+@Graded::Table7_OptimalLayer{
+# Table 7: oracle layer + full-dim LR AUROC per condition (9 rows). Local check: synthetic band peaks mid-stack with neighbours within .02.
+plot_ok, opt_layer_spread, qwen_tqa_auc = paper_2608_table7_optimal_layer()
+@}::endpoints::[plot_ok=plot_ok, opt_layer_spread=opt_layer_spread, qwen_tqa_auc=qwen_tqa_auc]
+
+@Graded::Table3_Main{
+# Table 3: full baseline sweep — training-free .50-.66 << probes; oracle .952; middle heuristic .941 (best free); all-avg .944; CLAP .928; LayerMix .954 matches oracle. In-vitro control: dynamic methods evaluated outside native regime.
+plot_ok, layermix_mean, oracle_mean, middle_mean, clap_mean = paper_2608_table3_main()
+@}::endpoints::[plot_ok=plot_ok, layermix_mean=layermix_mean, oracle_mean=oracle_mean, middle_mean=middle_mean, clap_mean=clap_mean]
+
+@Graded::Table4_Fairness{
+# Table 4 (instruct, matched C=.001): SEP .889→.921, oracle .935→.957, yet LayerMix .960 still leads — structure, not tuning.
+plot_ok, sep_matched, oracle_matched, mix_matched = paper_2608_table4_fairness()
+@}::endpoints::[plot_ok=plot_ok, sep_matched=sep_matched, oracle_matched=oracle_matched, mix_matched=mix_matched]
+
+@Graded::Fig3_Scaling{
+# Fig.3 + Table 5: 25 models 0.5B→70B — AUROC rises with capacity (~.98 at 70B); instruct sharpens (.951→.959); LayerMix tracks oracle 72/75 (96%).
+plot_ok, scale_70b_auc, scale_track_frac = paper_2608_fig3_scaling()
+@}::endpoints::[plot_ok=plot_ok, scale_70b_auc=scale_70b_auc, scale_track_frac=scale_track_frac]
+
+@Graded::Fig5_RegSweep{
+# Fig.5: L2 sweep — C=.001 optimal on all sets. Local check: strong reg beats unregularized on synthetic states.
+plot_ok, best_C, strong_reg_wins_local = paper_2608_fig5_regsweep()
+@}::endpoints::[plot_ok=plot_ok, best_C=best_C, strong_reg_wins_local=strong_reg_wins_local]
+
+@Graded::Table9_Adaptation{
+# Table 9 (Mistral-7B): N=500 target adaptation recovers .703 (vs .931 in-domain) — linear probes recalibrate fast despite orthogonal geometry.
+plot_ok, adapt_mean, indomain_mean = paper_2608_table9_adaptation()
+@}::endpoints::[plot_ok=plot_ok, adapt_mean=adapt_mean, indomain_mean=indomain_mean]
+
+@Graded::Table10_Cosine{
+# Table 10 + Fig.6 + Table 11: cross-domain |cos| ≤.154 (random ≈.013); cosine predicts transfer (r=.86); within-TQA .849 vs between .116 (~7×) — hallucination-type geometry, not artefact.
+plot_ok, mean_between_cosine, within_cosine, between_cosine = paper_2608_table10_cosine()
+@}::endpoints::[plot_ok=plot_ok, mean_between_cosine=mean_between_cosine, within_cosine=within_cosine, between_cosine=between_cosine]
+
+@Graded::Table12_Covariance{
+# Table 12 (TQA): per-class top-20 spectra near-identical (r>.96) while Cohen's d>1.5 — mean shift, not differential covariance.
+plot_ok, eigen_corr_local, cohens_paper = paper_2608_table12_covariance()
+@}::endpoints::[plot_ok=plot_ok, eigen_corr_local=eigen_corr_local, cohens_paper=cohens_paper]
+
+@Graded::Table13_Sparse{
+# Table 13: 200 L1-ranked neurons (5.6%) keep .933 ≈ full .950; 100 random only .840; top-20 share 4/20 across folds — distributed signal.
+plot_ok, cv200_auc, rand100_auc = paper_2608_table13_sparse()
+@}::endpoints::[plot_ok=plot_ok, cv200_auc=cv200_auc, rand100_auc=rand100_auc]
+
+@Graded::Table14_MLP{
+# Table 14: MLP vs L2-LR |Δ|≤.002 everywhere (mean both .952) — boundary is linear in-paradigm.
+plot_ok, mlp_max_abs_delta, mean_both = paper_2608_table14_mlp()
+@}::endpoints::[plot_ok=plot_ok, mlp_max_abs_delta=mlp_max_abs_delta, mean_both=mean_both]
+
+@Graded::Table15_Ablation{
+# Table 15 (§6.4): 12 controlled ablations, best NODE .890 — NONE beats L2-LR .952 / LayerMix .954. Ordering follows mean-shift preservation.
+plot_ok, l2r_baseline, layermix_ours, best_alternative = paper_2608_table15_ablation()
+@}::endpoints::[plot_ok=plot_ok, l2r_baseline=l2r_baseline, layermix_ours=layermix_ours, best_alternative=best_alternative]
+
+@Graded::Table16_Taxonomy{
+# Table 16: mean-targeting (PLS-DA .926) >> variance-targeting (SVD .795). Local check: synthetic MeanDiff beats SVD-20.
+plot_ok, meandiff_beats_svd_local, plsda_pub, svd_pub = paper_2608_table16_taxonomy()
+@}::endpoints::[plot_ok=plot_ok, meandiff_beats_svd_local=meandiff_beats_svd_local, plsda_pub=plsda_pub, svd_pub=svd_pub]
+
+@Graded::Table17_LayerMixAbl{
+# Table 17: (a) only CV top-5 (.954) matches oracle (Cohen's-d .943 fails); (b) K∈{3,5,7} stable, K=5 default; (c) heuristics lose (middle .941 best free).
+plot_ok, mix17, cohend17, mid17 = paper_2608_table17_layermix_abl()
+@}::endpoints::[plot_ok=plot_ok, mix17=mix17, cohend17=cohend17, mid17=mid17]
+
+@Graded::Fig7_LabelEff{
+# Fig.7: PLS-DA k=3 wins at N≤200 (implicit regularizer); full-dim wins N≥500; crossover ~200.
+plot_ok, crossover_n, pls_low, lr_high = paper_2608_fig7_labeleff()
+@}::endpoints::[plot_ok=plot_ok, crossover_n=crossover_n, pls_low=pls_low, lr_high=lr_high]
+
+@Graded::Table18_Signif{
+# Table 18: bootstrap (B=1000, Bonferroni) Mix-vs-last +0.038 9/9***; nested-CV bias ≤.010; random-label .500±.003.
+plot_ok, mix_vs_last_delta, mix_vs_last_sig, random_control = paper_2608_table18_signif()
+@}::endpoints::[plot_ok=plot_ok, mix_vs_last_delta=mix_vs_last_delta, mix_vs_last_sig=mix_vs_last_sig, random_control=random_control]
+
+@Graded::Table19_Instruct{
+# Table 19: instruct tuning sharpens signal — oracle .951→.959, LayerMix .953→.961. Not a pretraining artefact.
+plot_ok, instruct_oracle, instruct_mix = paper_2608_table19_instruct()
+@}::endpoints::[plot_ok=plot_ok, instruct_oracle=instruct_oracle, instruct_mix=instruct_mix]
+
+@Graded::Fig4_Intervention{
+# Fig.4 (§7 App R): h'=h+α·δ̂ sweep — MC1 .305→.363 monotonic; α=+2 beats all 10 random controls; bidirectional causality for δ itself.
+plot_ok, mc1_top, bidirectional_local = paper_2608_fig4_intervention()
+@}::endpoints::[plot_ok=plot_ok, mc1_top=mc1_top, bidirectional_local=bidirectional_local]
+
+@Graded::Table8_Full{
+# Table 8 (App C): MERGED 9-condition view (Unreg .928 / 1D .834 / 5D .891 / w/o .499, gap +.118, d=1.52). Split views live in Table1/Table2 endpoints.
+plot_ok, t8_unreg, t8_1d, t8_5d, t8_wo, t8_gap, t8_cohens = paper_2608_table8_full()
+@}::endpoints::[plot_ok=plot_ok, t8_unreg=t8_unreg, t8_1d=t8_1d, t8_5d=t8_5d, t8_wo=t8_wo, t8_gap=t8_gap, t8_cohens=t8_cohens]
+
+@Graded::LengthConfound{
+# Protocol check (§5): length-only AUROC (TQA .546 / HE .610 / FD .511) trails probes by ≥.34 — no length shortcut.
+plot_ok, length_auc_local, len_tqa, len_he, len_fd = paper_2608_length_confound()
+@}::endpoints::[plot_ok=plot_ok, length_auc_local=length_auc_local, len_tqa=len_tqa, len_he=len_he, len_fd=len_fd]
+
+@GradedClass::LayerMixPaper::[Fig1_Projection, Table1_Decomposition, Table2_FisherGap, Fig2_Layerwise, Table7_OptimalLayer, Table3_Main, Table4_Fairness, Fig3_Scaling, Fig5_RegSweep, Table9_Adaptation, Table10_Cosine, Table12_Covariance, Table13_Sparse, Table14_MLP, Table15_Ablation, Table16_Taxonomy, Table17_LayerMixAbl, Fig7_LabelEff, Table18_Signif, Table19_Instruct, Fig4_Intervention, Table8_Full, LengthConfound]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, fig1_cohens_d, fig1_residual_auc, t1_unreg, t1_1d, t1_5d, t1_wo_ms, t2_fisher_mean, t2_l2_mean, t2_gap_mean, t2_gap_local, opt_llama, opt_mistral, opt_qwen, opt_layer_spread, qwen_tqa_auc, layermix_mean, oracle_mean, middle_mean, clap_mean, sep_matched, oracle_matched, mix_matched, scale_70b_auc, scale_track_frac, best_C, strong_reg_wins_local, adapt_mean, indomain_mean, mean_between_cosine, within_cosine, between_cosine, eigen_corr_local, cohens_paper, cv200_auc, rand100_auc, mlp_max_abs_delta, mean_both, l2r_baseline, layermix_ours, best_alternative, meandiff_beats_svd_local, plsda_pub, svd_pub, mix17, cohend17, mid17, crossover_n, pls_low, lr_high, mix_vs_last_delta, mix_vs_last_sig, random_control, instruct_oracle, instruct_mix, mc1_top, bidirectional_local, t8_unreg, t8_1d, t8_5d, t8_wo, t8_gap, t8_cohens, length_auc_local, len_tqa, len_he, len_fd]

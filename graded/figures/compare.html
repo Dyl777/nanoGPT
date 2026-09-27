@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Same quantities: paper numbers vs recreations</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Georgia, "Times New Roman", serif; background: #f4f1ea; color: #1c1917; }
+    header { position: sticky; top: 0; z-index: 5; background: #1c1917; color: #f4f1ea; padding: 14px 20px; }
+    header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+    header p { margin: 6px 0 0; font-size: 13px; opacity: 0.85; font-family: system-ui, sans-serif; }
+    nav { display: flex; gap: 12px; padding: 10px 20px; background: #e7e0d4; position: sticky; top: 64px; z-index: 4; font-family: system-ui, sans-serif; font-size: 13px; }
+    nav a { color: #1c1917; }
+    .pair { border-bottom: 1px solid #d6cbb8; padding: 18px 16px 28px; }
+    .pair h2 { margin: 0 0 6px; font-size: 16px; }
+    .note { font-family: system-ui, sans-serif; font-size: 13px; color: #57534e; margin: 0 0 12px; max-width: 70rem; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+    .col { background: #fff; border: 1px solid #d6cbb8; }
+    .col h3 { margin: 0; padding: 8px 10px; font-size: 12px; font-family: system-ui, sans-serif; background: #ece7dc; }
+    .col img { display: block; width: 100%; height: auto; }
+    .pad { padding: 10px 12px 14px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-family: system-ui, sans-serif; font-size: 12px; }
+    th, td { border: 1px solid #d6cbb8; padding: 4px 6px; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    th { background: #f7f3eb; }
+    .formula { font-size: 14px; line-height: 1.5; }
+    @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Same quantity only — paper number (left) vs replot (right)</h1>
+    <p>No architecture drawings, no block diagrams, no embedding cartoons, no attention-head pictures. A row exists only if both sides are the same metric from the paper.</p>
+  </header>
+  <nav>
+    <a href="#attn">1706.03762 tables</a>
+    <a href="#bert">1810.04805 tables</a>
+  </nav>
+
+  <section id="attn">
+    <div class="pair">
+      <h2>Table 1 — per-layer complexity (n, d, k)</h2>
+      <p class="note">Quantity: asymptotic ops. Left is the paper’s table. Right is that same O(·) evaluated vs sequence length n at d=512, k=3.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 1</h3>
+          <div class="pad">
+            <table>
+              <tr><th>Layer</th><th>Complexity</th><th>Sequential</th><th>Max path</th></tr>
+              <tr><td>Self-Attention</td><td>O(n² · d)</td><td>O(1)</td><td>O(1)</td></tr>
+              <tr><td>Recurrent</td><td>O(n · d²)</td><td>O(n)</td><td>O(n)</td></tr>
+              <tr><td>Convolutional</td><td>O(k · n · d²)</td><td>O(1)</td><td>O(log_k n)</td></tr>
+              <tr><td>Self-Attn restricted</td><td>O(r · n · d)</td><td>O(1)</td><td>O(n/r)</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those costs vs n</h3><img src="1706.03762/fig_table1_complexity.png" alt="Table 1 complexity curves" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 2 — WMT14 BLEU</h2>
+      <p class="note">Quantity: BLEU. Same models, same scores as the paper.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 2 (BLEU columns)</h3>
+          <div class="pad">
+            <table>
+              <tr><th>Model</th><th>EN-DE</th><th>EN-FR</th></tr>
+              <tr><td>ByteNet</td><td>23.75</td><td></td></tr>
+              <tr><td>Deep-Att + PosUnk</td><td></td><td>39.2</td></tr>
+              <tr><td>GNMT + RL</td><td>24.6</td><td>39.92</td></tr>
+              <tr><td>ConvS2S</td><td>25.16</td><td>40.46</td></tr>
+              <tr><td>MoE</td><td>26.03</td><td>40.56</td></tr>
+              <tr><td>Deep-Att ensemble</td><td></td><td>40.4</td></tr>
+              <tr><td>GNMT + RL ensemble</td><td>26.30</td><td>41.16</td></tr>
+              <tr><td>ConvS2S ensemble</td><td>26.36</td><td>41.29</td></tr>
+              <tr><td>Transformer base</td><td>27.3</td><td>38.1</td></tr>
+              <tr><td>Transformer big</td><td>28.4</td><td>41.8</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those BLEU values</h3><img src="1706.03762/fig_table2_bleu.png" alt="Table 2 BLEU bars" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 2 — training FLOPs (EN-DE)</h2>
+      <p class="note">Quantity: estimated training FLOPs from the same table.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 2 (EN-DE FLOPs)</h3>
+          <div class="pad">
+            <table>
+              <tr><th>Model</th><th>FLOPs</th></tr>
+              <tr><td>GNMT + RL</td><td>2.3e19</td></tr>
+              <tr><td>ConvS2S</td><td>9.6e18</td></tr>
+              <tr><td>MoE</td><td>2.0e19</td></tr>
+              <tr><td>Transformer base</td><td>3.3e18</td></tr>
+              <tr><td>Transformer big</td><td>2.3e19</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those FLOPs</h3><img src="1706.03762/fig_table2_flops.png" alt="Table 2 FLOPs" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 3(A) — heads vs dev BLEU / PPL</h2>
+      <p class="note">Quantity: newstest2013 BLEU and wordpiece PPL while holding compute ~constant.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 3 row (A)</h3>
+          <div class="pad">
+            <table>
+              <tr><th>h</th><th>d_k=d_v</th><th>PPL</th><th>BLEU</th></tr>
+              <tr><td>1</td><td>512</td><td>5.29</td><td>24.9</td></tr>
+              <tr><td>4</td><td>128</td><td>5.00</td><td>25.5</td></tr>
+              <tr><td>8</td><td>64</td><td>4.92</td><td>25.8</td></tr>
+              <tr><td>16</td><td>32</td><td>4.91</td><td>25.8</td></tr>
+              <tr><td>32</td><td>16</td><td>5.01</td><td>25.4</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those BLEU/PPL vs h</h3><img src="1706.03762/fig_table3_heads.png" alt="Table 3 heads" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 3(C) — N layers vs BLEU</h2>
+      <p class="note">Quantity: dev BLEU vs encoder/decoder depth. Base N=6 is 25.8.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 3 row (C) N</h3>
+          <div class="pad">
+            <table>
+              <tr><th>N</th><th>PPL</th><th>BLEU</th></tr>
+              <tr><td>2</td><td>6.11</td><td>23.7</td></tr>
+              <tr><td>4</td><td>5.19</td><td>25.3</td></tr>
+              <tr><td>6 (base)</td><td>4.92</td><td>25.8</td></tr>
+              <tr><td>8</td><td>4.88</td><td>25.5</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those BLEU vs N</h3><img src="1706.03762/fig_table3_depth.png" alt="Table 3 depth" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 3(D) — residual dropout vs BLEU</h2>
+      <p class="note">Quantity: P_drop vs dev BLEU. Paper’s base is 0.1.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 3 row (D) P_drop</h3>
+          <div class="pad">
+            <table>
+              <tr><th>P_drop</th><th>PPL</th><th>BLEU</th></tr>
+              <tr><td>0.0</td><td>5.77</td><td>24.6</td></tr>
+              <tr><td>0.1 (base)</td><td>4.92</td><td>25.8</td></tr>
+              <tr><td>0.2</td><td>4.95</td><td>25.5</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those BLEU vs P_drop</h3><img src="1706.03762/fig_table3_dropout.png" alt="Table 3 dropout" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 4 — WSJ-23 constituency F1</h2>
+      <p class="note">Quantity: F1. Same parsers and scores.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 4 (selected rows)</h3>
+          <div class="pad">
+            <table>
+              <tr><th>Parser</th><th>WSJ 23 F1</th></tr>
+              <tr><td>Vinyals WSJ disc.</td><td>88.3</td></tr>
+              <tr><td>Petrov WSJ disc.</td><td>90.4</td></tr>
+              <tr><td>Dyer WSJ disc.</td><td>91.7</td></tr>
+              <tr><td>Transformer 4L WSJ</td><td>91.3</td></tr>
+              <tr><td>Transformer 4L semi-sup</td><td>92.7</td></tr>
+              <tr><td>Dyer generative</td><td>93.3</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those F1 values</h3><img src="1706.03762/fig_table4_parsing.png" alt="Table 4 parsing" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Equation (3) — learning rate vs step</h2>
+      <p class="note">Quantity: lrate(step) with d_model=512, warmup=4000. Paper printed the formula, not a figure; both sides are that same function.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Eq. (3)</h3>
+          <div class="pad formula">
+            lrate = d_model<sup>−0.5</sup> · min(step<sup>−0.5</sup>, step · warmup<sup>−1.5</sup>)<br />
+            warmup_steps = 4000<br />
+            peak at step = 4000
+          </div>
+        </div>
+        <div class="col"><h3>Plot of that same function</h3><img src="1706.03762/fig_eq3_lr_schedule.png" alt="Eq 3 LR" /></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="bert">
+    <div class="pair">
+      <h2>Table 1 — GLUE test scores</h2>
+      <p class="note">Quantity: GLUE metrics (acc / F1 / Spearman as in the paper). WNLI excluded from their average.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 1</h3>
+          <div class="pad">
+            <table>
+              <tr><th>System</th><th>MNLI-m/mm</th><th>QQP</th><th>QNLI</th><th>SST-2</th><th>CoLA</th><th>STS-B</th><th>MRPC</th><th>RTE</th><th>Avg</th></tr>
+              <tr><td>Pre-OpenAI SOTA</td><td>80.6/80.1</td><td>66.1</td><td>82.3</td><td>93.2</td><td>35.0</td><td>81.0</td><td>86.0</td><td>61.7</td><td>74.0</td></tr>
+              <tr><td>BiLSTM+ELMo+Attn</td><td>76.4/76.1</td><td>64.8</td><td>79.8</td><td>90.4</td><td>36.0</td><td>73.3</td><td>84.9</td><td>56.8</td><td>71.0</td></tr>
+              <tr><td>OpenAI GPT</td><td>82.1/81.4</td><td>70.3</td><td>87.4</td><td>91.3</td><td>45.4</td><td>80.0</td><td>82.3</td><td>56.0</td><td>75.1</td></tr>
+              <tr><td>BERT-base</td><td>84.6/83.4</td><td>71.2</td><td>90.5</td><td>93.5</td><td>52.1</td><td>85.8</td><td>88.9</td><td>66.4</td><td>79.6</td></tr>
+              <tr><td>BERT-large</td><td>86.7/85.9</td><td>72.1</td><td>92.7</td><td>94.9</td><td>60.5</td><td>86.5</td><td>89.3</td><td>70.1</td><td>82.1</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col">
+          <h3>Replot of avg + MNLI-m, then per-task</h3>
+          <img src="1810.04805/fig_table1_glue.png" alt="GLUE avg" />
+          <img src="1810.04805/fig_table1_glue_tasks.png" alt="GLUE tasks" />
+        </div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Tables 2–3 — SQuAD F1</h2>
+      <p class="note">Quantity: F1 (and EM in the paper). Charts use the F1 column only, same systems.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 2 / 3 F1</h3>
+          <div class="pad">
+            <table>
+              <tr><th>System</th><th>Set</th><th>F1</th></tr>
+              <tr><td>Human</td><td>v1.1 test</td><td>91.2</td></tr>
+              <tr><td>BiDAF+ELMo</td><td>v1.1 test</td><td>85.8</td></tr>
+              <tr><td>BERT-base</td><td>v1.1 dev</td><td>88.5</td></tr>
+              <tr><td>BERT-large</td><td>v1.1 dev</td><td>90.9</td></tr>
+              <tr><td>BERT-large+TriviaQA</td><td>v1.1 test</td><td>91.8</td></tr>
+              <tr><td>BERT ens.+TriviaQA</td><td>v1.1 test</td><td>93.2</td></tr>
+              <tr><td>Human</td><td>v2.0 test</td><td>89.5</td></tr>
+              <tr><td>MIR-MRC</td><td>v2.0 test</td><td>78.0</td></tr>
+              <tr><td>unet ensemble</td><td>v2.0 test</td><td>74.9</td></tr>
+              <tr><td>BERT-large</td><td>v2.0 test</td><td>83.1</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those F1 values</h3><img src="1810.04805/fig_table2_3_squad.png" alt="SQuAD F1" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 4 — SWAG accuracy</h2>
+      <p class="note">Quantity: accuracy on SWAG test (dev where test missing).</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 4</h3>
+          <div class="pad">
+            <table>
+              <tr><th>System</th><th>Dev</th><th>Test</th></tr>
+              <tr><td>ESIM+GloVe</td><td>51.9</td><td>52.7</td></tr>
+              <tr><td>ESIM+ELMo</td><td>59.1</td><td>59.2</td></tr>
+              <tr><td>OpenAI GPT</td><td></td><td>78.0</td></tr>
+              <tr><td>BERT-base</td><td>81.6</td><td></td></tr>
+              <tr><td>BERT-large</td><td>86.6</td><td>86.3</td></tr>
+              <tr><td>Human (expert)</td><td></td><td>85.0</td></tr>
+              <tr><td>Human (5 ann.)</td><td></td><td>88.0</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of test acc (paper’s reported test)</h3><img src="1810.04805/fig_table4_swag.png" alt="SWAG" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 5 — pre-training task ablation (dev)</h2>
+      <p class="note">Quantity: task score under BERT-base vs No NSP vs LTR &amp; No NSP.</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 5</h3>
+          <div class="pad">
+            <table>
+              <tr><th>Tasks</th><th>MNLI-m</th><th>QNLI</th><th>MRPC</th><th>SST-2</th><th>SQuAD F1</th></tr>
+              <tr><td>BERT-base</td><td>84.4</td><td>88.4</td><td>86.7</td><td>92.7</td><td>88.5</td></tr>
+              <tr><td>No NSP</td><td>83.9</td><td>84.9</td><td>86.5</td><td>92.6</td><td>87.9</td></tr>
+              <tr><td>LTR &amp; No NSP</td><td>82.1</td><td>84.3</td><td>77.5</td><td>92.1</td><td>77.8</td></tr>
+              <tr><td>+ BiLSTM</td><td>82.1</td><td>84.1</td><td>75.7</td><td>91.6</td><td>84.9</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those five scores</h3><img src="1810.04805/fig_table5_pretrain_ablation.png" alt="Table 5" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 6 — model size vs MLM PPL and MNLI</h2>
+      <p class="note">Quantity: held-out MLM perplexity and MNLI-m vs (L, H, A).</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 6</h3>
+          <div class="pad">
+            <table>
+              <tr><th>#L</th><th>#H</th><th>#A</th><th>LM ppl</th><th>MNLI-m</th><th>MRPC</th><th>SST-2</th></tr>
+              <tr><td>3</td><td>768</td><td>12</td><td>5.84</td><td>77.9</td><td>79.8</td><td>88.4</td></tr>
+              <tr><td>6</td><td>768</td><td>3</td><td>5.24</td><td>80.6</td><td>82.2</td><td>90.7</td></tr>
+              <tr><td>6</td><td>768</td><td>12</td><td>4.68</td><td>81.9</td><td>84.8</td><td>91.3</td></tr>
+              <tr><td>12</td><td>768</td><td>12</td><td>3.99</td><td>84.4</td><td>86.7</td><td>92.9</td></tr>
+              <tr><td>12</td><td>1024</td><td>16</td><td>3.54</td><td>85.7</td><td>86.9</td><td>93.3</td></tr>
+              <tr><td>24</td><td>1024</td><td>16</td><td>3.23</td><td>86.6</td><td>87.8</td><td>93.7</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of ppl and MNLI-m vs size</h3><img src="1810.04805/fig_table6_size.png" alt="Table 6" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>Table 7 — NER F1 (feature vs fine-tune)</h2>
+      <p class="note">Quantity: CoNLL-2003 F1. Chart uses the paper’s listed F1 numbers (dev/test mixed as published).</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original Table 7 (selected)</h3>
+          <div class="pad">
+            <table>
+              <tr><th>System</th><th>F1</th></tr>
+              <tr><td>Embeddings (feat.)</td><td>91.0 Dev</td></tr>
+              <tr><td>Second-to-last</td><td>95.6 Dev</td></tr>
+              <tr><td>Last hidden</td><td>94.9 Dev</td></tr>
+              <tr><td>Weighted last 4</td><td>95.9 Dev</td></tr>
+              <tr><td>Concat last 4</td><td>96.1 Dev</td></tr>
+              <tr><td>BERT-large fine-tune</td><td>92.8 Test</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Replot of those F1 values</h3><img src="1810.04805/fig_table7_ner.png" alt="Table 7 NER" /></div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <h2>§3.1 MLM corruption mix</h2>
+      <p class="note">Quantity: share of the chosen 15% tokens. Paper states 80 / 10 / 10. Right is a sampled draw of that same recipe (finite-n noise around those rates).</p>
+      <div class="cols">
+        <div class="col">
+          <h3>Original stated mix</h3>
+          <div class="pad">
+            <table>
+              <tr><th>Among 15% chosen positions</th><th>Share</th></tr>
+              <tr><td>[MASK]</td><td>80%</td></tr>
+              <tr><td>random token</td><td>10%</td></tr>
+              <tr><td>unchanged</td><td>10%</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="col"><h3>Empirical frequencies from that recipe</h3><img src="1810.04805/fig_mlm_recipe.png" alt="MLM mix" /></div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

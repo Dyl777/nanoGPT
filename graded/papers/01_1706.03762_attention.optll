@@ -1,0 +1,69 @@
+@PL::Python
+@Task::Arxiv_1706_03762_AttentionIsAllYouNeed
+@Modulu::TransformerHeuristics
+
+@Technique::TransformerHeuristics::[reproduce]
+
+@Comment::[Paper: Vaswani et al. 2017, arXiv:1706.03762. Graded recreates every table/figure heuristic. Local probes check the same math on tensors; BLEU numbers are the published values.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_1706_fig_positional_encoding,
+    paper_1706_eq3_lr_curve,
+    paper_1706_table1_complexity,
+    paper_1706_table2_bleu,
+    paper_1706_table3_ablations,
+    paper_1706_table4_parsing,
+    paper_1706_fig2_attention_mechanics,
+    paper_1706_eq1_attention_identity,
+    paper_1706_label_smoothing_entropy,
+)
+
+@Impl::TransformerHeuristics::reproduce{
+_ = "reproduce published Transformer heuristics"
+@}
+
+@Graded::FigPE_Sinusoidal{
+plot_ok, pe_relative_mse = paper_1706_fig_positional_encoding()
+@}::endpoints::[plot_ok=plot_ok, pe_relative_mse=pe_relative_mse]::commandplot["plt.imshow"]
+
+@Graded::Eq3_WarmupLR{
+plot_ok, lr_peak_step = paper_1706_eq3_lr_curve()
+@}::endpoints::[plot_ok=plot_ok, lr_peak_step=lr_peak_step]
+
+@Graded::Table1_Complexity{
+plot_ok, self_attn_cheaper_n_lt_d = paper_1706_table1_complexity()
+@}::endpoints::[plot_ok=plot_ok, self_attn_cheaper_n_lt_d=self_attn_cheaper_n_lt_d]
+
+@Graded::Table2_WMTBleu{
+plot_ok, paper_bleu_en_de_big, paper_bleu_en_fr_big = paper_1706_table2_bleu()
+@}::endpoints::[plot_ok=plot_ok, paper_bleu_en_de_big=paper_bleu_en_de_big, paper_bleu_en_fr_big=paper_bleu_en_fr_big]
+
+@Graded::Table3_Ablations{
+plot_ok, best_head_count_table3A = paper_1706_table3_ablations()
+@}::endpoints::[plot_ok=plot_ok, best_head_count_table3A=best_head_count_table3A]
+
+@Graded::Table4_ConstituencyParsing{
+plot_ok, paper_wsj_transformer_f1 = paper_1706_table4_parsing()
+@}::endpoints::[plot_ok=plot_ok, paper_wsj_transformer_f1=paper_wsj_transformer_f1]
+
+@Graded::Fig2_AttentionMechanics{
+plot_ok, causal_mask_ok, multihead_concat_ok = paper_1706_fig2_attention_mechanics()
+@}::endpoints::[plot_ok=plot_ok, causal_mask_ok=causal_mask_ok, multihead_concat_ok=multihead_concat_ok]
+
+@Graded::Eq1_AttentionIdentity{
+softmax_row_err, residual_ln_shape_ok = paper_1706_eq1_attention_identity()
+@}::endpoints::[softmax_row_err=softmax_row_err, residual_ln_shape_ok=residual_ln_shape_ok]
+
+@Graded::LabelSmoothingEntropy{
+label_smoothing_entropy_gap = paper_1706_label_smoothing_entropy()
+@}::endpoints::[label_smoothing_entropy_gap=label_smoothing_entropy_gap]
+
+@GradedClass::TransformerPaper::[FigPE_Sinusoidal, Eq3_WarmupLR, Table1_Complexity, Table2_WMTBleu, Table3_Ablations, Table4_ConstituencyParsing, Fig2_AttentionMechanics, Eq1_AttentionIdentity, LabelSmoothingEntropy]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, pe_relative_mse, lr_peak_step, self_attn_cheaper_n_lt_d, paper_bleu_en_de_big, paper_bleu_en_fr_big, best_head_count_table3A, paper_wsj_transformer_f1, causal_mask_ok, multihead_concat_ok, softmax_row_err, residual_ln_shape_ok, label_smoothing_entropy_gap]

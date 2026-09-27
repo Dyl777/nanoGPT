@@ -1,0 +1,74 @@
+@PL::Python
+@Task::Arxiv_1810_04805_BERT
+@Modulu::BERTHeuristics
+
+@Technique::BERTHeuristics::[reproduce]
+
+@Comment::[Paper: Devlin et al. 2018, arXiv:1810.04805. Graded recreates GLUE/SQuAD/SWAG/ablation tables and MLM/NSP/bidirectionality probes.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_1810_fig2_input_sum,
+    paper_1810_mlm_recipe,
+    paper_1810_table1_glue,
+    paper_1810_table2_3_squad,
+    paper_1810_table4_swag,
+    paper_1810_table5_pretrain_ablation,
+    paper_1810_table6_size,
+    paper_1810_table7_ner,
+    paper_1810_bidirectional_vs_causal,
+    paper_1810_nsp_balance,
+)
+
+@Impl::BERTHeuristics::reproduce{
+_ = "reproduce published BERT heuristics"
+@}
+
+@Graded::Fig2_InputEmbeddings{
+plot_ok, input_sum_err = paper_1810_fig2_input_sum()
+@}::endpoints::[plot_ok=plot_ok, input_sum_err=input_sum_err]
+
+@Graded::MLM_CorruptionRecipe{
+plot_ok, mlm_frac_chosen, mlm_frac_mask_among_chosen, mlm_frac_keep_among_chosen = paper_1810_mlm_recipe()
+@}::endpoints::[plot_ok=plot_ok, mlm_frac_chosen=mlm_frac_chosen, mlm_frac_mask_among_chosen=mlm_frac_mask_among_chosen, mlm_frac_keep_among_chosen=mlm_frac_keep_among_chosen]
+
+@Graded::Table1_GLUE{
+plot_ok, paper_glue_base, paper_glue_large = paper_1810_table1_glue()
+@}::endpoints::[plot_ok=plot_ok, paper_glue_base=paper_glue_base, paper_glue_large=paper_glue_large]
+
+@Graded::Table2_3_SQuAD{
+plot_ok, paper_squad11_ens_f1, paper_squad20_f1 = paper_1810_table2_3_squad()
+@}::endpoints::[plot_ok=plot_ok, paper_squad11_ens_f1=paper_squad11_ens_f1, paper_squad20_f1=paper_squad20_f1]
+
+@Graded::Table4_SWAG{
+plot_ok, paper_swag_large = paper_1810_table4_swag()
+@}::endpoints::[plot_ok=plot_ok, paper_swag_large=paper_swag_large]
+
+@Graded::Table5_PretrainAblation{
+plot_ok, squad_f1_drop_ltr = paper_1810_table5_pretrain_ablation()
+@}::endpoints::[plot_ok=plot_ok, squad_f1_drop_ltr=squad_f1_drop_ltr]
+
+@Graded::Table6_ModelSize{
+plot_ok, size_ppl_monotonic = paper_1810_table6_size()
+@}::endpoints::[plot_ok=plot_ok, size_ppl_monotonic=size_ppl_monotonic]
+
+@Graded::Table7_NERFeatureBased{
+plot_ok, paper_concat_last4_dev_f1 = paper_1810_table7_ner()
+@}::endpoints::[plot_ok=plot_ok, paper_concat_last4_dev_f1=paper_concat_last4_dev_f1]
+
+@Graded::BidirectionalVsCausal{
+causal_future_mass, bidir_future_mass = paper_1810_bidirectional_vs_causal()
+@}::endpoints::[causal_future_mass=causal_future_mass, bidir_future_mass=bidir_future_mass]
+
+@Graded::NSP_Balance{
+nsp_mean_label = paper_1810_nsp_balance()
+@}::endpoints::[nsp_mean_label=nsp_mean_label]
+
+@GradedClass::BERTPaper::[Fig2_InputEmbeddings, MLM_CorruptionRecipe, Table1_GLUE, Table2_3_SQuAD, Table4_SWAG, Table5_PretrainAblation, Table6_ModelSize, Table7_NERFeatureBased, BidirectionalVsCausal, NSP_Balance]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, input_sum_err, mlm_frac_chosen, mlm_frac_mask_among_chosen, mlm_frac_keep_among_chosen, paper_glue_base, paper_glue_large, paper_squad11_ens_f1, paper_squad20_f1, paper_swag_large, squad_f1_drop_ltr, size_ppl_monotonic, paper_concat_last4_dev_f1, causal_future_mass, bidir_future_mass, nsp_mean_label]

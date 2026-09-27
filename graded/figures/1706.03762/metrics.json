@@ -1,0 +1,22 @@
+{
+  "arxiv": "1706.03762",
+  "plot_pe": 1.0,
+  "pe_relative_mse": 2.6907396913502823e-30,
+  "plot_lr": 1.0,
+  "lr_peak_step": 4000.0,
+  "plot_complexity": 1.0,
+  "self_attn_cheaper_n_lt_d": 1.0,
+  "plot_bleu": 1.0,
+  "paper_bleu_en_de_big": 28.4,
+  "paper_bleu_en_fr_big": 41.8,
+  "plot_ablations": 1.0,
+  "best_head_count_table3A": 8.0,
+  "plot_parsing": 1.0,
+  "paper_wsj_transformer_f1": 91.3,
+  "plot_attention_mechanics": 1.0,
+  "causal_mask_ok": 1.0,
+  "multihead_concat_ok": 1.0,
+  "softmax_row_err": 1.1920928955078125e-07,
+  "residual_ln_shape_ok": 1.0,
+  "label_smoothing_entropy_gap": 0.6508294343948364
+}
