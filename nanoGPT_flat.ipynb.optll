@@ -5,12 +5,9 @@
 @Technique::State::[layernorm, regularisedbn]
 @Technique::Arch::[decoderonly, encoderdecoder]
 @Technique::Attn::[vanillaatten, mqa, gqa, mla, dsa, tokenformer, tpa]
-@Technique::Probe::[l2lr, fisherlda, shrinkagelda, plsda, svd, meandiff, mlp, layermix, singleoracle, alllayeravg]
-@Technique::Data::[paired]
 @Technique::Vocab::[char64, word1k, word10k, word20k, word40k, word50k]
 @Technique::Scale::[tiny64, small256, faithful512]
 @Technique::Context::[ctx64, ctx256, ctx512]
-@Technique::Corrupt::[entityswap, negationflip, randomsplice]
 
 {
   "cells": [
