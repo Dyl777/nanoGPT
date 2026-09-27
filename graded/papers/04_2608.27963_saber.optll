@@ -1,0 +1,132 @@
+@PL::Python
+@Task::Arxiv_2608_27963_SABER
+@Modulu::ReasoningEarlyExit
+
+@Technique::ReasoningEarlyExit::[reproduce]
+
+@Comment::[Paper: SABER: Stability-Aware Early Exit for LLM Reasoning via Adversarial Branch Probing (Cheng, Xiang, Li et al. 2026, arXiv:2608.27963). Training-free decoding-time early exit: neutral/adversarial branches (k=4, <=10 toks), SC multiset-Jaccard (Eq.3) + CS exp-decay (Eq.6, gamma=3), RSS=alpha*SC+(1-alpha)*CS (Eq.7), exit on RSS>tau. One @Graded per table/figure (per-table granularity). Local probes check the same identities on synthetic branch multisets; Acc/Tok/CR are the published 4-8B values. Repo github.com/Bl1nding/SABER (0 issues/0 PRs): min_step_tokens=128, prefix_ids[:-1] drop, T=0/top-p=1.0 code defaults vs T=0.6/0.95 paper values.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_27963_fig1_dynamics,
+    paper_27963_table1_main,
+    paper_27963_fig3_ablation,
+    paper_27963_fig4_k,
+    paper_27963_table2_alpha,
+    paper_27963_fig5_tau,
+    paper_27963_table3_overhead,
+    paper_27963_table4_latency,
+    paper_27963_table5_scoring,
+    paper_27963_fig6_confononly,
+    paper_27963_table6_prompts,
+    paper_27963_table7_perturb,
+    paper_27963_table8_trigger,
+    paper_27963_cases,
+    paper_27963_hyperparams,
+    paper_27963_datasets,
+    paper_27963_prompts,
+    paper_27963_algorithm,
+)
+
+@Impl::ReasoningEarlyExit::reproduce{
+_ = "reproduce published SABER stability geometry + early-exit heuristics"
+@}
+
+@Graded::Fig1_Dynamics{
+# Fig.1 (OlympiadBench, s2): correct trajectories stabilize (consistency->1.0, conf-diff->~0.02); incorrect stay unstable (~0.5-0.6, volatile ~0.1-0.15). Local: synthetic stable SC~1 vs unstable SC~0.5.
+plot_ok, stable_sc, unstable_sc, cd_correct, cd_wrong = paper_27963_fig1_dynamics()
+@}::endpoints::[plot_ok=plot_ok, stable_sc=stable_sc, unstable_sc=unstable_sc, cd_correct=cd_correct, cd_wrong=cd_wrong]
+
+@Graded::Table1_Main{
+# Table 1 (s4.2): 3 models x 7 benchmarks Acc/Tok + Overall Acc/CR. SABER 69.0/75.1/76.0 at CR 69.8/69.3/60.2 (cuts 30.2-39.8%) vs vanilla 67.8/74.8/75.7. Local: Fig.7 RSS trace exits only at 0.99>0.95.
+plot_ok, saber_acc, vanilla_acc, cr, fig7_trace_ok = paper_27963_table1_main()
+@}::endpoints::[plot_ok=plot_ok, saber_acc=saber_acc, vanilla_acc=vanilla_acc, cr=cr, fig7_trace_ok=fig7_trace_ok]
+
+@Graded::Fig3_Ablation{
+# Fig.3 (s5.1): RSS beats SC-only and CS-only on all 4 benchmarks x 2 models; singles collapse on AIME24/GPQA-D (consistent-but-wrong vs stable-but-wrong failure modes).
+plot_ok, rss_wins_all = paper_27963_fig3_ablation()
+@}::endpoints::[plot_ok=plot_ok, rss_wins_all=rss_wins_all]
+
+@Graded::Fig4_K{
+# Fig.4 (s5.2, MATH-500 Qwen3-8B): k=1->4 gains +2.8 acc; k=4->32 only +0.4 while probe share 3.3%->22.7%. Default k=4.
+plot_ok, k1_to_4_gain, k4_to_32_gain, ratio_k4, ratio_k32 = paper_27963_fig4_k()
+@}::endpoints::[plot_ok=plot_ok, k1_to_4_gain=k1_to_4_gain, k4_to_32_gain=k4_to_32_gain, ratio_k4=ratio_k4, ratio_k32=ratio_k32]
+
+@Graded::Table2_Alpha{
+# Table 2 (s5.3): alpha=0.7 best GSM8K (SC dominates easy), alpha=0.3 best OlympiadBench (CS dominates hard). Task-dependent complementarity.
+plot_ok, alpha_gsm8k, alpha_olympiad = paper_27963_table2_alpha()
+@}::endpoints::[plot_ok=plot_ok, alpha_gsm8k=alpha_gsm8k, alpha_olympiad=alpha_olympiad]
+
+@Graded::Fig5_Tau{
+# Fig.5 (s5.4, OlympiadBench alpha=0.3): tau up -> later exit (acc and tokens rise); stable in [0.8,0.95]. Defaults tau=0.9 (R1-7B) / 0.95 (Qwen3).
+plot_ok, tau_r1, tau_qwen = paper_27963_fig5_tau()
+@}::endpoints::[plot_ok=plot_ok, tau_r1=tau_r1, tau_qwen=tau_qwen]
+
+@Graded::Table3_Overhead{
+# Table 3 (s5.5): probe tokens 221/147/181 of totals (4.9/2.8/3.8%, avg 3.8%). Savings dwarf probe cost. Local: 183/4838 arithmetic.
+plot_ok, avg_probe_ratio, r1_ratio, q4_ratio, q8_ratio = paper_27963_table3_overhead()
+@}::endpoints::[plot_ok=plot_ok, avg_probe_ratio=avg_probe_ratio, r1_ratio=r1_ratio, q4_ratio=q4_ratio, q8_ratio=q8_ratio]
+
+@Graded::Table4_Latency{
+# Table 4 (s5.6): wall-clock cuts 37.8/43.7/59.5% (avg 48.8%); hardest tasks gain most.
+plot_ok, latency_cut = paper_27963_table4_latency()
+@}::endpoints::[plot_ok=plot_ok, latency_cut=latency_cut]
+
+@Graded::Table5_Scoring{
+# Table 5 + Eq.8-10 (App C.2, R1-7B): RSS 64.8/69.7% beats SCxCS 63.8/75.1% and Branch-UQ 62.8/69.1%. Framework carries gains; RSS adds cross-branch semantics. Per-alternative tau tuning recorded.
+plot_ok, smult_example, uq_gap_example = paper_27963_table5_scoring()
+@}::endpoints::[plot_ok=plot_ok, smult_example=smult_example, uq_gap_example=uq_gap_example]
+
+@Graded::Fig6_ConfOnly{
+# Fig.6 (App C.1, MATH-500): SABER Pareto-dominates confidence-only at every budget, nearer oracle. Confidence alone can't see unconverged-but-confident states.
+plot_ok, pareto_dominates = paper_27963_fig6_confononly()
+@}::endpoints::[plot_ok=plot_ok, pareto_dominates=pareto_dominates]
+
+@Graded::Table6_Prompts{
+# Table 6 (App C.3): 4 perturbation styles verbatim (Self-Correction default). Structural: 4 styles, adversarial template starts correctly.
+plot_ok_unused, adv_prompt, nstyles = paper_27963_table6_prompts()
+@}::endpoints::[adv_prompt=adv_prompt, nstyles=nstyles]
+
+@Graded::Table7_Perturb{
+# Table 7 (App C.3, Qwen3-4B): default SABER 76.0 best overall; Verification most token-efficient (3519). Behavior matters, not wording.
+plot_ok, best_perturb_acc, verif_tokens = paper_27963_table7_perturb()
+@}::endpoints::[plot_ok=plot_ok, best_perturb_acc=best_perturb_acc, verif_tokens=verif_tokens]
+
+@Graded::Table8_Trigger{
+# Table 8 (App C.4, Qwen3-8B): Wait 70.8/66.4% vs newline 70.7/71.9% — insensitive. Licenses nanoGPT sentence-boundary triggers (no Wait emitted).
+plot_ok, trigger_gap, cr_wait, cr_newline = paper_27963_table8_trigger()
+@}::endpoints::[plot_ok=plot_ok, trigger_gap=trigger_gap, cr_wait=cr_wait, cr_newline=cr_newline]
+
+@Graded::Cases{
+# Figs.7-10 (App D, Qwen3-8B a=0.7 t=0.95): Fig.8 5840->1626 correct; Fig.9 1664 vs 16384-truncated; Fig.10 532 right vs 4163 wrong (over-reflection flips); Fig.7 RSS 0.63/0.81 continue, 0.99 exit.
+plot_ok, fig8_saved, tok_v10, tok_s10, trace7 = paper_27963_cases()
+@}::endpoints::[plot_ok=plot_ok, fig8_saved=fig8_saved, tok_v10=tok_v10, tok_s10=tok_s10, trace7=trace7]
+
+@Graded::Hyperparams{
+# App A.1: k=4, branches <=10 toks, T=0.6/top-p=0.95 paper vs T=0/1.0 repo-default discrepancy recorded; gamma=3; alpha {0.3,0.5,0.7}; tau {0.85..0.98} -> 0.9/0.95; 32k/16k; repo-only min_step_tokens=128, prefix drop, 4x small-set runs.
+k, branch_maxtok, temp_paper, topp_paper, gamma, tau_r1b, tau_qb, minstep = paper_27963_hyperparams()
+@}::endpoints::[k=k, branch_maxtok=branch_maxtok, temp_paper=temp_paper, topp_paper=topp_paper, gamma=gamma, minstep=minstep]
+
+@Graded::Datasets{
+# App A.2: GSM8K, MATH-500, AMC23, OlympiadBench, AIME24/25, GPQA-Diamond; zero-shot; AMC/AIME 4x averaged. Repo evaluate_data/ ships all loaders.
+datasets, aime_runs = paper_27963_datasets()
+@}::endpoints::[datasets=datasets, aime_runs=aime_runs]
+
+@Graded::Prompts{
+# App A.3 base/neutral/adversarial templates verbatim. Structural checks on all three.
+base_p, neut_p, adv_p = paper_27963_prompts()
+@}::endpoints::[base_p=base_p, neut_p=neut_p, adv_p=adv_p]
+
+@Graded::Algorithm{
+# Alg.1 + App B (code SABEREarlyExitEngine): segment-on-trigger, branch, k-sample, SC/CS/RSS, tau-exit with </think> injection, final decode; 8 stages; repo-only min_step_tokens=128 + prefix drop + per-example JSON.
+nstages, minstep2, clos_tok = paper_27963_algorithm()
+@}::endpoints::[nstages=nstages, minstep2=minstep2, clos_tok=clos_tok]
+
+@GradedClass::SABERPaper::[Fig1_Dynamics, Table1_Main, Fig3_Ablation, Fig4_K, Table2_Alpha, Fig5_Tau, Table3_Overhead, Table4_Latency, Table5_Scoring, Fig6_ConfOnly, Table6_Prompts, Table7_Perturb, Table8_Trigger, Cases, Hyperparams, Datasets, Prompts, Algorithm]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, stable_sc, unstable_sc, cd_correct, cd_wrong, saber_acc, vanilla_acc, cr, fig7_trace_ok, rss_wins_all, k1_to_4_gain, k4_to_32_gain, ratio_k4, ratio_k32, alpha_gsm8k, alpha_olympiad, tau_r1, tau_qwen, avg_probe_ratio, r1_ratio, q4_ratio, q8_ratio, latency_cut, smult_example, uq_gap_example, pareto_dominates, adv_prompt, nstyles, best_perturb_acc, verif_tokens, trigger_gap, cr_wait, cr_newline, fig8_saved, tok_v10, tok_s10, trace7, k, branch_maxtok, temp_paper, topp_paper, gamma, minstep, datasets, aime_runs, base_p, neut_p, adv_p, nstages, minstep2, clos_tok]

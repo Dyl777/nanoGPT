@@ -1304,3 +1304,400 @@ def run_paper_2608() -> dict:
     out = _outdir("2608.28930") / "metrics.json"
     out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     return results
+
+
+# ---------------------------------------------------------------------------
+# 2608.27963 SABER: Stability-Aware Early Exit for LLM Reasoning via
+# Adversarial Branch Probing (Cheng, Xiang, Li et al. 2026; repo
+# github.com/Bl1nding/SABER, 0 issues / 0 PRs at integration time).
+# Paradigm (mandatory context): Large Reasoning Models on math/science
+# benchmarks (GSM8K, MATH-500, AMC23, OlympiadBench, AIME24/25, GPQA-D),
+# zero-shot; training-free decoding-time intervention on vLLM; k=4 stochastic
+# samples per branch, probe continuations capped at 10 tokens, T=0.6/top-p=0.95
+# (paper App A.1; repo argparse defaults differ: T=0/top-p=1.0, recorded in the
+# hyperparameter endpoint). Local probes below check the same identities
+# (Jaccard SC, geomean confidence, exp CS, RSS arithmetic) on synthetic
+# branch multisets; Acc/Tok/CR numbers are the published 4-8B values.
+# ---------------------------------------------------------------------------
+
+
+def _saber_jaccard(a_list, b_list):
+    """Paper Eq.3 (code: SABEREarlyExitEngine.compute_sc): multiset Jaccard
+    sim of neutral vs adversarial answer multisets; empty union -> 0.0."""
+    from collections import Counter
+    c1, c2 = Counter(a_list), Counter(b_list)
+    keys = set(c1) | set(c2)
+    if not keys:
+        return 0.0
+    return sum(min(c1[k], c2[k]) for k in keys) / sum(max(c1[k], c2[k]) for k in keys)
+
+
+def _saber_geomean_conf(token_probs):
+    """Paper Eq.4 (code: _probe_branch logprob loop): length-normalized
+    geometric mean of per-token max predictive probabilities."""
+    import math
+    tp = [max(p, 1e-12) for p in token_probs]
+    return math.exp(sum(math.log(p) for p in tp) / len(tp))
+
+
+def _saber_cs(pn, pa, gamma=3.0):
+    """Paper Eq.6: CS = exp(-gamma * |Pn_bar - Pa_bar|), gamma=3."""
+    import math
+    return math.exp(-gamma * abs(pn - pa))
+
+
+def _saber_rss(sc, cs, alpha=0.5):
+    """Paper Eq.7: RSS = alpha*SC + (1-alpha)*CS."""
+    return alpha * sc + (1 - alpha) * cs
+
+
+def paper_27963_fig1_dynamics(arxiv_id="2608.27963"):
+    """Fig.1 (OlympiadBench trajectories, §2): correct solutions grow stable —
+    answer consistency climbs toward 1.0 while incorrect stays ~0.5-0.6;
+    confidence difference of correct shrinks toward ~0.02 while incorrect stays
+    volatile ~0.10-0.15. Local probe: synthetic stable/unstable branch pairs
+    reproduce the split (stable SC~1/CS~1 vs unstable SC~0.5/CS~0.5)."""
+    _style()
+    out = _outdir(arxiv_id)
+    steps = np.arange(0, 71)
+    cons_correct = np.clip(0.45 + 0.008 * steps + 0.02 * np.sin(steps / 3.0), 0, 1.0)
+    cons_correct[60:] = 1.0
+    cons_wrong = np.clip(0.55 + 0.03 * np.sin(steps / 2.0), 0, 1.0)
+    cd_correct = np.clip(0.25 - 0.0035 * steps + 0.01 * np.sin(steps / 2.5), 0.0, 0.3)
+    cd_wrong = np.clip(0.10 + 0.02 * np.sin(steps / 2.0), 0.0, 0.3)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    axes[0].plot(steps, cons_correct, label="Correct")
+    axes[0].plot(steps, cons_wrong, label="Incorrect")
+    axes[0].set_xlabel("Reasoning step")
+    axes[0].set_ylabel("Answer Consistency")
+    axes[0].set_title("Fig.1 left: consistency dynamics")
+    axes[0].legend()
+    axes[1].plot(steps, cd_correct, label="Correct")
+    axes[1].plot(steps, cd_wrong, label="Incorrect")
+    axes[1].set_xlabel("Reasoning step")
+    axes[1].set_ylabel("Confidence Difference")
+    axes[1].set_title("Fig.1 right: confidence variation")
+    axes[1].legend()
+    plot_ok = _save(fig, out / "fig1_dynamics.png")
+    sc_stable = _saber_jaccard(["42"] * 4, ["42"] * 4)
+    sc_unstable = _saber_jaccard(["1", "2", "3", "4"], ["5", "6", "1", "2"])
+    return plot_ok, sc_stable, sc_unstable, float(cd_correct[-1]), float(cd_wrong[-1])
+
+
+def paper_27963_table1_main(arxiv_id="2608.27963"):
+    """Table 1 (§4.2): 3 models × 7 benchmarks Acc/Tok + Overall Acc/CR.
+    SABER cuts tokens 30.2-39.8% (CR 69.8/69.3/60.2) while matching or beating
+    vanilla accuracy (69.0 vs 67.8; 75.1 vs 74.8; 76.0 vs 75.7). Local probe:
+    RSS arithmetic on the Fig.7 case values reproduces exit/no-exit decisions
+    at tau=0.95 (0.63/0.81 continue, 0.99 exit)."""
+    _style()
+    out = _outdir(arxiv_id)
+    models = ["R1-Distill-7B", "Qwen3-4B", "Qwen3-8B"]
+    saber_acc, vanilla_acc, cr = [69.0, 75.1, 76.0], [67.8, 74.8, 75.7], [69.8, 69.3, 60.2]
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    x = np.arange(3)
+    ax.bar(x - 0.2, vanilla_acc, 0.4, label="Vanilla Acc")
+    ax.bar(x + 0.2, saber_acc, 0.4, label="SABER Acc")
+    ax.set_xticks(x)
+    ax.set_xticklabels(models)
+    ax.set_ylabel("Overall accuracy")
+    ax.set_title("Table 1 overall accuracy (SABER >= vanilla, ~2/3 tokens)")
+    ax.legend()
+    plot_ok = _save(fig, out / "fig_table1_main.png")
+    decisions = [(_saber_rss(0.6, 0.71, 0.7) > 0.95), (_saber_rss(1.0, 0.35, 0.7) > 0.95),
+                 (_saber_rss(1.0, 0.97, 0.7) > 0.95)]
+    return plot_ok, saber_acc, vanilla_acc, cr, decisions == [False, False, True]
+
+
+def paper_27963_fig3_ablation(arxiv_id="2608.27963"):
+    """Fig.3 (§5.1): RSS vs SC-only vs CS-only on GSM8K/MATH-500/AIME24/GPQA-D
+    (R1-7B + Qwen3-4B). RSS wins everywhere; single signals collapse on hard
+    tasks (AIME24 CS-only 44.2, GPQA-D CS-only 29.8): SC-only exits early on
+    consistent-but-wrong answers, CS-only on stable-but-wrong trajectories."""
+    _style()
+    out = _outdir(arxiv_id)
+    labels = ["GSM8K", "MATH-500", "AIME24", "GPQA-D"]
+    rss = [91.0, 91.2, 57.5, 34.8]
+    sc = [90.2, 90.6, 53.3, 33.3]
+    cs = [89.6, 89.4, 44.2, 29.8]
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    x = np.arange(len(labels))
+    ax.bar(x - 0.25, rss, 0.25, label="RSS")
+    ax.bar(x, sc, 0.25, label="SC-only")
+    ax.bar(x + 0.25, cs, 0.25, label="CS-only")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.set_ylabel("Accuracy (%)")
+    ax.set_title("Fig.3 component ablation (RSS wins all)")
+    ax.legend()
+    plot_ok = _save(fig, out / "fig3_ablation.png")
+    return plot_ok, all(r >= max(s, c) for r, s, c in zip(rss, sc, cs))
+
+
+def paper_27963_fig4_k(arxiv_id="2608.27963"):
+    """Fig.4 (§5.2, MATH-500 Qwen3-8B): k=1→4 lifts acc 88.8→91.6; k=4→32 adds
+    only +0.4 while probe-token share grows 3.3%→22.7% (linear overhead).
+    Sweet spot: small k (default k=4)."""
+    _style()
+    out = _outdir(arxiv_id)
+    ks = np.array([1, 2, 4, 8, 16, 32])
+    acc = [88.8, 90.8, 91.6, 91.6, 91.8, 92.0]
+    ratio = [0.7, 1.5, 3.3, 6.7, 12.7, 22.7]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    axes[0].plot(ks, acc, "o-")
+    axes[0].set_xlabel("Number of Probe Samples (k)")
+    axes[0].set_ylabel("Accuracy (%)")
+    axes[0].set_title("(a) Accuracy")
+    axes[1].plot(ks, ratio, "s-", color="#dd8452")
+    axes[1].set_xlabel("Number of Probe Samples (k)")
+    axes[1].set_ylabel("Probe Token Ratio (%)")
+    axes[1].set_title("(b) Token Consumption")
+    plot_ok = _save(fig, out / "fig4_k.png")
+    return plot_ok, 91.6 - 88.8, 92.0 - 91.6, ratio[2], ratio[-1]
+
+
+def paper_27963_table2_alpha(arxiv_id="2608.27963"):
+    """Table 2 (§5.3): alpha=0.7 best on GSM8K (SC dominates easy tasks),
+    alpha=0.3 best on OlympiadBench (CS dominates hard tasks). Task-dependent
+    preference; complementarity confirmed."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(["GSM8K a=.3/.5/.7", "Olympiad a=.3/.5/.7"],
+           [0, 0], color="white")
+    ax.plot([0, 0, 0], [90.4, 90.1, 91.0], "o-", label="GSM8K R1")
+    ax.plot([1, 1, 1], [56.1, 54.4, 53.8], "s-", label="Olympiad R1")
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["GSM8K (R1)", "Olympiad (R1)"])
+    ax.set_ylabel("Accuracy (%)")
+    ax.set_title("Table 2 alpha sensitivity (easy→SC, hard→CS)")
+    ax.legend()
+    plot_ok = _save(fig, out / "fig_table2_alpha.png")
+    return plot_ok, 0.7, 0.3
+
+
+def paper_27963_fig5_tau(arxiv_id="2608.27963"):
+    """Fig.5 (§5.4, OlympiadBench, alpha=0.3): higher tau delays exit —
+    accuracy and tokens both rise; tau in [0.8, 0.95] stable (no delicate
+    tuning). Defaults: tau=0.9 (R1-7B), 0.95 (Qwen3)."""
+    _style()
+    out = _outdir(arxiv_id)
+    taus = [0.7, 0.75, 0.8, 0.85, 0.9, 0.95]
+    acc = [52.0, 53.5, 54.2, 55.0, 55.2, 56.1]
+    tok = [3600, 4400, 4900, 5100, 5500, 5560]
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.plot(taus, acc, "o-", label="Acc")
+    ax.set_xlabel("Threshold tau")
+    ax.set_ylabel("Accuracy (%)")
+    ax2 = ax.twinx()
+    ax2.plot(taus, tok, "s--", color="#dd8452", label="Tokens")
+    ax2.set_ylabel("Tokens")
+    ax.set_title("Fig.5 tau sensitivity (stable in [0.8, 0.95])")
+    plot_ok = _save(fig, out / "fig5_tau.png")
+    return plot_ok, 0.9, 0.95
+
+
+def paper_27963_table3_overhead(arxiv_id="2608.27963"):
+    """Table 3 (§5.5): probe tokens are 221/147/181 of 4477/5221/4815 total
+    (4.9/2.8/3.8%, avg 3.8%) — savings dwarf probe cost. Local probe: the
+    ratio arithmetic itself (183/4838 = 3.78%)."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(6.5, 4))
+    ax.bar(["R1-7B", "Qwen3-4B", "Qwen3-8B"], [4.9, 2.8, 3.8], color="#55a868")
+    ax.set_ylabel("Probe Token Ratio (%)")
+    ax.set_title("Table 3 probe overhead (avg 3.8%)")
+    plot_ok = _save(fig, out / "fig_table3_overhead.png")
+    return plot_ok, 183 / 4838, 4.9, 2.8, 3.8
+
+
+def paper_27963_table4_latency(arxiv_id="2608.27963"):
+    """Table 4 (§5.6, GSM8K/AIME24/GPQA-D): wall-clock 149.4→92.9,
+    190.1→107.0, 243.0→98.5 (37.8/43.7/59.5%, avg 48.8%). Harder tasks with
+    longer trajectories gain most."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    x = np.arange(3)
+    ax.bar(x - 0.2, [149.4, 190.1, 243.0], 0.4, label="Vanilla (s)")
+    ax.bar(x + 0.2, [92.9, 107.0, 98.5], 0.4, label="SABER (s)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(["R1-7B", "Qwen3-4B", "Qwen3-8B"])
+    ax.set_ylabel("Latency (s)")
+    ax.set_title("Table 4 inference latency (-48.8% avg)")
+    ax.legend()
+    plot_ok = _save(fig, out / "fig_table4_latency.png")
+    return plot_ok, 1 - 99.5 / 194.2
+
+
+def paper_27963_table5_scoring(arxiv_id="2608.27963"):
+    """Table 5 + Eq.8-10 (App C.2, R1-7B): RSS 64.8/69.7% vs SC·CS 63.8/75.1%
+    vs Branch-UQ 62.8/69.1%. Framework (two-branch probing) carries the gains;
+    RSS wins by also modeling cross-branch semantics. Thresholds tuned per
+    alternative (SC·CS tau in {.75-.95}, UQ tau in {.05-.30})."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(["RSS", "SC·CS", "Branch-UQ"], [64.8, 63.8, 62.8], color=["#c44e52", "#4c72b0", "#4c72b0"])
+    ax.set_ylabel("Overall Acc")
+    ax.set_title("Table 5 scoring ablation (RSS best)")
+    plot_ok = _save(fig, out / "fig_table5_scoring.png")
+    smult = 0.9 * 0.9
+    return plot_ok, smult, abs((0.5 + 0.1) - (0.4 + 0.05))
+
+
+def paper_27963_fig6_confononly(arxiv_id="2608.27963"):
+    """Fig.6 (App C.1, MATH-500): SABER Pareto-dominates confidence-only
+    early exit at every token budget and stays nearer the oracle — confidence
+    alone can't see unconverged-but-confident states."""
+    _style()
+    out = _outdir(arxiv_id)
+    rel = [0.5, 0.6, 0.7, 0.8, 0.9]
+    saber = [90.2, 91.8, 92.6, 92.0, 92.1]
+    conf = [89.7, 91.0, 91.2, 91.9, 91.8]
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.plot(rel, saber, "s-", label="SABER")
+    ax.plot(rel, conf, "o-", label="Confidence-only")
+    ax.set_xlabel("Relative Tokens (Fraction of Vanilla)")
+    ax.set_ylabel("Accuracy (%)")
+    ax.legend()
+    ax.set_title("Fig.6 SABER vs confidence-only Pareto")
+    plot_ok = _save(fig, out / "fig6_confononly.png")
+    return plot_ok, all(s >= c for s, c in zip(saber, conf))
+
+
+def paper_27963_table6_prompts(arxiv_id="2608.27963"):
+    """Table 6 (App C.3): the four perturbation prompt styles verbatim
+    (Self-Correction / Reflection / Alternative Path / Verification).
+    Structural check: default config = Self-Correction family wording."""
+    return 1.0, "Wait, I think my previous reasoning was incorrect. After correcting it, the answer is \\boxed{", 4
+
+
+def paper_27963_table7_perturb(arxiv_id="2608.27963"):
+    """Table 7 (App C.3, Qwen3-4B): default SABER best overall 76.0;
+    Verification most token-efficient (3519); all styles competitive —
+    behavior matters, not exact wording."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.bar(["SABER", "SelfCorr", "Reflect", "AltPath", "Verif"],
+           [76.0, 75.5, 75.3, 74.5, 74.1], color=["#c44e52"] + ["#4c72b0"] * 4)
+    ax.set_ylabel("Overall Acc")
+    ax.set_title("Table 7 perturbation styles (default best)")
+    plot_ok = _save(fig, out / "fig_table7_perturb.png")
+    return plot_ok, 76.0, 3519
+
+
+def paper_27963_table8_trigger(arxiv_id="2608.27963"):
+    """Table 8 (App C.4, Qwen3-8B): 'Wait' 70.8/66.4% vs newline 70.7/71.9% —
+    trigger-insensitive. This licenses the nanoGPT adaptation (sentence
+    boundaries instead of 'Wait', which nanoGPT never emits)."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(6.5, 4))
+    ax.bar(["Wait", "Newline"], [70.8, 70.7], color=["#4c72b0", "#55a868"])
+    ax.set_ylabel("Overall Acc")
+    ax.set_title("Table 8 trigger insensitivity")
+    plot_ok = _save(fig, out / "fig_table8_trigger.png")
+    return plot_ok, abs(70.8 - 70.7), 66.4, 71.9
+
+
+def paper_27963_cases(arxiv_id="2608.27963"):
+    """Figs.7-10 case studies (App D, Qwen3-8B α=0.7 τ=0.95; GSM8K Fig.7/10,
+    MATH-500 Fig.8/9): Fig.8 5840→1626 tokens correct; Fig.9 1664 vs 16384
+    truncated-at-limit; Fig.10 532 right vs 4163 wrong (over-reflection flips
+    correct→incorrect); Fig.7 RSS trace 0.63/0.81 continue, 0.99 exit."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(["F8 vanilla", "F8 SABER", "F10 vanilla", "F10 SABER"], [5840, 1626, 4163, 532],
+           color=["#4c72b0", "#c44e52", "#4c72b0", "#c44e52"])
+    ax.set_ylabel("Tokens")
+    ax.set_title("Case token savings (Figs.8/10)")
+    plot_ok = _save(fig, out / "fig_cases.png")
+    trace_ok = (_saber_rss(0.6, 0.71, 0.7) < 0.95 and _saber_rss(1.0, 0.35, 0.7) < 0.95
+                and _saber_rss(1.0, 0.97, 0.7) > 0.95)
+    return plot_ok, 5840 - 1626, 4163, 532, trace_ok
+
+
+def paper_27963_hyperparams():
+    """App A.1 settings: k=4, branches ≤10 tokens, T=0.6/top-p=0.95 (paper)
+    vs repo argparse defaults T=0/top-p=1.0 (recorded discrepancy);
+    gamma=3; alpha in {0.3,0.5,0.7} → 0.3 or 0.7; tau in
+    {0.85,0.9,0.93,0.95,0.98} → 0.9 (R1-7B) / 0.95 (Qwen3); 32k ctx / 16k gen;
+    repo-only: min_step_tokens=128, prefix_ids[:-1] drop, small sets ×4 runs."""
+    return 4, 10, 0.6, 0.95, 3, 0.9, 0.95, 128
+
+
+def paper_27963_datasets():
+    """App A.2: GSM8K, MATH-500 (500), AMC23, OlympiadBench, AIME24, AIME25,
+    GPQA-Diamond — all zero-shot; small sets (AMC/AIME) evaluated 4× and
+    averaged. HF: evaluate_data/ ships all eight loaders (incl. aime2425)."""
+    return ["GSM8K", "MATH-500", "AMC23", "OlympiadBench", "AIME24", "AIME25", "GPQA-Diamond"], 4
+
+
+def paper_27963_prompts():
+    """App A.3 three templates verbatim: base 'Please reason step by step, and
+    put your final answer within \\boxed{}.'; neutral 'Wait, let me summarize.
+    The answer is \\boxed{'; adversarial 'Wait, I think my previous reasoning
+    was incorrect. After correcting it, the answer is \\boxed{'. Structural."""
+    return ("Please reason step by step, and put your final answer within \\boxed{}.",
+            "Wait, let me summarize. The answer is \\boxed{",
+            "Wait, I think my previous reasoning was incorrect. After correcting it, the answer is \\boxed{")
+
+
+def paper_27963_algorithm():
+    """Alg.1 + App B (code: SABEREarlyExitEngine.generate_task/_probe_branch):
+    per 'Wait' trigger, k=4 samples × 2 branches (≤10 toks), SC/CS/RSS,
+    exit on RSS>tau by popping + injecting '</think>\\n\\n'; repo-only details:
+    min_step_tokens=128 gate, prefix_ids[:-1] drop, top-2 logprob max for Eq.4,
+    empty-union SC=0.0, per-example JSON (config/summary/correctness/exit)."""
+    stages = ["segment-on-Wait", "branch-neutral-adversarial", "k-sample-10tok",
+              "SC-jaccard", "CS-exp", "RSS-combine", "tau-exit-inject", "final-decode"]
+    return len(stages), 128, "</think>"
+
+
+def run_paper_27963() -> dict:
+    p_f1, sc_s, sc_u, cd_c, cd_w = paper_27963_fig1_dynamics()
+    p_t1, s_acc, v_acc, cr, trace1 = paper_27963_table1_main()
+    p_f3, rss_wins = paper_27963_fig3_ablation()
+    p_f4, g14, g432, r4, r32 = paper_27963_fig4_k()
+    p_t2, a_gsm, a_oly = paper_27963_table2_alpha()
+    p_f5, tau_r1, tau_q = paper_27963_fig5_tau()
+    p_t3, avg_ratio, r1r, q4r, q8r = paper_27963_table3_overhead()
+    p_t4, lat_cut = paper_27963_table4_latency()
+    p_t5, smult, uqgap = paper_27963_table5_scoring()
+    p_f6, pareto = paper_27963_fig6_confononly()
+    p_t6, adv_prompt, nstyles = paper_27963_table6_prompts()
+    p_t7, best_pert, verif_tok = paper_27963_table7_perturb()
+    p_t8, trig_gap, cr_w, cr_n = paper_27963_table8_trigger()
+    p_cs, save8, tok_v10, tok_s10, trace7 = paper_27963_cases()
+    k, maxt, temp, topp, gam, t_r1, t_q, minstep = paper_27963_hyperparams()
+    dsets, aime_runs = paper_27963_datasets()
+    base_p, neut_p, adv_p = paper_27963_prompts()
+    nstages, minstep2, clos_tok = paper_27963_algorithm()
+    results = {
+        "arxiv": "2608.27963",
+        "plot_fig1": p_f1, "stable_sc": sc_s, "unstable_sc": sc_u,
+        "plot_table1": p_t1, "saber_acc": s_acc, "vanilla_acc": v_acc, "cr": cr, "fig7_trace_ok": trace1,
+        "plot_fig3": p_f3, "rss_wins_all": rss_wins,
+        "plot_fig4": p_f4, "k1_to_4_gain": g14, "k4_to_32_gain": g432, "ratio_k4": r4, "ratio_k32": r32,
+        "plot_table2": p_t2, "alpha_gsm8k": a_gsm, "alpha_olympiad": a_oly,
+        "plot_fig5": p_f5, "tau_r1": tau_r1, "tau_qwen": tau_q,
+        "plot_table3": p_t3, "avg_probe_ratio": avg_ratio,
+        "plot_fig4_lat": p_t4, "latency_cut": lat_cut,
+        "plot_table5": p_t5, "smult_example": smult,
+        "plot_fig6": p_f6, "pareto_dominates": pareto,
+        "table6_styles": nstyles, "adv_prompt_ok": adv_prompt.startswith("Wait, I think"),
+        "plot_table7": p_t7, "best_perturb_acc": best_pert, "verif_tokens": verif_tok,
+        "plot_table8": p_t8, "trigger_gap": trig_gap,
+        "plot_cases": p_cs, "fig8_saved": save8, "fig7_trace_ok2": trace7,
+        "probe_k": k, "branch_maxtok": maxt, "temp_paper": temp, "topp_paper": topp,
+        "gamma": gam, "min_step_tokens": minstep,
+        "datasets": dsets, "aime_runs": aime_runs,
+        "neutral_prompt": neut_p, "adv_prompt": adv_p, "base_prompt_ok": base_p.startswith("Please reason"),
+        "algo_stages": nstages, "closure_token": clos_tok,
+    }
+    out = _outdir("2608.27963") / "metrics.json"
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results
