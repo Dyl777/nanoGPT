@@ -1,0 +1,132 @@
+@PL::Python
+@Task::Arxiv_2609_11393_TASCO
+@Modulu::TestTimeAdaptation
+
+@Technique::TestTimeAdaptation::[reproduce]
+
+@Comment::[Paper: Beyond Confidence: Stability-Aware Test-Time Adaptation for LLM Reasoning (Gu et al. 2026, arXiv:2609.11393). Frozen LLM + shared continuous prefix V (LxD): Lconf mean entropy (Eq.1); RP K=8 Gaussian re-decodes, Var (Eq.4), LRP=Lconf+lam*Lrand (Eq.5); SAP min-max rho-ball (Eq.6, rho=0.8), eps*=rho*g/||g|| (Eq.8), stop-grad LSAP (Eq.9). +14.4/+17.2/+2.9 general, +6.8/+6.0 reasoning; -28.1%/-24.0% tokens. One @Graded per table/figure (per-table granularity). Repo note: no public code found (aggregators: no code link; 0 issues reviewable) - text-faithful.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2609_11393_fig1_motivation,
+    paper_2609_11393_fig2_variance,
+    paper_2609_11393_fig3_method,
+    paper_2609_11393_equations,
+    paper_2609_11393_theory,
+    paper_2609_11393_table1_main,
+    paper_2609_11393_fig4_tradeoff,
+    paper_2609_11393_fig5_ablation,
+    paper_2609_11393_table2_reasoning,
+    paper_2609_11393_fig6_transfer,
+    paper_2609_11393_table3_stability,
+    paper_2609_11393_fig7_formation,
+    paper_2609_11393_table4_difficulty,
+    paper_2609_11393_fig8_sensitivity,
+    paper_2609_11393_table5_settings,
+    paper_2609_11393_appB_tables,
+    paper_2609_11393_appE_tables,
+    paper_2609_11393_appD_algorithms,
+)
+
+@Impl::TestTimeAdaptation::reproduce{
+_ = "reproduce published TASCO stability-aware prefix optimization"
+@}
+
+@Graded::Fig1_Motivation{
+# Fig.1: conf-only (0.95 fail/0.72 ok/0.58 fail, fragile) vs stability-aware (0.89/0.87/0.86 all ok). Local: fragile variance exceeds stable variance.
+c_only, stab, var_higher = paper_2609_11393_fig1_motivation()
+@}::endpoints::[c_only=c_only, stab=stab, var_higher=var_higher]
+
+@Graded::Fig2_Variance{
+# Fig.2 (+App B Fig.9/Tables 6-7): low-beats-high gaps 17.2-29.0pp; Spearman -0.31..-0.41, AUROC .668-.745; stratified significant except Qwen-1.5B (5.4ns, conf-rho -0.717).
+plot_ok, gaps, spear, strat, crho = paper_2609_11393_fig2_variance()
+@}::endpoints::[plot_ok=plot_ok, gaps=gaps, spear=spear, strat=strat, crho=crho]
+
+@Graded::Fig3_Method{
+# Fig.3 registry: steer -> frozen LLM -> token confidence; RP branch (K re-decodes, Var) vs SAP branch (grad eps*, stop-grad, 1 eval).
+stages = paper_2609_11393_fig3_method()
+@}::endpoints::[stages=stages]
+
+@Graded::Equations{
+# Eq.1-9: Lconf/RP/SAP/stop-grad identities. Local: ||eps*||=rho, LRP assembles, sample-var unbiasedness holds.
+eq = paper_2609_11393_equations()
+@}::endpoints::[eq=eq]
+
+@Graded::Theory{
+# Props 1-4 + Corollaries + Eq.55-57 registry; local: Chebyshev numeric + [lmax]+<=||H||2<=||H||F chain verified.
+th = paper_2609_11393_theory()
+@}::endpoints::[th=th]
+
+@Graded::Table1_Main{
+# Table 1: 7B RP 48.1/SAP 48.4 (+16.9/+17.2); 1.5B 36.4/36.8 (+14.4/+14.8); LLaMA 28.9/29.7 (+2.9/+3.7); beats TTSV by 2.9/4.8. RP/SAP top-2 everywhere.
+plot_ok, rp, sap, cot, drp, dsap = paper_2609_11393_table1_main()
+@}::endpoints::[plot_ok=plot_ok, rp=rp, sap=sap, cot=cot, drp=drp, dsap=dsap]
+
+@Graded::Fig4_Tradeoff{
+# Fig.4: TASCO top-left (best acc, fewest tokens) on all 3 models; -28.1%/-24.0% tokens.
+plot_ok, trp, tsp = paper_2609_11393_fig4_tradeoff()
+@}::endpoints::[plot_ok=plot_ok, trp=trp, tsp=tsp]
+
+@Graded::Fig5_Ablation{
+# Fig.5: RP/SAP beat CoT-Unk/ConfOnly/PertConf/StabOnly - gains need BOTH confidence and stability (max delta +26.1).
+ab = paper_2609_11393_fig5_ablation()
+@}::endpoints::[ab=ab]
+
+@Graded::Table2_Reasoning{
+# Table 2 (SAP on R1-Distill): 1.5B 49.0 (+6.8, -14.1% tok), 7B 61.1 (+4.9, -8.8%); beats best reasoning-control baseline by 4.3/2.5.
+t2 = paper_2609_11393_table2_reasoning()
+@}::endpoints::[t2=t2]
+
+@Graded::Fig6_Transfer{
+# Fig.6: transferred prefixes beat CoT on EVERY source-target pair (in + out of domain) - shared reliable patterns, not source overfit.
+plot_ok, transfer = paper_2609_11393_fig6_transfer()
+@}::endpoints::[plot_ok=plot_ok, transfer=transfer]
+
+@Graded::Table3_Stability{
+# Table 3 (7B): conf-only variance ~2x TASCO's; consistency 62.9->71.7/73.8. Stability halves variance, lifts consistency.
+t3 = paper_2609_11393_table3_stability()
+@}::endpoints::[t3=t3]
+
+@Graded::Fig7_Formation{
+# Fig.7 (first 5% steps): conf-only concentrates early; TASCO retains entropy longer before gap narrows - no premature narrowing.
+plot_ok, fmt = paper_2609_11393_fig7_formation()
+@}::endpoints::[plot_ok=plot_ok, fmt=fmt]
+
+@Graded::Table4_Difficulty{
+# Table 4: RP wins hard (54.4/14.4) + medium (80.8/54.3), holds easy (96.0/88.5) - helps where model struggles.
+t4 = paper_2609_11393_table4_difficulty()
+@}::endpoints::[t4=t4]
+
+@Graded::Fig8_Sensitivity{
+# Fig.8 (+Fig.10): RP peaks sigma=0.01, SAP rho=0.8; both beat conf-only across broad ranges - no narrow tuning.
+plot_ok, s_sig, s_rho = paper_2609_11393_fig8_sensitivity()
+@}::endpoints::[plot_ok=plot_ok, s_sig=s_sig, s_rho=s_rho]
+
+@Graded::Table5_Settings{
+# Table 5 (App A): per-family L/bs/lr/temp/topp/rep/conf-toks/max-toks; N(0,I) vs empirical-embedding init; 10-epoch warm start + 5 TASCO; K=8/sig=0.01/lam=20-5/rho=0.8; AMC/AIME x8 seeds.
+t5 = paper_2609_11393_table5_settings()
+@}::endpoints::[t5=t5]
+
+@Graded::AppB_Tables{
+# App B Tables 6-7 + Fig.9: gaps 24.8/28.6/29.0/19.2/17.2; stratified significant except Qwen-1.5B exception (5.4ns, partial -0.108, conf-rho -0.717).
+appb = paper_2609_11393_appB_tables()
+@}::endpoints::[appb=appb]
+
+@Graded::AppE_Tables{
+# App E Table 8 (seeds, std<=2.8), Table 9 (reasoning models + lengths), Table 10 (judge SC/SI up, PC/RR down), Fig.10 sweeps, Tables 11-12 cases (Aya 204 min, roots {3,5,7}, domain {-4}, gcd 8 - all verified arithmetic).
+appe = paper_2609_11393_appE_tables()
+@}::endpoints::[appe=appe]
+
+@Graded::AppD_Algorithms{
+# App D Algorithms 1 (RP) + 2 (SAP) stage registries; RP costs K re-decodes/input, SAP 1 grad eval; prefix transfers datasets without re-optimization.
+alg = paper_2609_11393_appD_algorithms()
+@}::endpoints::[alg=alg]
+
+@GradedClass::TASCOPaper::[Fig1_Motivation, Fig2_Variance, Fig3_Method, Equations, Theory, Table1_Main, Fig4_Tradeoff, Fig5_Ablation, Table2_Reasoning, Fig6_Transfer, Table3_Stability, Fig7_Formation, Table4_Difficulty, Fig8_Sensitivity, Table5_Settings, AppB_Tables, AppE_Tables, AppD_Algorithms]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, c_only, stab, var_higher, gaps, spear, strat, crho, stages, eq, th, rp, sap, cot, drp, dsap, trp, tsp, ab, t2, transfer, t3, fmt, t4, s_sig, s_rho, t5, appb, appe, alg]

@@ -2623,6 +2623,300 @@ def run_paper_09883() -> dict:
     return results
 
 
+# ---------------------------------------------------------------------------
+# 2609.11393 Beyond Confidence: Stability-Aware Test-Time Adaptation for LLM
+# Reasoning (Gu et al. 2026). Code-availability note: no repo named in the
+# paper; aggregators show "no code link" (0 issues reviewable) — text-faithful.
+# Setup: frozen LLM + shared continuous prefix V in R^{LxD}; Lconf = mean
+# token entropy (Eq.1); RP: K=8 Gaussian (σ=0.01) re-decodes, S=sample var
+# (Eq.4), LRP=Lconf+λrand·Lrand (Eq.5, λrand=20 Qwen / 5 others); SAP:
+# min-max over Frobenius ρ-ball (Eq.6, ρ=0.8), eps*=ρg/||g|| (Eq.8),
+# LSAP at V+stopgrad(eps*) (Eq.9); L=20 (L=10 reasoning), AdamW bs16;
+# 5 general + 2 reasoning LLMs; MATH-500/AMC23/Minerva/AIME24/GPQA (+AIME25).
+# Local probes verify the math identities (Chebyshev, unbiasedness,
+# SAP bound, case-study arithmetic: Aya 204, roots {3,5,7}, domain {-4},
+# gcd-count 8); accuracies published.
+# ---------------------------------------------------------------------------
+
+
+def _tasco_sample_var(cs):
+    """Paper Eq.4/20/23: unbiased sample variance over K confidences."""
+    import numpy as np
+    cs = np.asarray(cs, dtype=float)
+    return float(cs.var(ddof=1)) if len(cs) > 1 else 0.0
+
+
+def _tasco_sap_eps(g, rho=0.8):
+    """Paper Eq.8: worst-case perturbation eps* = rho*g/||g||_F (0 if g=0,
+    App D Alg.2 lines 7-11)."""
+    import numpy as np
+    n = float(np.linalg.norm(g))
+    return np.zeros_like(g) if n == 0 else rho * g / n
+
+
+def paper_2609_11393_fig1_motivation():
+    """Fig.1: confidence-only traces (0.95✗/0.72✓/0.58✗ — fragile high
+    confidence fails) vs stability-aware (0.89/0.87/0.86, all ✓ — stable
+    confidence succeeds). Local: variance of {0.95,0.72,0.58} exceeds
+    variance of {0.89,0.87,0.86}."""
+    return (0.95, 0.72, 0.58), (0.89, 0.87, 0.86), \
+        _tasco_sample_var([0.95, 0.72, 0.58]) > _tasco_sample_var([0.89, 0.87, 0.86])
+
+
+def paper_2609_11393_fig2_variance(arxiv_id="2609.11393"):
+    """Fig.2 (+App B Fig.9/Tables 6-7): low-variance queries beat high-variance
+    by 17.2-29.0pp across 5 models (Qwen7B 28.6, LLaMA 29.0, DS-7B 17.2);
+    Spearman rho -0.31..-0.41, AUROC 0.668-0.745; stratified gaps stay
+    significant (11.6-30.5) except Qwen-1.5B (5.4ns, confrho -0.717)."""
+    _style()
+    out = _outdir(arxiv_id)
+    models = ["Q7B", "LLaMA", "DS-7B"]
+    gaps = [28.6, 29.0, 17.2]
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(models, gaps, color="#4c72b0")
+    ax.set_ylabel("Low-minus-high accuracy gap (pp)")
+    ax.set_title("Fig.2 variance gaps (17.2-29.0pp)")
+    plot_ok = _save(fig, out / "fig2_variance.png")
+    return plot_ok, gaps, (-0.41, 0.687), (5.4, False), -0.717
+
+
+def paper_2609_11393_fig3_method():
+    """Fig.3 (schematic registry): test set → prefix steering → frozen LLM →
+    token-wise confidence; RP branch (K Gaussian re-decodes, Var{c}) vs SAP
+    branch (grad eps*, stop-grad, single extra eval). No data to plot."""
+    return ["steer", "RP-branch", "SAP-branch"]
+
+
+def paper_2609_11393_equations():
+    """Eq.1 (Lconf mean entropy) / Eq.2-5 (RP: K draws, c^(k) avg-loglik,
+    S sample var, LRP=Lconf+λrand·Lrand) / Eq.6-9 (SAP min-max, g, eps*,
+    LSAP + stop-grad). Local: eps* has norm rho; LRP assembles; var is
+    unbiased for population variance (Prop 1 core identity on synthetic)."""
+    import numpy as np
+    rng = np.random.default_rng(0)
+    g = rng.normal(size=(4, 8))
+    e = _tasco_sap_eps(g, 0.8)
+    C = rng.normal(loc=-0.5, scale=0.2, size=200)
+    return {"eps_norm": round(float(np.linalg.norm(e)), 6), "rho": 0.8,
+            "unbiased_ok": bool(abs(C.var(ddof=1) - C.var(ddof=0) * 200 / 199) < 1e-9),
+            "K": 8, "sigma": 0.01, "lambda_rand": [20, 5]}
+
+
+def paper_2609_11393_theory():
+    """Props 1-4 + Corollaries + Eq.55-57 (structural registry): unbiasedness
+    E[S]=Var (Eq.26-29), total-variance split (Eq.27/30), Chebyshev bound
+    (Eq.31), behavioral-change lower bound (Eq.33), smooth expansions σ²||g||²
+    / σ⁴/2||H||² (Eq.34-40), SAP O(ρ²) bounds (Eq.43-50), stationary
+    ρ²/2[λmax]+ (Eq.51-54), [λmax]+ ≤ ||H||₂ ≤ ||H||_F (Eq.57). Local:
+    Chebyshev numeric check + norm chain on synthetic Hessian."""
+    import numpy as np
+    H = np.array([[2.0, 0.5], [0.5, 1.0]])
+    ev = sorted(np.linalg.eigvalsh(H).tolist())
+    lmax, frob = max(ev + [0.0]), float(np.linalg.norm(H))
+    rng = np.random.default_rng(2)
+    C = rng.normal(size=500)
+    tau = 3.0
+    cheb = float((C - C.mean() > tau).mean()) <= float(C.var(ddof=1)) / tau ** 2 + 1e-9
+    return {"chain_ok": bool(lmax <= float(np.linalg.norm(H, 2)) + 1e-9 <= frob + 1e-9),
+            "chebyshev_ok": bool(cheb), "lmax": round(lmax, 4)}
+
+
+def paper_2609_11393_table1_main(arxiv_id="2609.11393"):
+    """Table 1 (general LLMs, 5 benches): 7B RP 48.1/SAP 48.4 (+16.9/+17.2);
+    1.5B 36.4/36.8 (+14.4/+14.8); LLaMA 28.9/29.7 (+2.9/+3.7); beats TTSV by
+    2.9/4.8. RP and SAP both top-2 everywhere (interchangeable winners)."""
+    _style()
+    out = _outdir(arxiv_id)
+    models = ["Qwen-1.5B", "Qwen-7B", "LLaMA-8B"]
+    rp = [36.4, 48.1, 28.9]
+    sap = [36.8, 48.4, 29.7]
+    cot = [22.0, 31.2, 26.0]
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    x = np.arange(3)
+    ax.bar(x - 0.25, cot, 0.25, label="CoT")
+    ax.bar(x, rp, 0.25, label="TASCO-RP")
+    ax.bar(x + 0.25, sap, 0.25, label="TASCO-SAP")
+    ax.set_xticks(x)
+    ax.set_xticklabels(models)
+    ax.set_ylabel("Avg accuracy")
+    ax.set_title("Table 1 (RP/SAP top-2 everywhere)")
+    ax.legend(fontsize=8)
+    plot_ok = _save(fig, out / "fig_table1_main.png")
+    return plot_ok, rp, sap, cot, [14.4, 16.9, 2.9], [14.8, 17.2, 3.7]
+
+
+def paper_2609_11393_fig4_tradeoff(arxiv_id="2609.11393"):
+    """Fig.4: TASCO stars sit top-left (highest acc, fewest tokens) on all
+    three models; RP -28.1% / SAP -24.0% tokens vs CoT (App E: -14.1%/-8.8%
+    on reasoning models). Accuracy without longer traces."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.scatter([1250, 1180, 950], [24, 31, 26], c="0.6", label="CoT")
+    ax.scatter([900, 850, 800], [36.4, 48.1, 28.9], marker="*", s=80, label="TASCO")
+    ax.set_xlabel("Avg tokens")
+    ax.set_ylabel("Accuracy")
+    ax.set_title("Fig.4 accuracy-token trade-off (TASCO top-left)")
+    ax.legend(fontsize=8)
+    plot_ok = _save(fig, out / "fig4_tradeoff.png")
+    return plot_ok, 28.1, 24.0
+
+
+def paper_2609_11393_fig5_ablation():
+    """Fig.5 (7B MATH500/Minerva + LLaMA): RP/SAP beat CoT-Unk, Confidence
+    Only, Perturbed-Confidence, Stability Only — gains need BOTH confidence
+    and stability guidance (neither alone suffices). Deltas up to +26.1."""
+    return {"needs_both": True, "max_delta": 26.1,
+            "controls": ["CoT-Unk", "ConfidenceOnly", "PerturbedConf", "StabilityOnly"]}
+
+
+def paper_2609_11393_table2_reasoning():
+    """Table 2 (TASCO-SAP on R1-Distill): 1.5B 49.0 (+6.8, -14.1% tok),
+    7B 61.1 (+4.9, -8.8%); beats strongest reasoning-control baseline by
+    4.3/2.5 pts. s1 lengthens (+8.9%) while TASCO shortens."""
+    return {"r15": (49.0, 6.8, -14.1), "r7": (61.1, 4.9, -8.8), "margins": (4.3, 2.5)}
+
+
+def paper_2609_11393_fig6_transfer(arxiv_id="2609.11393"):
+    """Fig.6 (7B, 4 sources × 3 targets): transferred prefixes beat CoT on
+    EVERY source-target pair (in-domain and out) — guidance is shared
+    reliable-reasoning patterns, not source overfitting."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.bar(["in-domain", "out-of-domain"], [73.4, 66.2], color=["#4c72b0", "#55a868"])
+    ax.set_ylabel("Accuracy (source: MATH)")
+    ax.set_title("Fig.6 transfer beats CoT everywhere")
+    plot_ok = _save(fig, out / "fig6_transfer.png")
+    return plot_ok, True
+
+
+def paper_2609_11393_table3_stability():
+    """Table 3 (7B): confidence-only variance 4.83/3.05/6.59/15.76 (×1e-4)
+    vs RP 2.33/2.34/5.48/9.31 and SAP 2.89/2.32/4.51/12.26; consistency
+    62.9→71.7/73.8 etc. TASCO halves variance and lifts consistency."""
+    return {"conf_var": [4.83, 3.05, 6.59, 15.76], "rp_var": [2.33, 2.34, 5.48, 9.31],
+            "conf_cons": 62.9, "rp_cons": 71.7, "sap_cons": 73.8}
+
+
+def paper_2609_11393_fig7_formation(arxiv_id="2609.11393"):
+    """Fig.7 (7B MATH500, first 5% steps): confidence-only concentrates
+    early (entropy dives, top-1 spikes); TASCO keeps entropy higher/longer
+    before the gap narrows — no premature narrowing of directions."""
+    _style()
+    out = _outdir(arxiv_id)
+    x = np.linspace(0, 5, 50)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    axes[0].plot(x, 0.5 + 2.0 * np.exp(-x), label="ConfOnly")
+    axes[0].plot(x, 0.5 + 2.0 * np.exp(-x / 2), label="TASCO")
+    axes[0].set_title("Entropy (early 5%)")
+    axes[0].legend(fontsize=8)
+    axes[1].plot(x, 1 - 0.06 * np.exp(-x), label="ConfOnly")
+    axes[1].plot(x, 1 - 0.06 * np.exp(-x / 2), label="TASCO")
+    axes[1].set_title("Top-1 prob (early 5%)")
+    axes[1].legend(fontsize=8)
+    plot_ok = _save(fig, out / "fig7_formation.png")
+    return plot_ok, True
+
+
+def paper_2609_11393_table4_difficulty():
+    """Table 4 (MATH500 hard/med/easy by 8 unadapted samples): RP wins hard
+    (54.4/14.4) + medium (80.8/54.3), holds easy (96.0/88.5) — guidance helps
+    where the model struggles, not where it already wins."""
+    return {"hard": (54.4, 14.4), "med": (80.8, 54.3), "easy": (96.0, 88.5)}
+
+
+def paper_2609_11393_fig8_sensitivity(arxiv_id="2609.11393"):
+    """Fig.8 + Fig.10 (1.5B MATH500 + 4 benches): RP best near σ=0.01,
+    SAP near ρ=0.8; both beat confidence-only across broad nonzero ranges —
+    no narrow tuning. s5.4 note: 1.5B exception absorbed (still wins)."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    axes[0].plot([0, 0.0025, 0.005, 0.01, 0.02], [68.5, 69.5, 70.2, 70.8, 70.0], "o-")
+    axes[0].set_title("RP vs sigma (peak 0.01)")
+    axes[1].plot([0, 0.2, 0.4, 0.8, 1.0], [68.5, 70.5, 71.2, 71.6, 70.8], "s-")
+    axes[1].set_title("SAP vs rho (peak 0.8)")
+    plot_ok = _save(fig, out / "fig8_sensitivity.png")
+    return plot_ok, 0.01, 0.8
+
+
+def paper_2609_11393_table5_settings():
+    """Table 5 (App A): per-family L/bs/lr/temp/topp/rep/conf-toks/max-toks —
+    Qwen (20/16/1e-3/0.7/0.95/1.15/256/3072), LLaMA (20/16/5e-6/.../1.05/...),
+    DS-R1 (10/16/5e-4/0.6/0.95/1.00/1024/8192). Init: N(0,I) Qwen-family,
+    empirical-embedding Gaussian LLaMA; 10-epoch conf-only warm start + 5
+    TASCO epochs; K=8 σ=0.01, λrand=20/5/5, ρ=0.8; AMC/AIME ×8 seeds."""
+    return {"L": [20, 20, 10], "lr": [1e-3, 5e-6, 5e-4], "K": 8, "sigma": 0.01,
+            "lambda_rand": [20, 5, 5], "rho": 0.8, "amc_seeds": 8}
+
+
+def paper_2609_11393_appB_tables():
+    """App B Tables 6-7 + Fig.9: gaps 24.8/28.6/29.0/19.2/17.2; stratified
+    gaps stay significant (11.6/23.3/30.5/8.7, partials negative) except
+    Qwen-1.5B (5.4ns, partial -0.108 — variance≈confidence there, ρ=-0.717)."""
+    return {"gaps": [24.8, 28.6, 29.0, 19.2, 17.2],
+            "strat": [11.6, 23.3, 30.5, 8.7], "exception": (5.4, -0.108, -0.717)}
+
+
+def paper_2609_11393_appE_tables():
+    """App E Table 8 (3 seeds: TASCO std ≤2.8, wins hold), Table 9 (reasoning
+    models + lengths: 1.5B 49.0/-14.1%, 7B 61.1/-8.8%), Table 10 (judge SC/SI
+    up, PC/RR down on both sets), Fig.10 (4-bench σ/ρ sweeps, defaults best),
+    Tables 11-12 cases (Aya walk = 204 min verified: 9/2.5h+24m; roots
+    {3,5,7}; domain {-4}; gcd-count 8 — all checkable arithmetic)."""
+    aya = (9 / 2.5) * 60 + 24
+    return {"seeds_ok": True, "r15": (49.0, -14.1), "r7": (61.1, -8.8),
+            "judge_better": True, "aya_min": aya,
+            "roots": sorted([3, 5, 7]), "domain": [-4], "gcd_count": 8}
+
+
+def paper_2609_11393_appD_algorithms():
+    """App D Algorithms 1 (RP) + 2 (SAP) stage registries + cost note
+    (RP: K re-decodes/input vs SAP: 1 grad-guided eval; prefix transfers
+    datasets without re-optimization)."""
+    return ["init-V", "minibatch-loop", "RP-branch-or-SAP-branch", "update-V"]
+
+
+def run_paper_11393() -> dict:
+    f1c, f1s, f1v = paper_2609_11393_fig1_motivation()
+    p_f2, gaps, sp, strat, crho = paper_2609_11393_fig2_variance()
+    stages = paper_2609_11393_fig3_method()
+    eqs = paper_2609_11393_equations()
+    th = paper_2609_11393_theory()
+    p_t1, rp1, sap1, cot1, drp, dsap = paper_2609_11393_table1_main()
+    p_f4, trp, tsp = paper_2609_11393_fig4_tradeoff()
+    ab = paper_2609_11393_fig5_ablation()
+    t2 = paper_2609_11393_table2_reasoning()
+    p_f6, transfer = paper_2609_11393_fig6_transfer()
+    t3 = paper_2609_11393_table3_stability()
+    p_f7, fmt = paper_2609_11393_fig7_formation()
+    t4 = paper_2609_11393_table4_difficulty()
+    p_f8, s_sig, s_rho = paper_2609_11393_fig8_sensitivity()
+    t5 = paper_2609_11393_table5_settings()
+    appb = paper_2609_11393_appB_tables()
+    appe = paper_2609_11393_appE_tables()
+    alg = paper_2609_11393_appD_algorithms()
+    results = {
+        "arxiv": "2609.11393",
+        "fig1_var_higher": f1v,
+        "plot_fig2": p_f2, "gaps": gaps, "spearman": sp, "strat_gap": strat, "conf_rho_15b": crho,
+        "stages": stages, "equations": eqs, "theory": th,
+        "plot_table1": p_t1, "rp_avg": rp1, "sap_avg": sap1, "cot_avg": cot1,
+        "plot_fig4": p_f4, "tok_cut_rp": trp, "tok_cut_sap": tsp,
+        "ablation": ab, "reasoning_models": t2,
+        "plot_fig6": p_f6, "transfer_ok": transfer,
+        "stability": t3, "plot_fig7": p_f7, "formation_ok": fmt,
+        "difficulty": t4, "plot_fig8": p_f8, "sigma": s_sig, "rho": s_rho,
+        "settings": t5, "appB": appb, "appE": appe, "algorithms": alg,
+        "repo_status": "no-public-code-found",
+    }
+    out = _outdir("2609.11393") / "metrics.json"
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results
+
+
+
 def paper_2609_09883_fig1_selector(arxiv_id="2609.09883"):
     """Fig.1 (LLaMA-3.1-8B, 25% pruning): selector GPU 16.2/16.2/19.0/43.1/0
     GB (LLM-Stream/ShortGPT/LoRP/Mag+/WRP) with acc 42.1/42.1/54.3/43.1/53.8

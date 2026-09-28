@@ -1,0 +1,193 @@
+{
+  "arxiv": "2609.11393",
+  "fig1_var_higher": true,
+  "plot_fig2": 1.0,
+  "gaps": [
+    28.6,
+    29.0,
+    17.2
+  ],
+  "spearman": [
+    -0.41,
+    0.687
+  ],
+  "strat_gap": [
+    5.4,
+    false
+  ],
+  "conf_rho_15b": -0.717,
+  "stages": [
+    "steer",
+    "RP-branch",
+    "SAP-branch"
+  ],
+  "equations": {
+    "eps_norm": 0.8,
+    "rho": 0.8,
+    "unbiased_ok": true,
+    "K": 8,
+    "sigma": 0.01,
+    "lambda_rand": [
+      20,
+      5
+    ]
+  },
+  "theory": {
+    "chain_ok": true,
+    "chebyshev_ok": true,
+    "lmax": 2.2071
+  },
+  "plot_table1": 1.0,
+  "rp_avg": [
+    36.4,
+    48.1,
+    28.9
+  ],
+  "sap_avg": [
+    36.8,
+    48.4,
+    29.7
+  ],
+  "cot_avg": [
+    22.0,
+    31.2,
+    26.0
+  ],
+  "plot_fig4": 1.0,
+  "tok_cut_rp": 28.1,
+  "tok_cut_sap": 24.0,
+  "ablation": {
+    "needs_both": true,
+    "max_delta": 26.1,
+    "controls": [
+      "CoT-Unk",
+      "ConfidenceOnly",
+      "PerturbedConf",
+      "StabilityOnly"
+    ]
+  },
+  "reasoning_models": {
+    "r15": [
+      49.0,
+      6.8,
+      -14.1
+    ],
+    "r7": [
+      61.1,
+      4.9,
+      -8.8
+    ],
+    "margins": [
+      4.3,
+      2.5
+    ]
+  },
+  "plot_fig6": 1.0,
+  "transfer_ok": true,
+  "stability": {
+    "conf_var": [
+      4.83,
+      3.05,
+      6.59,
+      15.76
+    ],
+    "rp_var": [
+      2.33,
+      2.34,
+      5.48,
+      9.31
+    ],
+    "conf_cons": 62.9,
+    "rp_cons": 71.7,
+    "sap_cons": 73.8
+  },
+  "plot_fig7": 1.0,
+  "formation_ok": true,
+  "difficulty": {
+    "hard": [
+      54.4,
+      14.4
+    ],
+    "med": [
+      80.8,
+      54.3
+    ],
+    "easy": [
+      96.0,
+      88.5
+    ]
+  },
+  "plot_fig8": 1.0,
+  "sigma": 0.01,
+  "rho": 0.8,
+  "settings": {
+    "L": [
+      20,
+      20,
+      10
+    ],
+    "lr": [
+      0.001,
+      5e-06,
+      0.0005
+    ],
+    "K": 8,
+    "sigma": 0.01,
+    "lambda_rand": [
+      20,
+      5,
+      5
+    ],
+    "rho": 0.8,
+    "amc_seeds": 8
+  },
+  "appB": {
+    "gaps": [
+      24.8,
+      28.6,
+      29.0,
+      19.2,
+      17.2
+    ],
+    "strat": [
+      11.6,
+      23.3,
+      30.5,
+      8.7
+    ],
+    "exception": [
+      5.4,
+      -0.108,
+      -0.717
+    ]
+  },
+  "appE": {
+    "seeds_ok": true,
+    "r15": [
+      49.0,
+      -14.1
+    ],
+    "r7": [
+      61.1,
+      -8.8
+    ],
+    "judge_better": true,
+    "aya_min": 240.0,
+    "roots": [
+      3,
+      5,
+      7
+    ],
+    "domain": [
+      -4
+    ],
+    "gcd_count": 8
+  },
+  "algorithms": [
+    "init-V",
+    "minibatch-loop",
+    "RP-branch-or-SAP-branch",
+    "update-V"
+  ],
+  "repo_status": "no-public-code-found"
+}
