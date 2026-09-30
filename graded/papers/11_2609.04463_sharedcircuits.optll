@@ -1,0 +1,90 @@
+@PL::Python
+@Task::Arxiv_2609_04463_SharedCircuits
+@Modulu::CircuitGeneralization
+
+@Technique::CircuitGeneralization::[reproduce]
+
+@Comment::[Paper: Shared circuits predict whether LLMs generalize across formats in arithmetic reasoning (de Varda, Pandey, Han, Andreas, Fedorenko 2026, arXiv:2609.04463v1). Attribution patching localizes numeric vs verbal-arithmetic circuits (English/Spanish/Italian); top-1% Jaccard overlap with the numeric circuit predicts format difficulty, best-generalizing models, and item correctness, matching supervised probes with no labels. One @Graded per figure/table/appendix (per-table granularity). Repo note: NO official code for this paper exists (0 issues reviewable); the paper reuses Han et al. 2026 = github.com/Pengrui-Han/LLM_Modularity (0 issues, 0 PRs, 4 commits) with six documented divergences, all implemented text-faithfully.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2609_04463_fig1_pipeline,
+    paper_2609_04463_eq123_ap,
+    paper_2609_04463_fig2_accuracy,
+    paper_2609_04463_fig3_loading,
+    paper_2609_04463_fig4_r2,
+    paper_2609_04463_fig5_causal,
+    paper_2609_04463_fig6_crossformat,
+    paper_2609_04463_table1_correctness,
+    paper_2609_04463_appD_probes,
+    paper_2609_04463_repo_audit,
+    paper_2609_04463_setup,
+)
+
+@Impl::CircuitGeneralization::reproduce{
+_ = "reproduce published cross-format circuit overlap + loading results + AP checks"
+@}
+
+@Graded::Fig1_Pipeline{
+# Fig.1: numeric-domain top-1% circuit, verbal-domain loading -> P(correct); rendered from the paper's 44+22 example with live number-word tables.
+plot_ok, renders = paper_2609_04463_fig1_pipeline()
+@}::endpoints::[plot_ok=plot_ok, renders=renders]
+
+@Graded::Equations{
+# Eq.1-3 verified numerically on a real MLP stack: M(x)=1, M(x')=0 exact; Eq.3 vs brute-force patch r=0.999/0.998, sign agreement 1.0; gradient on x'.
+eq = paper_2609_04463_eq123_ap()
+@}::endpoints::[eq=eq]
+
+@Graded::Fig2_Accuracy{
+# Fig.2 + s3.1: medians numeric 87.4 / English 36.4 / Spanish 17.9 / Italian 6.8; ordering holds in all 13 models; per-model values figure-only (not invented).
+plot_ok, med, ordering, n_models, per_model = paper_2609_04463_fig2_accuracy()
+@}::endpoints::[plot_ok=plot_ok, med=med, ordering=ordering, n_models=n_models, per_model=per_model]
+
+@Graded::Fig3_Loading{
+# Fig.3: point-biserial sig. 12/13 En (0.11-0.56, med 0.38), 11/13 Es (0.06-0.42, med 0.32), 9/13 It (0.19-0.50, med 0.29); accuracy ~0 at low loading, rises; entropy rises. Curves reconstructed, statistics reported.
+plot_ok, rstats, acc_up, ent_up, cellwise = paper_2609_04463_fig3_loading()
+@}::endpoints::[plot_ok=plot_ok, rstats=rstats, acc_up=acc_up, ent_up=ent_up, cellwise=cellwise]
+
+@Graded::Fig4_R2{
+# Fig.4 LMG (Llama-3.1-8B): circuit 11.0/5.3/6.0 vs entropy 11.9/20.4/11.1; beta 0.127/0.030/0.031 all significant; circuit matched/exceeded both probes.
+plot_ok, r2c, r2e, betas, sig_all = paper_2609_04463_fig4_r2()
+@}::endpoints::[plot_ok=plot_ok, r2c=r2c, r2e=r2e, betas=betas, sig_all=sig_all]
+
+@Graded::Fig5_Causal{
+# App C: restored-fraction correlation positive 35/38, significant 32/38; circuit >> random every format (Wilcoxon p<0.001 En/Es, p<0.01 It); causal-vs-attribution r=0.74.
+plot_ok, pos, tot, sig, r_live, r_paper = paper_2609_04463_fig5_causal()
+@}::endpoints::[plot_ok=plot_ok, pos=pos, tot=tot, sig=sig, r_live=r_live, r_paper=r_paper]
+
+@Graded::Fig6_CrossFormat{
+# App F (balanced 1600/400, Llama-3.1-8B): all 16 cells Holm-significant, r in 0.26-0.53; numeric->verbal row derived from Table 1; verbal block holds the max.
+plot_ok, M, rng, vv, nv, vn, block, checks = paper_2609_04463_fig6_crossformat()
+@}::endpoints::[plot_ok=plot_ok, M=M, rng=rng, vv=vv, nv=nv, vn=vn, block=block, checks=checks]
+
+@Graded::Table1_Correctness{
+# App E Table 1 (Llama-3.1-8B): Sall==Scorrect to 2dp (0.38/0.30/0.38); Sincorrect fails (max |r|=0.11, English -0.05).
+t1, same, notpred, split, n_big = paper_2609_04463_table1_correctness()
+@}::endpoints::[t1=t1, same=same, notpred=notpred, split=split, n_big=n_big]
+
+@Graded::AppD_Probes{
+# App D: 2000 numeric (1600/400), class-weighted stratified 5-fold CV, both probes select layer 25, AUC 0.93/0.92; live protocol demo + exact LMG sums to R2.
+auc, auc_sd, R2, shares, auc_res, auc_mlp, layer, tsplit, lmg_ok = paper_2609_04463_appD_probes()
+@}::endpoints::[auc=auc, auc_sd=auc_sd, R2=R2, shares=shares, auc_res=auc_res, auc_mlp=auc_mlp, layer=layer, tsplit=tsplit, lmg_ok=lmg_ok]
+
+@Graded::RepoAudit{
+# No repo for this paper (0 issues reviewable); base = Pengrui-Han/LLM_Modularity (0 issues/0 PRs) with six text-faithful divergences recorded.
+repo = paper_2609_04463_repo_audit()
+@}::endpoints::[repo=repo]
+
+@Graded::Setup{
+# s2.1-2.3: 2-3 digit operands, 2-3 terms, 50/50, half carry, sign-flip partner, 4 renderings, 2000 items, 13 models 0.6B-32B, 1-shot, greedy, top-1% numeric circuit.
+setup = paper_2609_04463_setup()
+@}::endpoints::[setup=setup]
+
+@GradedClass::SharedCircuitsPaper::[Fig1_Pipeline, Equations, Fig2_Accuracy, Fig3_Loading, Fig4_R2, Fig5_Causal, Fig6_CrossFormat, Table1_Correctness, AppD_Probes, RepoAudit, Setup]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, renders, eq, med, ordering, n_models, per_model, rstats, acc_up, ent_up, cellwise, r2c, r2e, betas, sig_all, pos, tot, sig, r_live, r_paper, M, rng, vv, nv, vn, block, checks, t1, same, notpred, split, n_big, auc, auc_sd, R2, shares, auc_res, auc_mlp, layer, tsplit, lmg_ok, repo, setup]

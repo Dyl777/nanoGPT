@@ -1,0 +1,249 @@
+{
+  "arxiv": "2609.04463",
+  "title": "Shared circuits predict whether LLMs generalize across formats in arithmetic reasoning",
+  "authors": "de Varda, Pandey, Han, Andreas, Fedorenko (MIT)",
+  "plot_fig1": 1.0,
+  "renderings": [
+    "44 + 22 =",
+    "forty-four plus twenty-two equals",
+    "cuarenta y cuatro mas veintidos es igual a",
+    "quarantaquattro piu ventidue fa"
+  ],
+  "equations": {
+    "M_x": 1.0,
+    "M_xprime": -0.0,
+    "rescale_exact": true,
+    "pearson_vs_true_patch": 0.9991,
+    "spearman_vs_true_patch": 0.9979,
+    "sign_agreement": 1.0,
+    "grad_on_corrupted_prompt": true,
+    "units_scored": 48,
+    "site": "last prompt token, post-activation MLP hidden units, all layers"
+  },
+  "plot_fig2": 1.0,
+  "median_accuracy": [
+    87.4,
+    36.4,
+    17.9,
+    6.8
+  ],
+  "ordering_holds": true,
+  "n_models": 13,
+  "per_model_values_known": false,
+  "plot_fig3": 1.0,
+  "point_biserial": {
+    "english": [
+      0.11,
+      0.38,
+      0.56,
+      12,
+      13
+    ],
+    "spanish": [
+      0.06,
+      0.32,
+      0.42,
+      11,
+      13
+    ],
+    "italian": [
+      0.19,
+      0.29,
+      0.5,
+      9,
+      13
+    ]
+  },
+  "accuracy_rises": true,
+  "entropy_rises": true,
+  "correct_loads_higher_in_every_cell": true,
+  "plot_fig4": 1.0,
+  "r2_circuit": [
+    11.0,
+    5.3,
+    6.0
+  ],
+  "r2_entropy": [
+    11.9,
+    20.4,
+    11.1
+  ],
+  "betas": [
+    "0.127",
+    "0.030",
+    "0.031"
+  ],
+  "circuit_significant_all": true,
+  "plot_fig5": 1.0,
+  "causal_positive": 35,
+  "causal_total": 38,
+  "causal_significant": 32,
+  "r_causal_vs_attrib_live": 0.744,
+  "r_causal_vs_attrib_paper": 0.74,
+  "plot_fig6": 1.0,
+  "matrix": [
+    [
+      0.46,
+      0.38,
+      0.3,
+      0.38
+    ],
+    [
+      0.27,
+      0.53,
+      0.48,
+      0.44
+    ],
+    [
+      0.26,
+      0.5,
+      0.46,
+      0.38
+    ],
+    [
+      0.28,
+      0.4,
+      0.36,
+      0.34
+    ]
+  ],
+  "range": [
+    0.26,
+    0.53
+  ],
+  "verbal_verbal": [
+    0.36,
+    0.5
+  ],
+  "numeric_verbal": [
+    0.3,
+    0.38
+  ],
+  "verbal_numeric": [
+    0.26,
+    0.28
+  ],
+  "verbal_dominates": true,
+  "fig6_range_checks": {
+    "overall_range_0.26_0.53": true,
+    "verbal_verbal_in_0.30_0.53": true,
+    "numeric_verbal_in_0.30_0.38": true,
+    "verbal_numeric_in_0.26_0.28": true,
+    "verbal_verbal_strongest": true
+  },
+  "table1": {
+    "English": [
+      0.38,
+      0.38,
+      -0.05
+    ],
+    "Spanish": [
+      0.3,
+      0.3,
+      0.11
+    ],
+    "Italian": [
+      0.38,
+      0.38,
+      0.1
+    ]
+  },
+  "all_equals_correct": true,
+  "incorrect_circuit_fails": true,
+  "balanced_split": [
+    1600,
+    400
+  ],
+  "big_dataset": 20000,
+  "probe_cv_auc_live": 0.9192,
+  "probe_cv_auc_std": 0.0176,
+  "lmg_r2_live": 0.0626,
+  "lmg_shares_live": [
+    0.161032,
+    -0.015349,
+    -0.058884,
+    -0.024248
+  ],
+  "lmg_sums_to_r2": true,
+  "probe_auc_residual": 0.93,
+  "probe_auc_mlp": 0.92,
+  "probe_layer": 25,
+  "probe_train_split": [
+    1600,
+    400
+  ],
+  "repo_status": "no-public-code-for-this-paper",
+  "repo_audit": {
+    "repo_for_this_paper": null,
+    "issues_reviewable": 0,
+    "base_repo": "github.com/Pengrui-Han/LLM_Modularity",
+    "base_issues": 0,
+    "base_prs": 0,
+    "base_files": [
+      "src/attribution.py",
+      "src/metrics.py",
+      "src/ablation.py",
+      "scripts/run_attribution.py",
+      "scripts/run_overlap.py",
+      "scripts/run_ablation.py"
+    ],
+    "base_symbols": {
+      "attrib": "run_neuron_attribution -> reduce_fn: g*(cln - corr) at prompt_len - 1",
+      "hook": "_get_mlp_hook: layer.mlp.c_proj.input (gpt2) / layer.mlp.down_proj.input (llama, qwen, mistral)",
+      "head_hook": "_get_attn_hook: attn.c_proj.input / self_attn.o_proj.input",
+      "metric_norm": "make_normalized_metric: (m - corrupted_baseline) / (clean_baseline - corrupted_baseline)",
+      "logprob": "compute_sequence_log_prob: teacher-forced sum over answer tokens only",
+      "overlap": "compute_overlap_matrix: intersection / k_i  (asymmetric, NOT Jaccard)"
+    },
+    "divergences_from_text": [
+      "base uses top-0.1% units; 2609.04463 s2.3 uses top 1%",
+      "base overlap is intersection/k_i; 2609.04463 s2.3 reports top-1% Jaccard |A\u00e2\u02c6\u00a9B|/|A\u00e2\u02c6\u00aaB|",
+      "base metric uses GOLD answers; 2609.04463 s2.3/App B uses the model's OWN greedy answers yhat / yhat'",
+      "base keeps only items where both prompts are answered correctly (60% both-correct filter); 2609.04463 keeps all items and drops only length-mismatched or identical-output ones",
+      "base validates by corrupted-activation ABLATION; 2609.04463 App C runs clean-over-corrupted PATCHING scored by restored preference fraction",
+      "base spans 46 tasks in 4 domains; 2609.04463 is 4 surface renderings of one task, with per-item loading as the added quantity"
+    ],
+    "adaptations_made": "text-faithful in all six cases; base code used only for the AP reduction formula and hook site"
+  },
+  "setup": {
+    "operands": [
+      2,
+      3
+    ],
+    "terms": [
+      2,
+      3
+    ],
+    "ops": [
+      "+",
+      "-"
+    ],
+    "balanced": true,
+    "carry_half": true,
+    "n_items": 2000,
+    "formats": {
+      "numeric": "44 + 22 =",
+      "english": "forty-four plus twenty-two equals",
+      "spanish": "cuarenta y cuatro mas veintidos es igual a",
+      "italian": "quarantaquattro piu ventidue fa"
+    },
+    "models": 13,
+    "sizes": "0.6B-32B",
+    "families": 6,
+    "decoding": "greedy",
+    "shots": 1,
+    "circuit_pct": 1.0,
+    "circuit_source": "numeric",
+    "overlap_metric": "top-1% Jaccard",
+    "loading": "sum of attribution scores over the units in S_m",
+    "item_filter": [
+      "x and x' tokenize to equal length",
+      "model answers differ on x and x'"
+    ],
+    "fwd_bwd_per_item": [
+      2,
+      1
+    ],
+    "min_correct_for_item_analysis": 30
+  }
+}

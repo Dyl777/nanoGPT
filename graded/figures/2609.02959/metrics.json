@@ -1,0 +1,163 @@
+{
+  "arxiv": "2609.02959",
+  "plot_fig1": 1.0,
+  "lambda_louvre_world": [
+    0.47,
+    0.52,
+    0.57,
+    0.6,
+    0.67,
+    0.72
+  ],
+  "monotone": true,
+  "equations": {
+    "orthonormal_resid": true,
+    "r2": 1.0,
+    "z_cancels": true,
+    "lam": 0.2631,
+    "regimes": {
+      "invert": [
+        -1.0,
+        0.0
+      ],
+      "remove": 0.0,
+      "soften": [
+        0.0,
+        1.0
+      ],
+      "bayes": 1.0,
+      "sharpen": 2.0
+    }
+  },
+  "plot_fig2": 1.0,
+  "init_nkl": 1.0,
+  "trained_nkl": 0.06,
+  "table1": [
+    [
+      "Llama 3.2-1B",
+      0.859,
+      0.0649
+    ],
+    [
+      "Llama 3.2-3B",
+      0.872,
+      0.0561
+    ],
+    [
+      "Llama 3.1-8B",
+      0.856,
+      0.0646
+    ],
+    [
+      "Llama 3.1-70B",
+      0.883,
+      0.0698
+    ],
+    [
+      "Llama 3.1-405B",
+      0.915,
+      0.037
+    ],
+    [
+      "Gemma 3-1B",
+      0.774,
+      0.0823
+    ],
+    [
+      "Gemma 3-4B",
+      0.833,
+      0.0642
+    ],
+    [
+      "Qwen 2.5-1.5B",
+      0.806,
+      0.0733
+    ],
+    [
+      "Qwen 2.5-3B",
+      0.814,
+      0.0689
+    ],
+    [
+      "Pythia 410M",
+      0.749,
+      0.0745
+    ],
+    [
+      "Pythia 1B",
+      0.776,
+      0.0543
+    ],
+    [
+      "Pythia 1.4B",
+      0.784,
+      0.0517
+    ],
+    [
+      "Pythia 2.8B",
+      0.786,
+      0.0558
+    ],
+    [
+      "Pythia 6.9B",
+      0.809,
+      0.0558
+    ]
+  ],
+  "nkl_bound_ok": true,
+  "plot_fig3": 1.0,
+  "neg70b": -0.05,
+  "shuffled_high": 1.35,
+  "plot_fig4": 1.0,
+  "lambda0": [
+    0.46,
+    0.2
+  ],
+  "kl_monotone": true,
+  "plot_fig5": 1.0,
+  "gemma_exception": true,
+  "fig6_panels": 12,
+  "gradient_all": true,
+  "fig7_panels": 9,
+  "pattern_shared": true,
+  "dual_priors": [
+    "d_fullword",
+    "d_subword"
+  ],
+  "dual_status": "preliminary",
+  "top10_shares": {
+    "Llama": [
+      15,
+      16,
+      19,
+      24,
+      21
+    ],
+    "Gemma": [
+      74,
+      52
+    ],
+    "Qwen": [
+      86,
+      75
+    ],
+    "Pythia": [
+      30,
+      34,
+      28
+    ]
+  },
+  "distributed": {
+    "no_coordinate_dominates": true,
+    "largest_single_under_half": true,
+    "mixed_signs": true,
+    "single_bar_values_known": false,
+    "source": "paper App G text (per-bar values figure-only)"
+  },
+  "apps": {
+    "hallucination_link": true,
+    "c": 0.7,
+    "limits": 4
+  },
+  "repo_status": "no-public-code-found"
+}

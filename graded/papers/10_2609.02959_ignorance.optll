@@ -1,0 +1,96 @@
+@PL::Python
+@Task::Arxiv_2609_02959_Ignorance
+@Modulu::PriorGeometry
+
+@Technique::PriorGeometry::[reproduce]
+
+@Comment::[Paper: The Geometry of Ignorance: LLMs Know When to Temper Bayesian Priors (Liu et al. 2026, arXiv:2609.02959). One unembedding direction encodes the corpus unigram: softmax(W d)=p_uni (Eq.1); y=lam*d+y_ctx (Eq.2); centered OLS fit c=0.7 (Eq.4/9); lam=dhat'y/beta (Eq.5); tempered Bayes p~p_uni^lam*L_ctx (Eq.7/12); intervention Eq.8; R2 Eq.11; nKL metric. Universal (4 families, learned not innate), declines with coherent context (Fig.3, shuffled/A-B controls), causal (Fig.4, random flat), |lam| falls with dim (Fig.5), distributed not single-neuron (Fig.10/G). One @Graded per table/figure (per-table granularity). Repo note: no public code found (0 issues reviewable) - text-faithful.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2609_02959_fig1_overview,
+    paper_2609_02959_equations,
+    paper_2609_02959_fig2_training,
+    paper_2609_02959_table1_fits,
+    paper_2609_02959_fig3_dynamics,
+    paper_2609_02959_fig4_intervention,
+    paper_2609_02959_fig5_scaling,
+    paper_2609_02959_fig6_allmodels,
+    paper_2609_02959_fig7_coherent,
+    paper_2609_02959_fig8_dualpriors,
+    paper_2609_02959_fig10_distributed,
+    paper_2609_02959_apps,
+)
+
+@Impl::PriorGeometry::reproduce{
+_ = "reproduce published ignorance-direction geometry + tempered-Bayes checks"
+@}
+
+@Graded::Fig1_Overview{
+# Fig.1: (a) PCA frequency gradient (punctuation top, d_prior steepest-frequency arrow); (b) lam 0.47->0.72 Louvre->world, monotone in vagueness.
+plot_ok, lam6, mono = paper_2609_02959_fig1_overview()
+@}::endpoints::[plot_ok=plot_ok, lam6=lam6, mono=mono]
+
+@Graded::Equations{
+# Eq.1-9 + Props B.1/B.2: OLS orthogonality + Eq.12 Z-cancellation + tempering regimes verified numerically; R2/nKL definitions.
+eq = paper_2609_02959_equations()
+@}::endpoints::[eq=eq]
+
+@Graded::Fig2_Training{
+# Fig.2: nKL ~=1 at init (gray band) -> collapses within hundreds of steps, curves collapse across sizes; open init in-band vs filled trained low. Learned, not innate.
+plot_ok, init_nkl, trained_nkl = paper_2609_02959_fig2_training()
+@}::endpoints::[plot_ok=plot_ok, init_nkl=init_nkl, trained_nkl=trained_nkl]
+
+@Graded::Table1_Fits{
+# App C Table 1 (14 models): R2 .86-.92 Llama / .77-.83 Gemma+Qwen / .75-.81 Pythia; nKL <=0.083 everywhere. One direction explains most log-unigram variance.
+rows, nkl_ok = paper_2609_02959_table1_fits()
+@}::endpoints::[rows=rows, nkl_ok=nkl_ok]
+
+@Graded::Fig3_Dynamics{
+# Fig.3 (200 WikiText, Llama): lam decays to plateaus (70B crosses zero -> frequency compensation); shuffled stays high; A/B splice at 100/200 re-raises then re-decays. Information, not position.
+plot_ok, neg70b, shuf = paper_2609_02959_fig3_dynamics()
+@}::endpoints::[plot_ok=plot_ok, neg70b=neg70b, shuf=shuf]
+
+@Graded::Fig4_Intervention{
+# Fig.4 (3B, pos 299, Eq.8): KL falls monotonically as patched lam* rises over [-0.5,1.5]; random-direction control flat; natural lam0=0.46+-0.20. Causal.
+plot_ok, lam0, klmono = paper_2609_02959_fig4_intervention()
+@}::endpoints::[plot_ok=plot_ok, lam0=lam0, klmono=klmono]
+
+@Graded::Fig5_Scaling{
+# Fig.5 (late |lam| vs dim, slope -2 guide NOT a law): falls with dim; Gemma-3-1B exception; 405B ~0, 70B negative (auto prior subtraction). Confounded observation.
+plot_ok, gemma_exc = paper_2609_02959_fig5_scaling()
+@}::endpoints::[plot_ok=plot_ok, gemma_exc=gemma_exc]
+
+@Graded::Fig6_AllModels{
+# App D Fig.6 (12 panels): frequency gradient in top-2 PCs of every model (PCA visualization-only; fits live in full-d).
+n6, grad6 = paper_2609_02959_fig6_allmodels()
+@}::endpoints::[n6=n6, grad6=grad6]
+
+@Graded::Fig7_Coherent{
+# App E Fig.7 (9 panels): coherent down to plateaus, shuffled flat-high, all families; bigger Llama lower incl. negative.
+n7, pat7 = paper_2609_02959_fig7_coherent()
+@}::endpoints::[n7=n7, pat7=pat7]
+
+@Graded::Fig8_DualPriors{
+# App F Figs.8-9 (preliminary): leading-space vs not refits give distinct non-orthogonal d_fullword/d_subword; matched pairs opposite arms. Hint, not main claim.
+dual, status = paper_2609_02959_fig8_dualpriors()
+@}::endpoints::[dual=dual, status=status]
+
+@Graded::Fig10_Distributed{
+# App G Fig.10: top-10 shares Llama 15-34 / Gemma 52-86 / Qwen 75-86 / Pythia 28-34; no coordinate dominates (max<50%, mixed signs). Population code; frequency neurons write INTO d_prior (actuators).
+shares, top, distrib = paper_2609_02959_fig10_distributed()
+@}::endpoints::[shares=shares, top=top, distrib=distrib]
+
+@Graded::Apps{
+# App A/G/s6/applications/s7: knobs+steering/logit-lens/power-prior/CFG analogues; hierarchy-of-priors speculation; HALLUCINATION link via lam; training diagnostic; 4 limits (corpus dependence, exact-vs-approx, output-level only, 0.4B-405B scope).
+apps = paper_2609_02959_apps()
+@}::endpoints::[apps=apps]
+
+@GradedClass::IgnorancePaper::[Fig1_Overview, Equations, Fig2_Training, Table1_Fits, Fig3_Dynamics, Fig4_Intervention, Fig5_Scaling, Fig6_AllModels, Fig7_Coherent, Fig8_DualPriors, Fig10_Distributed, Apps]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, lam6, mono, eq, init_nkl, trained_nkl, rows, nkl_ok, neg70b, shuf, lam0, klmono, gemma_exc, n6, grad6, n7, pat7, dual, status, shares, top, distrib, apps]
