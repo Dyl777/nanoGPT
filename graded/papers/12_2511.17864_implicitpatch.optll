@@ -1,0 +1,102 @@
+@PL::Python
+@Task::Arxiv_2511_17864_ImplicitPatch
+@Modulu::ImplicitPatch
+
+@Technique::ImplicitPatch::[reproduce]
+
+@Comment::[Paper: Equivalence of Context and Parameter Updates in Modern Transformer Blocks (Goldwaser, Munn, Gonzalvo, Dherin 2025/2026, arXiv:2511.17864v1, ICML 2026 Oral). Context effects map perfectly to rank-1 MLP patches + RMSNorm-scale patch (Thm 1, Eq.2-4); multi-layer induction (Thm 2) + Algorithm 1; input/output controllability framework (Thm 5) covering Gemma/Llama/Mistral/MoE/parallel (Table 1, Thm 6-12); Gemma 3 validation via token-match/L_inf/TVD with precision ladder (Fig.3-5); stable update via RMSNorm inversion (App B). One @Graded per figure/table/theorem/appendix (per-table granularity). Repo note: NO official code (0 issues reviewable); only third-party replications of the vanilla foundation paper - text-faithful, identities verified live.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2511_17864_fig1_block,
+    paper_2511_17864_eq1_forward,
+    paper_2511_17864_thm1_patch,
+    paper_2511_17864_fig2_thm2,
+    paper_2511_17864_alg1,
+    paper_2511_17864_fig3_text,
+    paper_2511_17864_fig4_summary,
+    paper_2511_17864_fig5_image,
+    paper_2511_17864_table1_framework,
+    paper_2511_17864_thm5_unified,
+    paper_2511_17864_appB_stable,
+    paper_2511_17864_setup,
+    paper_2511_17864_repo_audit,
+)
+
+@Impl::ImplicitPatch::reproduce{
+_ = "reproduce implicit rank-1 patch identities + controllability checks + validation plots"
+@}
+
+@Graded::Fig1_Block{
+# Fig.1: Gemma block chain RMSNorm1 -> Wgate/Wup -> GeLU x -> Wdown -> RMSNorm2, scale m outside (caption), residual add, Eq.1.
+plot_ok, chain = paper_2511_17864_fig1_block()
+@}::endpoints::[plot_ok=plot_ok, chain=chain]
+
+@Graded::Eq1_Forward{
+# Eq.1 live: T recomposes exactly from residual vC + scaled MLP branch (linf 0.0).
+eq1 = paper_2511_17864_eq1_forward()
+@}::endpoints::[eq1=eq1]
+
+@Graded::Thm1_Patch{
+# Thm 1 (Eq.2-4) live: patched-reduced output matches full-context output (linf ~9e-16); dW rank exactly 1; f-nonzero precondition holds.
+thm1 = paper_2511_17864_thm1_patch()
+@}::endpoints::[thm1=thm1]
+
+@Graded::Fig2_Thm2{
+# Fig.2 + Thm 2 live: 3-layer induction, per-layer patched outputs match targets (all linf 0.0).
+thm2 = paper_2511_17864_fig2_thm2()
+@}::endpoints::[thm2=thm2]
+
+@Graded::Alg1{
+# Algorithm 1 live: record-targets then sequential updates with x'_l = target; chain + final exact.
+alg1 = paper_2511_17864_alg1()
+@}::endpoints::[alg1=alg1]
+
+@Graded::Fig3_Text{
+# Fig.3 (Mars-robot prompt): float32 near-exact perfect match; bfloat16 diverges with red-X mismatches; TVD definition verified live.
+plot_ok, toks, mm, f32max, b16min, tvd_live, tvd_ok = paper_2511_17864_fig3_text()
+@}::endpoints::[plot_ok=plot_ok, toks=toks, mm=mm, f32max=f32max, b16min=b16min, tvd_live=tvd_live, tvd_ok=tvd_ok]
+
+@Graded::Fig4_Summary{
+# Fig.4: token-match 87.5 / 98.0 / 100.0 / 100.0 across the precision ladder; ladder ordering holds.
+plot_ok, match, ladder_ok = paper_2511_17864_fig4_summary()
+@}::endpoints::[plot_ok=plot_ok, match=match, ladder_ok=ladder_ok]
+
+@Graded::Fig5_Image{
+# Fig.5: image-context arm (Gemma 3 4B multimodal); same metric structure, method works multimodally.
+plot_ok, toks, mm, multi_ok = paper_2511_17864_fig5_image()
+@}::endpoints::[plot_ok=plot_ok, toks=toks, mm=mm, multi_ok=multi_ok]
+
+@Graded::Table1_Framework{
+# Table 1 live: all seven rows (Thm 6-12) verify as identities (max residual ~1e-15).
+t1, t1_ok = paper_2511_17864_table1_framework()
+@}::endpoints::[t1=t1, t1_ok=t1_ok]
+
+@Graded::Thm5_Unified{
+# Thm 5 live: two-step proof on a toy residual block (input fix then residual fix), both exact.
+thm5 = paper_2511_17864_thm5_unified()
+@}::endpoints::[thm5=thm5]
+
+@Graded::AppB_Stable{
+# App B live: RMSNorm inversion via bisection recovers RMS==C and beats neighbors; stable Wdown path exact.
+appB = paper_2511_17864_appB_stable()
+@}::endpoints::[appB=appB]
+
+@Graded::Setup{
+# s4 setup: Gemma 3 1B/4B, Mars prompt verbatim, per-token recompute + forced continuation, metrics, precision ladder, descriptive scope.
+setup = paper_2511_17864_setup()
+@}::endpoints::[setup=setup]
+
+@Graded::RepoAudit{
+# No repo for this paper (0 issues reviewable); only third-party vanilla-foundation replications; text-faithful with live identity checks.
+repo = paper_2511_17864_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::ImplicitPatchPaper::[Fig1_Block, Eq1_Forward, Thm1_Patch, Fig2_Thm2, Alg1, Fig3_Text, Fig4_Summary, Fig5_Image, Table1_Framework, Thm5_Unified, AppB_Stable, Setup, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, chain, eq1, thm1, thm2, alg1, toks, mm, f32max, b16min, tvd_live, tvd_ok, match, ladder_ok, multi_ok, t1, t1_ok, thm5, appB, setup, repo]

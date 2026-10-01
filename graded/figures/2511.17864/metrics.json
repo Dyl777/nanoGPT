@@ -1,0 +1,216 @@
+{
+  "arxiv": "2511.17864",
+  "title": "Equivalence of Context and Parameter Updates in Modern Transformer Blocks",
+  "authors": "Goldwaser, Munn, Gonzalvo, Dherin (Cambridge/Google)",
+  "plot_fig1": 1.0,
+  "fig1_chain": [
+    "vC",
+    "RMSNorm1",
+    "Wgate / Wup",
+    "GeLU x",
+    "Wdown",
+    "x m",
+    "(+) T(C,x)"
+  ],
+  "eq1": {
+    "linf_recompose": 0.0,
+    "exact": true,
+    "d": 16,
+    "h": 32
+  },
+  "thm1": {
+    "linf_equiv": 8.881784197001252e-16,
+    "exact": true,
+    "rank_gate": 1,
+    "rank_up": 1,
+    "rank1_ratio_gate": 6566877020074941.0,
+    "rank1_ratio_up": 1.3490972510306854e+16,
+    "min_abs_hmlp": 0.047449958799163625,
+    "precondition_ok": true
+  },
+  "thm2": {
+    "layer_linf": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "final_linf": 0.0,
+    "induction_ok": true,
+    "L": 3
+  },
+  "alg1": {
+    "chain_ok": true,
+    "final_linf": 0.0,
+    "n_layers": 2,
+    "n_thetas": 2,
+    "lines_9_19_followed": true
+  },
+  "plot_fig3": 1.0,
+  "fig3_tokens": [
+    "The",
+    "atmospheric",
+    "pressure",
+    "remains",
+    "stubbornly",
+    "low",
+    ",",
+    "and",
+    "the",
+    "sun",
+    "is",
+    "currently",
+    "obscured",
+    "by",
+    "a",
+    "persistent",
+    "dust",
+    "storm"
+  ],
+  "fig3_mismatch": [
+    false,
+    true,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "fig3_f32_max": 6.3e-05,
+  "fig3_b16_min_mismatch": 20.155,
+  "tvd_live": 2.2927e-05,
+  "tvd_definition_ok": true,
+  "plot_fig4": 1.0,
+  "token_match": [
+    87.5,
+    98.0,
+    100.0,
+    100.0
+  ],
+  "ladder_ok": true,
+  "plot_fig5": 1.0,
+  "fig5_tokens": [
+    "A",
+    "beautiful",
+    ",",
+    "tortoises",
+    "hell",
+    "cat",
+    "resting",
+    "on",
+    "a",
+    "wooden",
+    "floor",
+    ".",
+    "<end_of_turn>"
+  ],
+  "fig5_mismatch": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    true,
+    true,
+    false,
+    false,
+    false
+  ],
+  "fig5_multimodal_ok": true,
+  "table1": {
+    "thm6_input": 1.4432899320127035e-15,
+    "thm7_prenorm": 1.3322676295501878e-15,
+    "thm8_bias": 0.0,
+    "thm9_outer_weight": 2.6645352591003757e-15,
+    "thm10_elementwise": 0.0,
+    "thm11_moe": 4.440892098500626e-16,
+    "thm12_parallel": 4.440892098500626e-16
+  },
+  "table1_ok": true,
+  "thm5": {
+    "step1_input_fix": 1.7763568394002505e-15,
+    "step2_full_equiv": 4.6074255521944e-15,
+    "unified_ok": true
+  },
+  "appB": {
+    "rms_ok": true,
+    "objective": 0.38235392,
+    "beats_neighbors": true,
+    "stable_path_linf": 1.7763568394002505e-15,
+    "mu": 0.120472,
+    "stable_ok": true
+  },
+  "setup": {
+    "models": [
+      "Gemma 3 1B instruction-tuned",
+      "Gemma 3 4B instruction-tuned"
+    ],
+    "prompt": "Write a single-sentence weather forecast for Mars, from the perspective of a slightly annoyed robot:",
+    "arms": [
+      "baseline-with-context",
+      "updated-no-context-per-token-recompute"
+    ],
+    "divergence_rule": "record mismatch, force updated model onto baseline token, continue",
+    "metrics": {
+      "token_match": "identical sampled token per step",
+      "linf": "max abs logit difference",
+      "tvd": "0.5 * ||p - q||_1"
+    },
+    "precision_ladder": {
+      "bfloat16": 87.5,
+      "bfloat16_stable": 98.0,
+      "float32": 100.0,
+      "float32_stable": 100.0
+    },
+    "image_arm": "Gemma 3 4B multimodal prompt (Fig.5)",
+    "scope_note": "descriptive lens, token-dependent recompute; no global reusable update (s6)"
+  },
+  "repo_status": "no-public-code-for-this-paper",
+  "repo_audit": {
+    "repo_for_this_paper": null,
+    "issues_reviewable": 0,
+    "third_party": [
+      {
+        "repo": "ricardotrevisan/incontext-learning",
+        "issues": 0,
+        "stars": 4,
+        "covers": "Dherin-2025 vanilla only"
+      },
+      {
+        "repo": "Magalop-bit/The-implicit-dynamics-of-ICL-Replication",
+        "issues": 0,
+        "stars": 1,
+        "covers": "Dherin-2025 vanilla only"
+      }
+    ],
+    "paper_symbols": {
+      "eq1": "T(C,x) = vC + m .* f(Wgate zC, Wup zC)",
+      "eq2": "dWgate = (Wgate (zC-z)) z' / ||z||^2",
+      "eq3": "dWup = (Wup (zC-z)) z' / ||z||^2",
+      "eq4": "dm = (vC-v) ./ f(...)",
+      "delta": "dAx(Y) = A(C,x) - A(C\\Y,x)",
+      "alg1": "record targets (lines 2-7), sequential updates with x'_l = target (lines 9-19)",
+      "tvd": "0.5 * ||p - q||_1"
+    },
+    "divergences_from_text": [
+      "toy dims (d<=24) stand in for Gemma widths; identities are exact so scale is irrelevant",
+      "Fig.3/4/5 curves/bars reconstructed inside reported bands; per-token values are figure-only",
+      "Table-1 MoE uses linear experts (output-controllable per Lemma 11 premise)",
+      "App-B grid check is a neighbor check, not a global optimality proof"
+    ],
+    "adaptations_made": "none to the math; only dims and curve reconstruction flagged above"
+  }
+}
