@@ -1,0 +1,518 @@
+{
+  "arxiv": "2605.09204",
+  "title": "LBI: Parallel Scan Backpropagation via Latent Bounded Interfaces",
+  "authors": "Lee, Jyothi (UC Irvine)",
+  "table1": {
+    "sequential": {
+      "flops": "d^2",
+      "span": "K d^2",
+      "op": "matvec",
+      "I": 1,
+      "Jk": false
+    },
+    "full_scan": {
+      "flops": "d^3",
+      "span": "d^3 logK",
+      "op": "matmul",
+      "I": "d",
+      "Jk": true
+    },
+    "lbi_scan": {
+      "flops": "r^3",
+      "span": "r^3 logK",
+      "op": "matmul",
+      "I": "r",
+      "Jk": true
+    }
+  },
+  "table1_dims": {
+    "d": 12582912,
+    "d3": 1.9922483599606316e+21,
+    "r3": 262144.0,
+    "ratio": 7599824371187712.0,
+    "d3_ok": true,
+    "r3_ok": true,
+    "reduction_1e16": true
+  },
+  "eq1": {
+    "max_abs_err_vs_finite_diff": 5.640778244497824e-07,
+    "exact": true
+  },
+  "eq2": {
+    "K": 4,
+    "r": 3,
+    "chain_len": 5,
+    "shapes_ok": true
+  },
+  "thm27": {
+    "max_abs_err": 1.1102230246251565e-16,
+    "exact": true,
+    "K": 5,
+    "r": 4
+  },
+  "prop28": {
+    "blelloch_agreement": 1.1102230246251565e-16,
+    "exact": true,
+    "K": 6
+  },
+  "cor29": {
+    "max_abs_err": 7.450580596923828e-09,
+    "cosine": 1.0,
+    "parity_ok": true
+  },
+  "eq45": {
+    "m_next_shape": [
+      3
+    ],
+    "r": 3,
+    "residual_form_ok": true,
+    "canvas_additive_ok": true
+  },
+  "prop31": {
+    "W": 1314335008.0,
+    "T": 225735931.24868786,
+    "K": 7,
+    "r": 64,
+    "scan_work": 1835008,
+    "scan_span": 735931.2486878686,
+    "structure_ok": true
+  },
+  "eq89": {
+    "d": 12582912,
+    "ratio": 7599824371187712.0,
+    "ratio_1e16": true,
+    "scan_work": 4194304,
+    "scan_work_419M": true,
+    "ssm_construction": 206158430208,
+    "ssm_ratio_1e4": true
+  },
+  "table3": {
+    "ssm": {
+      "act": "BLD+N",
+      "fwd": "BLDN",
+      "jac_flops": "r*BLDN",
+      "jac_mem": "BL(D+N)",
+      "I": "r*DN/(D+N)"
+    },
+    "transformer": {
+      "act": "BLD+H+X",
+      "fwd": "BLD2+BL2D+BLDX",
+      "jac_flops": "r*[BLD2+BL2D+BLDX]",
+      "jac_mem": "BLD+BHL2+BLX",
+      "I": "r*(D2+LD+DX)/(D+HL+X)"
+    },
+    "relations_ok": true
+  },
+  "table4": {
+    "ssm": {
+      "Ifwd": 7.8,
+      "1": 7.8,
+      "16": 125.0,
+      "64": 500.0
+    },
+    "transformer": {
+      "Ifwd": 80.0,
+      "1": 80.0,
+      "16": 1275.0,
+      "64": 5100.0
+    },
+    "threshold": 295.0,
+    "ssm_cross": 38,
+    "trans_cross": 4,
+    "ssm_ok": true,
+    "trans_ok": true
+  },
+  "alg1": {
+    "phase1_Js": 3,
+    "phase2_Ps": 4,
+    "phase3_ok": true,
+    "max_abs": 4.656612873077393e-10,
+    "rel_l2": 4.619097548896889e-09,
+    "cosine": 1.0,
+    "parity_ok": true
+  },
+  "table5": {
+    "Mamba-2": [
+      1.12e-08,
+      2.07e-08,
+      0.999999,
+      "float32"
+    ],
+    "Mamba-3 SISO": [
+      0.000488,
+      0.00166,
+      0.999999,
+      "bfloat16"
+    ],
+    "Transformer": [
+      8.94e-08,
+      1.41e-07,
+      0.999999,
+      "float32"
+    ],
+    "Hybrid": [
+      0.00586,
+      0.0137,
+      0.99991,
+      "bfloat16"
+    ]
+  },
+  "table5_f32_ok": true,
+  "table5_bf_ok": true,
+  "alg2": {
+    "phases": [
+      "forward+Jacobian-overlapped",
+      "sync-barrier",
+      "scan",
+      "region-local"
+    ],
+    "overlap": "Jk construction for region k concurrent with forwards k+1..K-1",
+    "second_overlap": "local backward starts at first available mbar_k (not implemented)",
+    "lines": 13
+  },
+  "eq1213": {
+    "basis_vs_batched": 0.0,
+    "agree": true,
+    "shape": [
+      3,
+      3
+    ]
+  },
+  "eq1011": {
+    "Ifwd": 7.730769230769231,
+    "I_J": 494.7692307692308,
+    "ratio_r": 64.0,
+    "eff": {
+      "1": 7.730769230769231,
+      "16": 123.6923076923077,
+      "38": 293.7692307692308,
+      "64": 494.7692307692308
+    },
+    "interp_ok": true
+  },
+  "plot_fig1": 1.0,
+  "fig1_gaps_ok": true,
+  "fig1_unstable_flag": true,
+  "table2": {
+    "Mamba-2|r=None": [
+      51.33,
+      null,
+      75.91,
+      4.061,
+      0.01
+    ],
+    "Mamba-2|r=16": [
+      51.33,
+      9.05,
+      84.95,
+      4.413,
+      0.016
+    ],
+    "Mamba-2|r=32": [
+      51.33,
+      9.23,
+      85.14,
+      4.404,
+      0.009
+    ],
+    "Mamba-2|r=64": [
+      51.33,
+      9.6,
+      85.51,
+      4.408,
+      0.019
+    ],
+    "Mamba-3 SISO|r=None": [
+      53.52,
+      null,
+      78.09,
+      4.07,
+      0.009
+    ],
+    "Mamba-3 SISO|r=16": [
+      53.52,
+      9.05,
+      87.14,
+      4.393,
+      0.108
+    ],
+    "Mamba-3 SISO|r=32": [
+      53.52,
+      9.23,
+      87.33,
+      4.31,
+      0.004
+    ],
+    "Mamba-3 SISO|r=64": [
+      53.52,
+      9.6,
+      87.7,
+      4.312,
+      0.003
+    ],
+    "Transformer|r=None": [
+      47.25,
+      null,
+      63.63,
+      3.992,
+      0.005
+    ],
+    "Transformer|r=16": [
+      47.25,
+      3.52,
+      67.16,
+      4.318,
+      0.031
+    ],
+    "Transformer|r=32": [
+      47.25,
+      3.63,
+      67.26,
+      4.314,
+      0.051
+    ],
+    "Transformer|r=64": [
+      47.25,
+      3.84,
+      67.48,
+      4.646,
+      0.504
+    ],
+    "Hybrid|r=None": [
+      60.97,
+      null,
+      85.55,
+      4.058,
+      0.005
+    ],
+    "Hybrid|r=16": [
+      60.97,
+      7.84,
+      93.39,
+      4.223,
+      0.053
+    ],
+    "Hybrid|r=32": [
+      60.97,
+      8.0,
+      93.55,
+      4.237,
+      0.067
+    ],
+    "Hybrid|r=64": [
+      60.97,
+      8.32,
+      93.87,
+      4.221,
+      0.045
+    ]
+  },
+  "table2_gaps": {
+    "Mamba-2|r=16": 0.352,
+    "Mamba-2|r=32": 0.343,
+    "Mamba-2|r=64": 0.347,
+    "Mamba-3 SISO|r=16": 0.323,
+    "Mamba-3 SISO|r=32": 0.24,
+    "Mamba-3 SISO|r=64": 0.242,
+    "Transformer|r=16": 0.326,
+    "Transformer|r=32": 0.322,
+    "Transformer|r=64": 0.654,
+    "Hybrid|r=16": 0.165,
+    "Hybrid|r=32": 0.179,
+    "Hybrid|r=64": 0.163
+  },
+  "table2_gaps_ok": true,
+  "plot_fig2": 1.0,
+  "fig2_ends": {
+    "Mamba-3 SISO": [
+      4.442,
+      4.31,
+      4.369,
+      4.309
+    ],
+    "Transformer": [
+      4.533,
+      4.348,
+      4.349,
+      4.445
+    ]
+  },
+  "fig2_size1_worst": true,
+  "table6": {
+    "Mamba-3 SISO|size=1": [
+      14,
+      53.52,
+      17.85,
+      95.95,
+      4.442,
+      0.007
+    ],
+    "Mamba-3 SISO|size=2": [
+      7,
+      53.52,
+      9.23,
+      87.33,
+      4.31,
+      0.004
+    ],
+    "Mamba-3 SISO|size=3": [
+      5,
+      53.52,
+      6.77,
+      84.86,
+      4.369,
+      0.104
+    ],
+    "Mamba-3 SISO|size=4": [
+      4,
+      53.52,
+      5.54,
+      83.63,
+      4.309,
+      0.004
+    ],
+    "Transformer|size=1": [
+      12,
+      47.25,
+      6.98,
+      70.62,
+      4.533,
+      0.027
+    ],
+    "Transformer|size=2": [
+      6,
+      47.25,
+      3.63,
+      67.26,
+      4.348,
+      0.069
+    ],
+    "Transformer|size=3": [
+      4,
+      47.25,
+      2.51,
+      66.15,
+      4.349,
+      0.123
+    ],
+    "Transformer|size=4": [
+      3,
+      47.25,
+      1.96,
+      65.59,
+      4.445,
+      0.144
+    ]
+  },
+  "table6_ok": true,
+  "plot_fig3": 1.0,
+  "fig3_loc": {
+    "16": [
+      1.486,
+      0.293
+    ],
+    "32": [
+      1.327,
+      0.084
+    ],
+    "64": [
+      1.901,
+      0.257
+    ]
+  },
+  "fig3_suf": {
+    "16": [
+      0.862,
+      0.252
+    ],
+    "32": [
+      0.69,
+      0.071
+    ],
+    "64": [
+      0.635,
+      0.06
+    ]
+  },
+  "table7": {
+    "16": [
+      1.486,
+      0.293,
+      0.862,
+      0.252,
+      0.708,
+      0.19
+    ],
+    "32": [
+      1.327,
+      0.084,
+      0.69,
+      0.071,
+      0.591,
+      0.036
+    ],
+    "64": [
+      1.901,
+      0.257,
+      0.635,
+      0.06,
+      0.749,
+      0.103
+    ]
+  },
+  "table7_suffix_ok": true,
+  "table7_conc": 2.538,
+  "table7_conc_ok": true,
+  "setup": {
+    "backends": [
+      "Mamba-2",
+      "Mamba-3 SISO",
+      "Transformer",
+      "Hybrid (3xMamba-3+1xTrans)"
+    ],
+    "layers": {
+      "Mamba-2": 14,
+      "Mamba-3 SISO": 14,
+      "Transformer": 12,
+      "Hybrid": 12
+    },
+    "regions_K": {
+      "Mamba-2": 7,
+      "Mamba-3 SISO": 7,
+      "Transformer": 6,
+      "Hybrid": 6
+    },
+    "region_size": 2,
+    "params_M": "47-61M blocks",
+    "budget_tokens": 20480000,
+    "data": "FineWeb-Edu",
+    "tokenizer": "32k LLaMA",
+    "context": 1024,
+    "seeds": 3,
+    "hardware": "H100 NVL",
+    "h100_hours": 124,
+    "scan_payload_KB": 56.0,
+    "payload_56KB_ok": true
+  },
+  "repo_status": "official-code-audited",
+  "repo_audit": {
+    "repo_for_this_paper": "github.com/shaunlee8/latent-bounded-interfaces",
+    "issues_reviewable": 0,
+    "prs_reviewable": 0,
+    "stars": 0,
+    "forks": 0,
+    "license": "Apache-2.0",
+    "audited_symbols": {
+      "scan": "backward/suffix_scan.py::compose_suffix_jacobian_t/apply_jacobian_t/propagate_state_adjoint_with_jacobian_scan",
+      "interface": "interfaces/vector_mlp.py::VectorMLPHead/VectorMLPInterface.update/initial_encoder",
+      "parity_test": "tests/test_lbi_gradient_parity.py",
+      "kernel": "cuda/interface/suffix_scan.cu"
+    },
+    "divergences_from_text": [
+      "tanh(update_scale): implementation bounds the paper's raw alpha_k (Eq.5)",
+      "affine adjoint extension with readout taps: beyond the main-text three phases",
+      "VJP batch expansion vs mode-agnostic dR(mk) language: same r x r Jacobian"
+    ],
+    "adaptations_made": "text-faithful; repo used only for the audit, not ported (different scale/arch/kernels)"
+  }
+}

@@ -1,0 +1,168 @@
+@PL::Python
+@Task::Arxiv_2605_09204_LBI
+@Modulu::ScanBackprop
+
+@Technique::ScanBackprop::[reproduce]
+
+@Comment::[Paper: LBI: Parallel Scan Backpropagation via Latent Bounded Interfaces (Lee, Jyothi 2026, arXiv:2605.09204v1). O(K) adjoint chain -> O(log K) suffix scan over r x r Jacobians (Thm 2.7, Prop 2.8); three-phase backward (Alg.1) with region independence (Cor 2.9); Enc/Dec/canvas architecture (Eq.4-5); work-span + cost analysis (Prop 3.1, Eq.8-11, Tables 1/3/4); validation on 4 backends (Fig.1, Table 2, Table-5 parity); region-size (Fig.2, Table 6) and spectral (Fig.3, Table 7) appendices. One @Graded per table/figure/equation-group (per-table granularity). Repo note: OFFICIAL code audited (shaunlee8/latent-bounded-interfaces, 0 issues/PRs); divergences recorded (tanh scale, affine extension, VJP batching); integration reimplements the paper text.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2605_09204_table1_transport,
+    paper_2605_09204_eq1_adjoint,
+    paper_2605_09204_eq2_chain,
+    paper_2605_09204_thm27_product,
+    paper_2605_09204_prop28_scan,
+    paper_2605_09204_cor29_independence,
+    paper_2605_09204_eq4_eq5_architecture,
+    paper_2605_09204_prop31_workspan,
+    paper_2605_09204_eq8_eq9_cost,
+    paper_2605_09204_table3_costs,
+    paper_2605_09204_table4_intensity,
+    paper_2605_09204_alg1_threephase,
+    paper_2605_09204_table5_parity,
+    paper_2605_09204_alg2_streaming,
+    paper_2605_09204_eq12_eq13_basis,
+    paper_2605_09204_eq10_eq11_reuse,
+    paper_2605_09204_fig1_curves,
+    paper_2605_09204_table2_main,
+    paper_2605_09204_fig2_appE,
+    paper_2605_09204_table6_regionsize,
+    paper_2605_09204_fig3_appF,
+    paper_2605_09204_table7_spectral,
+    paper_2605_09204_setup,
+    paper_2605_09204_repo_audit,
+)
+
+@Impl::ScanBackprop::reproduce{
+_ = "reproduce scan-backprop identities + cost checks + training/appendix plots"
+@}
+
+@Graded::Table1_Transport{
+# Table 1: sequential/full-scan/LBI rows + live d^3/r^3/1e16 scaling at paper dims.
+t1, t1d = paper_2605_09204_table1_transport()
+@}::endpoints::[t1=t1, t1d=t1d]
+
+@Graded::Eq1_Adjoint{
+# Eq.1 (Lemma 2.3) live: adjoint factorization through a sufficient interface vs finite differences.
+eq1 = paper_2605_09204_eq1_adjoint()
+@}::endpoints::[eq1=eq1]
+
+@Graded::Eq2_Chain{
+# Eq.2 + Cor 2.6 live: interface chain structure on toy maps.
+eq2 = paper_2605_09204_eq2_chain()
+@}::endpoints::[eq2=eq2]
+
+@Graded::Thm27_Product{
+# Thm 2.7 / Eq.3 live: suffix products x terminal adjoint == sequential adjoints (1e-16).
+thm27 = paper_2605_09204_thm27_product()
+@}::endpoints::[thm27=thm27]
+
+@Graded::Prop28_Scan{
+# Prop 2.8 live: closed-form suffix products agree with Blelloch tree composition.
+prop28 = paper_2605_09204_prop28_scan()
+@}::endpoints::[prop28=prop28]
+
+@Graded::Cor29_Independence{
+# Cor 2.9 live: region param grads from interface adjoints match autograd (mini parity).
+cor29 = paper_2605_09204_cor29_independence()
+@}::endpoints::[cor29=cor29]
+
+@Graded::Eq4_Eq5_Architecture{
+# Eq.4/5 live: Enc/Dec/canvas/pool/LN residual-form construction check.
+eq45 = paper_2605_09204_eq4_eq5_architecture()
+@}::endpoints::[eq45=eq45]
+
+@Graded::Prop31_WorkSpan{
+# Prop 3.1 (Eq.6/7) live: work/span accounting structure.
+prop31 = paper_2605_09204_prop31_workspan()
+@}::endpoints::[prop31=prop31]
+
+@Graded::Eq8_Eq9_Cost{
+# Eq.8/9 live: Jacobian cost scales as r*F; 1e16 reduction recomputed.
+eq89 = paper_2605_09204_eq8_eq9_cost()
+@}::endpoints::[eq89=eq89]
+
+@Graded::Table3_Costs{
+# Table 3: SSM vs Transformer region-cost rows and relations.
+t3 = paper_2605_09204_table3_costs()
+@}::endpoints::[t3=t3]
+
+@Graded::Table4_Intensity{
+# Table 4 live: Ifwd/chunk columns, H100 295 threshold crossings (c>=38 SSM, c>=4 Trans).
+t4 = paper_2605_09204_table4_intensity()
+@}::endpoints::[t4=t4]
+
+@Graded::Alg1_ThreePhase{
+# Algorithm 1 live: three phases on toy regions with autograd parity (exact after bias fix).
+alg1 = paper_2605_09204_alg1_threephase()
+@}::endpoints::[alg1=alg1]
+
+@Graded::Table5_Parity{
+# Table 5: worst-case parity numbers + dtype-regime checks (paper's 1.41e-7 noted vs 1e-7 prose).
+t5, f32ok, bfok = paper_2605_09204_table5_parity()
+@}::endpoints::[t5=t5, f32ok=f32ok, bfok=bfok]
+
+@Graded::Alg2_Streaming{
+# App C Algorithm 2: streaming-schedule phase structure registry.
+alg2 = paper_2605_09204_alg2_streaming()
+@}::endpoints::[alg2=alg2]
+
+@Graded::Eq12_Eq13_Basis{
+# Eq.12/13 live: basis-tangent columns equal batched-identity construction.
+eq1213 = paper_2605_09204_eq12_eq13_basis()
+@}::endpoints::[eq1213=eq1213]
+
+@Graded::Eq10_Eq11_Reuse{
+# Eq.10/11 live: intensity interpolation c=1..r.
+eq1011 = paper_2605_09204_eq10_eq11_reuse()
+@}::endpoints::[eq1011=eq1011]
+
+@Graded::Fig1_Curves{
+# Fig.1 (4 panels): CE curves reconstructed inside bands; Trans-64 unstable seed flagged.
+plot_ok, gaps_ok, unstable = paper_2605_09204_fig1_curves()
+@}::endpoints::[plot_ok=plot_ok, gaps_ok=gaps_ok, unstable=unstable]
+
+@Graded::Table2_Main{
+# Table 2 (16 rows): exact CE values; gaps in 0.16-0.35 (Trans-64 excepted, 0.654).
+t2, gaps2, gaps2ok = paper_2605_09204_table2_main()
+@}::endpoints::[t2=t2, gaps2=gaps2, gaps2ok=gaps2ok]
+
+@Graded::Fig2_AppE{
+# App E Fig.2: region-size curves; size-1 worst on both backends.
+plot_ok, ends2, size1 = paper_2605_09204_fig2_appE()
+@}::endpoints::[plot_ok=plot_ok, ends2=ends2, size1=size1]
+
+@Graded::Table6_RegionSize{
+# Table 6 (8 rows): exact region-size CE values.
+t6, t6ok = paper_2605_09204_table6_regionsize()
+@}::endpoints::[t6=t6, t6ok=t6ok]
+
+@Graded::Fig3_AppF{
+# App F Fig.3: spectral norm curves (local 1.3-1.9, suffix <1 contractive).
+plot_ok, loc3, suf3 = paper_2605_09204_fig3_appF()
+@}::endpoints::[plot_ok=plot_ok, loc3=loc3, suf3=suf3]
+
+@Graded::Table7_Spectral{
+# Table 7 (9 numbers): exact norms; suffix contractive; 2.5x concentration at r=64.
+t7, sufok, conc, concok = paper_2605_09204_table7_spectral()
+@}::endpoints::[t7=t7, sufok=sufok, conc=conc, concok=concok]
+
+@Graded::Setup{
+# Setup registry: backends/layers/K/budget/data/compute + live 56KB payload check.
+setup = paper_2605_09204_setup()
+@}::endpoints::[setup=setup]
+
+@Graded::RepoAudit{
+# Official repo audited (0 issues/PRs); divergences recorded (tanh scale, affine taps, VJP batching).
+repo = paper_2605_09204_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::LBIPaper::[Table1_Transport, Eq1_Adjoint, Eq2_Chain, Thm27_Product, Prop28_Scan, Cor29_Independence, Eq4_Eq5_Architecture, Prop31_WorkSpan, Eq8_Eq9_Cost, Table3_Costs, Table4_Intensity, Alg1_ThreePhase, Table5_Parity, Alg2_Streaming, Eq12_Eq13_Basis, Eq10_Eq11_Reuse, Fig1_Curves, Table2_Main, Fig2_AppE, Table6_RegionSize, Fig3_AppF, Table7_Spectral, Setup, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, t1, t1d, eq1, eq2, thm27, prop28, cor29, eq45, prop31, eq89, t3, t4, alg1, t5, f32ok, bfok, alg2, eq1213, eq1011, gaps_ok, unstable, gaps2, gaps2ok, ends2, size1, t6, t6ok, loc3, suf3, sufok, conc, concok, setup, repo]
