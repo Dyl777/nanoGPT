@@ -1,0 +1,366 @@
+{
+  "arxiv": "2603.20397",
+  "title": "KV Cache Optimization Strategies for Scalable and Efficient LLM Inference",
+  "authors": "Xu, Khaira, Singh, Dell (survey, 20 Mar 2026)",
+  "fig4_plot": 1.0,
+  "fig4_matrix": [
+    [
+      1.0,
+      null,
+      null,
+      null
+    ],
+    [
+      0.3,
+      0.7,
+      null,
+      null
+    ],
+    [
+      0.1,
+      0.35,
+      0.55,
+      null
+    ],
+    [
+      0.05,
+      0.65,
+      0.2,
+      0.1
+    ]
+  ],
+  "fig4_checks": {
+    "row_sums": [
+      1.0,
+      1.0,
+      1.0,
+      1.0000000000000002
+    ],
+    "row_sums_ok": true,
+    "causal_mask_ok": true,
+    "sweet_apple": 0.65,
+    "sweet_apple_ok": true,
+    "sweet_argmax": 1,
+    "sweet_argmax_ok": true,
+    "fig4_ok": true
+  },
+  "fig6_plot": 1.0,
+  "fig6_sim": {
+    "n_steps": 48,
+    "budget": 16,
+    "recent_window": 6,
+    "heavy_hitters": [
+      7,
+      19,
+      31
+    ],
+    "max_cache_size": 16,
+    "n_evictions": 32,
+    "budget_ok": true,
+    "hh_kept": true,
+    "recent_window_kept": true,
+    "retained_mass_h2o": 0.7218742473040315,
+    "retained_mass_random": 0.13762137686889406,
+    "mass_ok": true,
+    "table6_reported_claims": {
+      "memory_reduction": "up to 5-10x",
+      "throughput": "up to 29x",
+      "latency": "<=1.9x lower vs FlexGen",
+      "accuracy": "comparable to baseline"
+    },
+    "fig6_ok": true
+  },
+  "fig6_ok": true,
+  "repo_status": "survey no-public-code; 25/28 techniques official repos",
+  "repo_audit": {
+    "survey": {
+      "arxiv": "2603.20397",
+      "repo": null,
+      "status": "no-public-code",
+      "searched": [
+        "\"KV Cache Optimization Strategies\" in:name,description",
+        "2603.20397 in:readme"
+      ]
+    },
+    "techniques": [
+      {
+        "technique": "H2O",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[1]",
+        "paper": "arXiv:2306.14048",
+        "repo": "FMInference/H2O",
+        "status": "official"
+      },
+      {
+        "technique": "SnapKV",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[2]",
+        "paper": "arXiv:2404.14469",
+        "repo": "FasterDecoding/SnapKV",
+        "status": "official"
+      },
+      {
+        "technique": "Ada-KV",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[3]",
+        "paper": "arXiv:2407.11550",
+        "repo": "FFY0/AdaKV",
+        "status": "official"
+      },
+      {
+        "technique": "NACL",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[9]",
+        "paper": "arXiv:2408.03675",
+        "repo": "PaddlePaddle/Research (subdir NACL)",
+        "status": "official"
+      },
+      {
+        "technique": "InfiniPot",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[10]",
+        "paper": "arXiv:2410.01518",
+        "repo": null,
+        "status": "no-public-code"
+      },
+      {
+        "technique": "HashEvict",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[11]",
+        "paper": "arXiv:2412.16187",
+        "repo": null,
+        "status": "no-public-code"
+      },
+      {
+        "technique": "MorphKV",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[13]",
+        "paper": "arXiv:2503.00979",
+        "repo": "ghadiaravi13/MorphKV",
+        "status": "official"
+      },
+      {
+        "technique": "RocketKV",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[14]",
+        "paper": "arXiv:2502.14051",
+        "repo": "NVlabs/RocketKV",
+        "status": "official"
+      },
+      {
+        "technique": "KVzip",
+        "category": "cache eviction",
+        "survey_table": "Table 2",
+        "ref": "[15]",
+        "paper": "arXiv:2505.23416",
+        "repo": "snu-mllab/KVzip",
+        "status": "official"
+      },
+      {
+        "technique": "KIVI",
+        "category": "cache compression",
+        "survey_table": "Table 3",
+        "ref": "[5]",
+        "paper": "arXiv:2402.02750 (survey gives DOI only)",
+        "repo": "jy-yuan/KIVI",
+        "status": "official"
+      },
+      {
+        "technique": "KVQuant",
+        "category": "cache compression",
+        "survey_table": "Table 3",
+        "ref": "[20]",
+        "paper": "arXiv:2401.18079",
+        "repo": "SqueezeAILab/KVQuant",
+        "status": "official"
+      },
+      {
+        "technique": "MiniCache",
+        "category": "cache compression",
+        "survey_table": "Table 3",
+        "ref": "[21]",
+        "paper": "arXiv:2405.14366",
+        "repo": "AkideLiu/MiniCache",
+        "status": "official"
+      },
+      {
+        "technique": "PALU",
+        "category": "cache compression",
+        "survey_table": "Table 3",
+        "ref": "[19]",
+        "paper": "arXiv:2407.21118",
+        "repo": "shadowpa0327/Palu",
+        "status": "official"
+      },
+      {
+        "technique": "PagedAttention",
+        "category": "hybrid memory",
+        "survey_table": "Table 4",
+        "ref": "[22]",
+        "paper": "arXiv:2309.06180",
+        "repo": "vllm-project/vllm",
+        "status": "official"
+      },
+      {
+        "technique": "InfiniGen",
+        "category": "hybrid memory",
+        "survey_table": "Table 4",
+        "ref": "[23]",
+        "paper": "arXiv:2406.19707",
+        "repo": "snu-comparch/InfiniGen",
+        "status": "official"
+      },
+      {
+        "technique": "LayerKV",
+        "category": "hybrid memory",
+        "survey_table": "Table 4",
+        "ref": "[24]",
+        "paper": "arXiv:2410.00428",
+        "repo": null,
+        "status": "no-public-code"
+      },
+      {
+        "technique": "INF2",
+        "category": "hybrid memory",
+        "survey_table": "Table 4",
+        "ref": "[25]",
+        "paper": "arXiv:2502.09921",
+        "repo": "hongsunjang/HILOS",
+        "status": "official (released as HILOS)"
+      },
+      {
+        "technique": "KVPR",
+        "category": "hybrid memory",
+        "survey_table": "Table 4",
+        "ref": "[26]",
+        "paper": "arXiv:2411.17089",
+        "repo": "chaoyij/KVPR",
+        "status": "official"
+      },
+      {
+        "technique": "Oneiros",
+        "category": "hybrid memory",
+        "survey_table": "Table 4",
+        "ref": "[27]",
+        "paper": "arXiv:2507.11507",
+        "repo": "UT-SysML/Oneiros",
+        "status": "official"
+      },
+      {
+        "technique": "CLO",
+        "category": "hybrid memory",
+        "survey_table": "Table 4",
+        "ref": "[28]",
+        "paper": "arXiv:2511.14510",
+        "repo": "CommediaJW/CLO",
+        "status": "official"
+      },
+      {
+        "technique": "LinearAttention",
+        "category": "new attention",
+        "survey_table": "Table 5",
+        "ref": "[29]",
+        "paper": "arXiv:2006.16236",
+        "repo": "idiap/fast-transformers",
+        "status": "official"
+      },
+      {
+        "technique": "LogLinearAttention",
+        "category": "new attention",
+        "survey_table": "Table 5",
+        "ref": "[30]",
+        "paper": "arXiv:2506.04761",
+        "repo": "HanGuo97/log-linear-attention",
+        "status": "official"
+      },
+      {
+        "technique": "LocalLinearAttention",
+        "category": "new attention",
+        "survey_table": "Table 5",
+        "ref": "[31]",
+        "paper": "arXiv:2510.01450",
+        "repo": "Yifei-Zuo/Flash-LLA",
+        "status": "official"
+      },
+      {
+        "technique": "KIMILinear",
+        "category": "new attention",
+        "survey_table": "Table 5",
+        "ref": "[32]",
+        "paper": "arXiv:2510.26692",
+        "repo": "MoonshotAI/Kimi-Linear",
+        "status": "official"
+      },
+      {
+        "technique": "FlexGen",
+        "category": "combination",
+        "survey_table": "\u00a73.5",
+        "ref": "[33]",
+        "paper": "arXiv:2303.06865",
+        "repo": "FlexGen/FlexGen",
+        "status": "official"
+      },
+      {
+        "technique": "Q-Hitter",
+        "category": "combination",
+        "survey_table": "\u00a73.5",
+        "ref": "[34]",
+        "paper": "MLSys 2024 (no arXiv)",
+        "repo": "VITA-Group/Q-Hitter",
+        "status": "official"
+      },
+      {
+        "technique": "ShadowKV",
+        "category": "combination",
+        "survey_table": "\u00a73.5",
+        "ref": "[35]",
+        "paper": "arXiv:2410.21465",
+        "repo": "ByteDance-Seed/ShadowKV",
+        "status": "official"
+      },
+      {
+        "technique": "TailorKV",
+        "category": "combination",
+        "survey_table": "\u00a73.5",
+        "ref": "[36]",
+        "paper": "arXiv:2505.19586",
+        "repo": "ydyhello/TailorKV",
+        "status": "official"
+      }
+    ],
+    "counts": {
+      "total": 28,
+      "with_official_repo": 25,
+      "no_public_code": 3,
+      "no_public_code_names": [
+        "InfiniPot",
+        "HashEvict",
+        "LayerKV"
+      ]
+    },
+    "discrepancies": [
+      "ref [4] arXiv:2512.11588 (unrelated benchmarking paper) cited in \u00a71 for H2O/SnapKV/Ada-KV",
+      "KIVI [5] has no arXiv ID in the survey bibliography (DOI only); actual arXiv:2402.02750; linxyhaha/KIVI is 404",
+      "INF2 [25] code released as HILOS (hongsunjang/HILOS)",
+      "CLO [28] also circulated under the LiteCache name",
+      "Q-Hitter [34] is MLSys 2024, no arXiv ID",
+      "MiniCache [21] never cited inline in \u00a73.2 prose (Tables 3 and 6 only)",
+      "RocketKV HAS (\u00a73.1 prose) vs HSA (Table 2) naming inconsistency",
+      "Kimi Linear 6.3x throughput (\u00a75.1) vs 6x (Table 6)",
+      "Table 6 names Scissorshands/FastGen/RetroInfer/DeepSpeed/HF Accelerate with no reference entries"
+    ],
+    "verified_pages_2026_10_04": [
+      "shadowpa0327/Palu",
+      "ydyhello/TailorKV",
+      "CommediaJW/CLO"
+    ]
+  }
+}

@@ -5,12 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 
-from graded.arxiv_llm_lib import run_paper_1706, run_paper_1810, run_paper_2608, run_paper_27963, run_paper_2609, run_paper_10441, run_paper_10305, run_paper_09883, run_paper_11393, run_paper_02959, run_paper_04463, run_paper_17864, run_paper_09204
+from graded.arxiv_llm_lib import run_paper_1706, run_paper_1810, run_paper_2608, run_paper_27963, run_paper_2609, run_paper_10441, run_paper_10305, run_paper_09883, run_paper_11393, run_paper_02959, run_paper_04463, run_paper_17864, run_paper_09204, run_paper_20397
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--papers", default="1,2", help="Comma list of paper indices (1=Attention, 2=BERT, 3=LayerMix, 4=SABER, 5=Grokking, 6=ConvMem, 7=RiLM, 8=WRP, 9=TASCO, 10=Ignorance, 11=SharedCircuits, 12=ImplicitPatch, 13=LBI)")
+    p.add_argument("--papers", default="1,2", help="Comma list of paper indices (1=Attention, 2=BERT, 3=LayerMix, 4=SABER, 5=Grokking, 6=ConvMem, 7=RiLM, 8=WRP, 9=TASCO, 10=Ignorance, 11=SharedCircuits, 12=ImplicitPatch, 13=LBI, 14=KVCache survey)")
     args = p.parse_args()
     wanted = {int(x.strip()) for x in args.papers.split(",") if x.strip()}
     all_results = {}
@@ -40,6 +40,8 @@ def main():
         all_results["2511.17864"] = run_paper_17864()
     if 13 in wanted:
         all_results["2605.09204"] = run_paper_09204()
+    if 14 in wanted:
+        all_results["2603.20397"] = run_paper_20397()
     print(json.dumps(all_results, indent=2))
 
 

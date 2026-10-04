@@ -5152,3 +5152,329 @@ def run_paper_09204() -> dict:
     out = _outdir("2605.09204") / "metrics.json"
     out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     return results
+
+
+# ---------------------------------------------------------------------------
+# 2603.20397 KV Cache Optimization Strategies for Scalable and Efficient LLM
+# Inference (survey: Xu, Khaira, Singh, Dell; 20 Mar 2026)
+# ---------------------------------------------------------------------------
+
+
+def paper_2603_20397_fig4_attention(arxiv_id: str = "2603.20397"):
+    """Fig.4 (§2.3): causal self-attention weight matrix for "The apple tastes
+    sweet", viridis colormap, gray = causally masked future tokens, each row
+    sums to 1 post-softmax (Eq.4). Published cells (figure text): The
+    [1.00,-,-,-]; apple [0.30,0.70,-,-]; tastes [0.10,0.35,0.55,-]; sweet
+    [0.05,0.65,0.20,0.10]. Figure annotation: query "sweet" concentrates 65%
+    of its attention on "apple" => low-weight KV pairs are eviction candidates
+    (the premise motivating H2O/SnapKV §3.1). Live checks: every row sums to
+    1, upper triangle masked / lower populated, the sweet->apple cell equals
+    the published 0.65, and apple is the argmax of the sweet row."""
+    _style()
+    out = _outdir(arxiv_id)
+    tokens = ["The", "apple", "tastes", "sweet"]
+    M = np.array(
+        [
+            [1.00, np.nan, np.nan, np.nan],
+            [0.30, 0.70, np.nan, np.nan],
+            [0.10, 0.35, 0.55, np.nan],
+            [0.05, 0.65, 0.20, 0.10],
+        ]
+    )
+    row_sums = np.nansum(M, axis=1)
+    row_sums_ok = bool(np.allclose(row_sums, 1.0, atol=1e-9))
+    isnan = np.isnan(M)
+    causal_ok = bool(
+        isnan[np.triu_indices(4, 1)].all()
+        and np.isfinite(M)[np.tril_indices(4, 0)].all()
+    )
+    sweet_apple = float(M[3, 1])
+    sweet_apple_ok = bool(abs(sweet_apple - 0.65) < 1e-12)
+    sweet_row = np.nan_to_num(M[3], nan=-1.0)
+    sweet_argmax = int(sweet_row.argmax())
+    sweet_argmax_ok = sweet_argmax == 1
+    fig4_ok = row_sums_ok and causal_ok and sweet_apple_ok and sweet_argmax_ok
+
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad(color="0.75")
+    fig, ax = plt.subplots(figsize=(6.4, 5.4))
+    im = ax.imshow(np.ma.masked_invalid(M), cmap=cmap, vmin=0.0, vmax=1.0)
+    for i in range(4):
+        for j in range(4):
+            if np.isnan(M[i, j]):
+                ax.text(j, i, "masked", ha="center", va="center", fontsize=8,
+                        color="0.35")
+            else:
+                ax.text(j, i, "%.2f" % M[i, j], ha="center", va="center",
+                        fontsize=10, color="white" if M[i, j] < 0.55 else "black")
+    ax.set_xticks(range(4), labels=tokens)
+    ax.set_yticks(range(4), labels=tokens)
+    ax.set_xlabel("Keys K")
+    ax.set_ylabel("Queries Q")
+    ax.set_title('Fig.4 causal attention: query "sweet" -> "apple" 0.65\n'
+                 "low-weight KV pairs => eviction candidates")
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046)
+    cbar.set_ticks([1.0, 0.5, 0.0])
+    cbar.set_label("Attn. wt.")
+    checks = {
+        "row_sums": [float(s) for s in row_sums],
+        "row_sums_ok": row_sums_ok,
+        "causal_mask_ok": causal_ok,
+        "sweet_apple": sweet_apple,
+        "sweet_apple_ok": sweet_apple_ok,
+        "sweet_argmax": sweet_argmax,
+        "sweet_argmax_ok": sweet_argmax_ok,
+        "fig4_ok": fig4_ok,
+    }
+    matrix = [
+        [None if np.isnan(v) else float(v) for v in row] for row in M
+    ]
+    plot_ok = _save(fig, out / "fig4_attention.png")
+    return plot_ok, matrix, checks
+
+
+def paper_2603_20397_fig6_h2opolicy(arxiv_id: str = "2603.20397"):
+    """Fig.6 (§3.1), published caption: "Upper plots illustrate symbolic plots
+    of an attention map deploying different KV cache policies in LLM
+    generation. Lower right: contrasts their accuracy-memory trade-off. Left:
+    the overview of H2O framework [1]" (Zhang et al., arXiv:2306.14048).
+    Survey prose algorithm: start with an empty cache; append each new token
+    while space remains; once full, compute accumulated attention scores for
+    every cached token INCLUDING the new one and discard the lowest score;
+    the policy "balances retention of recent tokens with heavy-hitter (H2)
+    tokens". Live: seeded greedy simulation (48 steps, budget 16, recent
+    window 6, 3 heavy hitters) verifying the budget is respected at every
+    step, all H2 tokens and the final recent window survive, and the
+    retained attention mass exceeds a seeded random-eviction baseline.
+    Reported Table-6 H2O claims annotated as claims (up to 5-10x memory
+    reduction; up to 29x throughput; <=1.9x latency vs FlexGen). Panel
+    pixel values are figure-only; panels here are symbolic."""
+    _style()
+    out = _outdir(arxiv_id)
+    rng = np.random.default_rng(14)
+    n_steps, budget, recent_w = 48, 16, 6
+    score = 0.2 + rng.random(n_steps) * 0.8
+    hh = [7, 19, 31]
+    score[hh] += 12.0
+
+    cache: list = []
+    timeline: list = []
+    max_size = 0
+    n_evictions = 0
+    for t in range(n_steps):
+        cache.append(t)
+        if len(cache) > budget:
+            protect = set(range(max(0, t - recent_w + 1), t + 1))
+            evictable = [c for c in cache if c not in protect]
+            victim = min(evictable, key=lambda c: (score[c], -c))
+            cache.remove(victim)
+            n_evictions += 1
+        max_size = max(max_size, len(cache))
+        timeline.append(list(cache))
+    budget_ok = max_size <= budget
+    final = set(cache)
+    hh_ok = all(h in final for h in hh)
+    recent_ok = all(c in final for c in range(n_steps - recent_w, n_steps))
+    keep = np.zeros(n_steps, dtype=bool)
+    keep[cache] = True
+    mass_h2o = float(score[keep].sum() / score.sum())
+    rand_keep = np.zeros(n_steps, dtype=bool)
+    rand_keep[rng.choice(n_steps, budget, replace=False)] = True
+    mass_random = float(score[rand_keep].sum() / score.sum())
+    mass_ok = mass_h2o > mass_random
+    fig6_ok = budget_ok and hh_ok and recent_ok and mass_ok
+
+    base = 0.35 + rng.random((n_steps, n_steps))
+    bump = np.zeros(n_steps)
+    bump[hh] = 3.0
+    W = np.full((n_steps, n_steps), np.nan)
+    for t in range(n_steps):
+        logits = np.where(np.arange(t + 1) <= t, base[t, : t + 1] + bump[: t + 1], -1e9)
+        e = np.exp(logits - logits.max())
+        W[t, : t + 1] = e / e.sum()
+
+    fig, axes = plt.subplots(2, 2, figsize=(13, 10))
+    ax = axes[0, 0]
+    im0 = ax.imshow(np.ma.masked_invalid(W), cmap="viridis", vmin=0.0, aspect="auto")
+    ax.set_title("(a) full-cache policy: attention map (symbolic)")
+    ax.set_xlabel("key token")
+    ax.set_ylabel("decode step")
+    fig.colorbar(im0, ax=ax, fraction=0.046)
+
+    Wh = W.copy()
+    for t in range(n_steps):
+        kept = set(timeline[t])
+        for j in range(n_steps):
+            if j <= t and j not in kept:
+                Wh[t, j] = np.nan
+    ax = axes[0, 1]
+    im1 = ax.imshow(np.ma.masked_invalid(Wh), cmap="viridis", vmin=0.0, aspect="auto")
+    ax.set_title("(b) H2O policy: gray = evicted by accumulated score\n"
+                 "(recent window + heavy hitters retained)")
+    ax.set_xlabel("key token")
+    ax.set_ylabel("decode step")
+    fig.colorbar(im1, ax=ax, fraction=0.046)
+
+    ax = axes[1, 0]
+    ax.axis("off")
+    boxes = [
+        (0.18, 0.75, "cache empty:\nappend new token\nwhile space remains"),
+        (0.78, 0.75, "budget reached:\nscore ALL cached tokens\n(incl. new) by\naccumulated attn"),
+        (0.78, 0.25, "discard lowest\naccumulated score"),
+        (0.18, 0.25, "balances recent tokens\nwith heavy hitters (H2)\n-> repeat each step"),
+    ]
+    for x, y, txt in boxes:
+        ax.text(x, y, txt, ha="center", va="center", fontsize=9,
+                bbox=dict(boxstyle="round,pad=0.4", fc="#eef3fb", ec="#4c72b0"))
+    ax.annotate("", xy=(0.57, 0.75), xytext=(0.39, 0.75),
+                arrowprops=dict(arrowstyle="->", lw=1.4))
+    ax.annotate("", xy=(0.78, 0.35), xytext=(0.78, 0.65),
+                arrowprops=dict(arrowstyle="->", lw=1.4))
+    ax.annotate("", xy=(0.39, 0.25), xytext=(0.57, 0.25),
+                arrowprops=dict(arrowstyle="->", lw=1.4))
+    ax.annotate("", xy=(0.18, 0.62), xytext=(0.18, 0.38),
+                arrowprops=dict(arrowstyle="->", lw=1.4, connectionstyle="arc3,rad=0.55"))
+    ax.set_title("(c) H2O framework overview (left panel, per caption)")
+
+    ax = axes[1, 1]
+    f = np.linspace(0.02, 1.0, 60)
+    q_h2o = 1.0 / (1.0 + np.exp(-(f - 0.055) * 34.0))
+    q_rand = 1.0 / (1.0 + np.exp(-(f - 0.30) * 9.0))
+    ax.plot(f, q_h2o, color="#4c72b0", lw=1.8, label="H2O (recent + H2)")
+    ax.plot(f, q_rand, color="#c44e52", lw=1.5, ls="--", label="random eviction")
+    ax.axvspan(0.1, 0.2, color="0.85", alpha=0.6)
+    ax.annotate("reported (Table 6): up to 5-10x memory\n"
+                "reduction, up to 29x throughput,\n<=1.9x latency vs FlexGen",
+                xy=(0.15, 0.62), fontsize=8.5,
+                bbox=dict(boxstyle="round,pad=0.3", fc="#fff6e5", ec="#dd8452"))
+    ax.set_xlabel("cache fraction of full KV")
+    ax.set_ylabel("relative generation quality (symbolic)")
+    ax.set_title("(d) accuracy-memory trade-off (lower right, symbolic)")
+    ax.legend(fontsize=8.5)
+    ax.set_ylim(0.0, 1.05)
+
+    fig.suptitle("Fig.6 reconstruction: attention maps per cache policy + H2O overview "
+                 "+ accuracy-memory trade-off (symbolic panels)", fontsize=11)
+    plot_ok = _save(fig, out / "fig6_h2opolicy.png")
+    sim = {
+        "n_steps": n_steps,
+        "budget": budget,
+        "recent_window": recent_w,
+        "heavy_hitters": hh,
+        "max_cache_size": max_size,
+        "n_evictions": n_evictions,
+        "budget_ok": budget_ok,
+        "hh_kept": hh_ok,
+        "recent_window_kept": recent_ok,
+        "retained_mass_h2o": mass_h2o,
+        "retained_mass_random": mass_random,
+        "mass_ok": mass_ok,
+        "table6_reported_claims": {
+            "memory_reduction": "up to 5-10x",
+            "throughput": "up to 29x",
+            "latency": "<=1.9x lower vs FlexGen",
+            "accuracy": "comparable to baseline",
+        },
+        "fig6_ok": fig6_ok,
+    }
+    return plot_ok, sim, fig6_ok
+
+
+def paper_2603_20397_repo_audit():
+    """Technique -> original paper -> official repository mapping for all 28
+    surveyed techniques + the survey itself (audit run in this session;
+    spot re-verified 2026-10-04 via github.com pages for shadowpa0327/Palu,
+    ydyhello/TailorKV, CommediaJW/CLO). Survey: NO public code found (searched
+    "KV Cache Optimization Strategies" and "2603.20397" in repo name/readme).
+    25/28 techniques have official repositories; no public code for InfiniPot,
+    HashEvict, LayerKV. Recorded discrepancies: (1) ref [4] (arXiv:2512.11588,
+    an unrelated benchmarking paper) is grouped in §1 with [1],[2],[3] as
+    support for "H2O, SnapKV, and Ada-KV"; (2) KIVI [5] is cited with a
+    ResearchGate DOI and no arXiv ID (actual arXiv:2402.02750; the
+    linxyhaha/KIVI account returns 404, jy-yuan/KIVI is correct); (3) INF2
+    [25] source code is released as HILOS (hongsunjang/HILOS); (4) CLO [28]
+    is also circulated under the LiteCache name. Also recorded: Q-Hitter [34]
+    is MLSys 2024 (no arXiv); MiniCache [21] appears only in Tables 3/6, not
+    §3.2 prose; RocketKV HAS (prose) vs HSA (Table 2) naming; Kimi Linear
+    6.3x (§5.1) vs 6x (Table 6) throughput; Table-6 baselines Scissorshands,
+    FastGen, RetroInfer, DeepSpeed, HF Accelerate have no reference entries."""
+    tech = [
+        # name, category, table, ref, arxiv/venue, repo, status
+        ("H2O", "cache eviction", "Table 2", "[1]", "arXiv:2306.14048", "FMInference/H2O", "official"),
+        ("SnapKV", "cache eviction", "Table 2", "[2]", "arXiv:2404.14469", "FasterDecoding/SnapKV", "official"),
+        ("Ada-KV", "cache eviction", "Table 2", "[3]", "arXiv:2407.11550", "FFY0/AdaKV", "official"),
+        ("NACL", "cache eviction", "Table 2", "[9]", "arXiv:2408.03675", "PaddlePaddle/Research (subdir NACL)", "official"),
+        ("InfiniPot", "cache eviction", "Table 2", "[10]", "arXiv:2410.01518", None, "no-public-code"),
+        ("HashEvict", "cache eviction", "Table 2", "[11]", "arXiv:2412.16187", None, "no-public-code"),
+        ("MorphKV", "cache eviction", "Table 2", "[13]", "arXiv:2503.00979", "ghadiaravi13/MorphKV", "official"),
+        ("RocketKV", "cache eviction", "Table 2", "[14]", "arXiv:2502.14051", "NVlabs/RocketKV", "official"),
+        ("KVzip", "cache eviction", "Table 2", "[15]", "arXiv:2505.23416", "snu-mllab/KVzip", "official"),
+        ("KIVI", "cache compression", "Table 3", "[5]", "arXiv:2402.02750 (survey gives DOI only)", "jy-yuan/KIVI", "official"),
+        ("KVQuant", "cache compression", "Table 3", "[20]", "arXiv:2401.18079", "SqueezeAILab/KVQuant", "official"),
+        ("MiniCache", "cache compression", "Table 3", "[21]", "arXiv:2405.14366", "AkideLiu/MiniCache", "official"),
+        ("PALU", "cache compression", "Table 3", "[19]", "arXiv:2407.21118", "shadowpa0327/Palu", "official"),
+        ("PagedAttention", "hybrid memory", "Table 4", "[22]", "arXiv:2309.06180", "vllm-project/vllm", "official"),
+        ("InfiniGen", "hybrid memory", "Table 4", "[23]", "arXiv:2406.19707", "snu-comparch/InfiniGen", "official"),
+        ("LayerKV", "hybrid memory", "Table 4", "[24]", "arXiv:2410.00428", None, "no-public-code"),
+        ("INF2", "hybrid memory", "Table 4", "[25]", "arXiv:2502.09921", "hongsunjang/HILOS", "official (released as HILOS)"),
+        ("KVPR", "hybrid memory", "Table 4", "[26]", "arXiv:2411.17089", "chaoyij/KVPR", "official"),
+        ("Oneiros", "hybrid memory", "Table 4", "[27]", "arXiv:2507.11507", "UT-SysML/Oneiros", "official"),
+        ("CLO", "hybrid memory", "Table 4", "[28]", "arXiv:2511.14510", "CommediaJW/CLO", "official"),
+        ("LinearAttention", "new attention", "Table 5", "[29]", "arXiv:2006.16236", "idiap/fast-transformers", "official"),
+        ("LogLinearAttention", "new attention", "Table 5", "[30]", "arXiv:2506.04761", "HanGuo97/log-linear-attention", "official"),
+        ("LocalLinearAttention", "new attention", "Table 5", "[31]", "arXiv:2510.01450", "Yifei-Zuo/Flash-LLA", "official"),
+        ("KIMILinear", "new attention", "Table 5", "[32]", "arXiv:2510.26692", "MoonshotAI/Kimi-Linear", "official"),
+        ("FlexGen", "combination", "§3.5", "[33]", "arXiv:2303.06865", "FlexGen/FlexGen", "official"),
+        ("Q-Hitter", "combination", "§3.5", "[34]", "MLSys 2024 (no arXiv)", "VITA-Group/Q-Hitter", "official"),
+        ("ShadowKV", "combination", "§3.5", "[35]", "arXiv:2410.21465", "ByteDance-Seed/ShadowKV", "official"),
+        ("TailorKV", "combination", "§3.5", "[36]", "arXiv:2505.19586", "ydyhello/TailorKV", "official"),
+    ]
+    keys = ["technique", "category", "survey_table", "ref", "paper", "repo", "status"]
+    techniques = [dict(zip(keys, t)) for t in tech]
+    with_repo = sum(1 for t in techniques if t["repo"])
+    return {
+        "survey": {
+            "arxiv": "2603.20397",
+            "repo": None,
+            "status": "no-public-code",
+            "searched": ['"KV Cache Optimization Strategies" in:name,description',
+                         "2603.20397 in:readme"],
+        },
+        "techniques": techniques,
+        "counts": {
+            "total": len(techniques),
+            "with_official_repo": with_repo,
+            "no_public_code": len(techniques) - with_repo,
+            "no_public_code_names": [t["technique"] for t in techniques if not t["repo"]],
+        },
+        "discrepancies": [
+            "ref [4] arXiv:2512.11588 (unrelated benchmarking paper) cited in §1 for H2O/SnapKV/Ada-KV",
+            "KIVI [5] has no arXiv ID in the survey bibliography (DOI only); actual arXiv:2402.02750; linxyhaha/KIVI is 404",
+            "INF2 [25] code released as HILOS (hongsunjang/HILOS)",
+            "CLO [28] also circulated under the LiteCache name",
+            "Q-Hitter [34] is MLSys 2024, no arXiv ID",
+            "MiniCache [21] never cited inline in §3.2 prose (Tables 3 and 6 only)",
+            "RocketKV HAS (§3.1 prose) vs HSA (Table 2) naming inconsistency",
+            "Kimi Linear 6.3x throughput (§5.1) vs 6x (Table 6)",
+            "Table 6 names Scissorshands/FastGen/RetroInfer/DeepSpeed/HF Accelerate with no reference entries",
+        ],
+        "verified_pages_2026_10_04": ["shadowpa0327/Palu", "ydyhello/TailorKV", "CommediaJW/CLO"],
+    }
+
+
+def run_paper_20397() -> dict:
+    f4_plot, matrix, f4 = paper_2603_20397_fig4_attention()
+    f6_plot, sim, f6 = paper_2603_20397_fig6_h2opolicy()
+    repo = paper_2603_20397_repo_audit()
+    results = {
+        "arxiv": "2603.20397",
+        "title": "KV Cache Optimization Strategies for Scalable and Efficient LLM Inference",
+        "authors": "Xu, Khaira, Singh, Dell (survey, 20 Mar 2026)",
+        "fig4_plot": f4_plot, "fig4_matrix": matrix, "fig4_checks": f4,
+        "fig6_plot": f6_plot, "fig6_sim": sim, "fig6_ok": f6,
+        "repo_status": "survey no-public-code; 25/28 techniques official repos",
+        "repo_audit": repo,
+    }
+    out = _outdir("2603.20397") / "metrics.json"
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results

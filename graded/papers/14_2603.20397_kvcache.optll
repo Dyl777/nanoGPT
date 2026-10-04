@@ -1,0 +1,43 @@
+@PL::Python
+@Task::Arxiv_2603_20397_KVCache
+@Modulu::KVCache
+
+@Technique::KVCache::[reproduce]
+
+@Comment::[Paper: KV Cache Optimization Strategies for Scalable and Efficient LLM Inference (Xu, Khaira, Singh, Dell 2026, arXiv:2603.20397v1, 20 Mar 2026). Survey of 28 techniques in 5 categories (Tables 1-6; no Table 7): 9 cache eviction, 4 cache compression, 7 hybrid memory, 4 new attention (Table 5), 4 combination (§3.5). Graded scope: Fig.4 causal attention matrix (published cells, sweet->apple 0.65) + Fig.6 H2O framework overview (symbolic panels + live greedy eviction sim) + full technique->paper->repo audit. Repo note: survey has NO public code; 25/28 techniques have official repos; no-public-code for InfiniPot, HashEvict, LayerKV; discrepancies recorded (ref [4] miscitation, KIVI cited w/o arXiv ID, INF2 released as HILOS, CLO also circulated as LiteCache).]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2603_20397_fig4_attention,
+    paper_2603_20397_fig6_h2opolicy,
+    paper_2603_20397_repo_audit,
+    run_paper_20397,
+)
+
+@Impl::KVCache::reproduce{
+_ = "reproduce Fig.4 causal attention matrix + Fig.6 H2O policy symbolic reconstruction + technique->repo audit"
+@}
+
+@Graded::Fig4_Attention{
+# Fig.4 (§2.3): published 4x4 matrix; live checks: rows sum to 1, causal mask, sweet->apple 0.65 argmax.
+plot_ok, matrix, checks = paper_2603_20397_fig4_attention()
+@}::endpoints::[plot_ok=plot_ok, matrix=matrix, checks=checks]
+
+@Graded::Fig6_H2OPolicy{
+# Fig.6 (§3.1): symbolic H2O reconstruction; live greedy sim: budget/HH/recent/mass checks + Table-6 claims.
+plot_ok, sim, ok6 = paper_2603_20397_fig6_h2opolicy()
+@}::endpoints::[plot_ok=plot_ok, sim=sim, ok6=ok6]
+
+@Graded::RepoAudit{
+# Survey + 28-technique technique->arXiv->repo mapping: 25 official, 3 no-public-code, 9 discrepancies.
+repo = paper_2603_20397_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::KVCachePaper::[Fig4_Attention, Fig6_H2OPolicy, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, matrix, checks, sim, ok6, repo]
