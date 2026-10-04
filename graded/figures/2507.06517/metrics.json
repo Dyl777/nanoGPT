@@ -1,0 +1,996 @@
+{
+  "arxiv": "2507.06517",
+  "title": "SpindleKV: A Novel KV Cache Reduction Method Balancing Both Shallow and Deep Layers",
+  "authors": "Tang, Shi, Li, Qi, Liu, Zhang, Wang (ACL 2025)",
+  "table3": {
+    "theta_k": 0.98,
+    "theta_v": 0.95,
+    "beta": 0.05,
+    "alpha": 0.525,
+    "alpha_ok": true,
+    "repo_schedule_note": "compressor.py defaults key 0.98*3+0.90*29, value 0.95*2+0.85*30"
+  },
+  "eq567": {
+    "m32_rc": 0.39879759519038077,
+    "m32_rc0": 0.7475951903807615,
+    "m32_rcm": 0.05,
+    "m32_alloc": [
+      0.7475951903807615,
+      0.7250921197233176,
+      0.7025890490658737,
+      0.6800859784084298,
+      0.6575829077509858,
+      0.6350798370935419,
+      0.6125767664360979,
+      0.5900736957786541,
+      0.5675706251212101,
+      0.5450675544637662,
+      0.5225644838063224,
+      0.5000614131488784,
+      0.4775583424914345,
+      0.4550552718339906,
+      0.43255220117654664,
+      0.41004913051910274,
+      0.3875460598616588,
+      0.3650429892042149,
+      0.34253991854677096,
+      0.32003684788932707,
+      0.2975337772318831,
+      0.27503070657443923,
+      0.2525276359169953,
+      0.2300245652595514,
+      0.20752149460210745,
+      0.1850184239446635,
+      0.16251535328721967,
+      0.14001228262977572,
+      0.11750921197233177,
+      0.09500614131488783,
+      0.07250307065744399,
+      0.050000000000000044
+    ],
+    "mono_decreasing_ok": true,
+    "mean_is_rc_ok": true,
+    "toy_alloc": [
+      0.7475951903807615,
+      0.515063460253841,
+      0.2825317301269205,
+      0.050000000000000044
+    ],
+    "upper_branch_rcm_at_06": -0.19839679358717444,
+    "upper_branch_flag": "rc(m-1)=1-2rc negative for rc>0.5 (paper verbatim; experiments use r<=0.45)",
+    "eq2_note": "ac denominator is (l-a), not the window length (paper verbatim)",
+    "eq3_note": "GQA average uses (n-a) with n undefined; read as (l-a)"
+  },
+  "alg1_plot": 1.0,
+  "alg1": {
+    "keys": {
+      "n_entries": 37,
+      "coverage_ok": true,
+      "recon_err": 2.4116127761431017e-08
+    },
+    "values": {
+      "n_entries": 37,
+      "coverage_ok": true,
+      "recon_err": 2.182620484347808e-08
+    }
+  },
+  "fig1_plot": 1.0,
+  "fig1": {
+    "evict_l0": 0.7475951903807615,
+    "evict_l31": 0.050000000000000044,
+    "spindle_max": 0.5762712925851704,
+    "anchors_ok": true
+  },
+  "fig3_plot": 1.0,
+  "fig3": {
+    "top10_mass": [
+      0.28128916025161743,
+      0.2812887728214264,
+      0.28128936886787415,
+      0.28128883242607117
+    ],
+    "similar_pairs": [
+      14,
+      14,
+      14,
+      14
+    ],
+    "published": {
+      "a": "deeper layers sparser (fewer low-score tokens survive)",
+      "b": "shallower layers more similar constituents"
+    }
+  },
+  "eq15": {
+    "per_layer": [
+      {
+        "r1": 0.75,
+        "r2": 0.8611111111111112,
+        "r3": 1.0151515151515151,
+        "r": 0.6556186868686869
+      },
+      {
+        "r1": 0.5208333333333334,
+        "r2": 0.88,
+        "r3": 1.0151515151515151,
+        "r": 0.4652777777777778
+      },
+      {
+        "r1": 0.2916666666666667,
+        "r2": 0.9285714285714286,
+        "r3": 1.0151515151515151,
+        "r": 0.27493686868686873
+      },
+      {
+        "r1": 0.041666666666666664,
+        "r2": 1.0,
+        "r3": 1.0151515151515151,
+        "r": 0.04229797979797979
+      }
+    ],
+    "mean_r": 0.3595328282828283,
+    "identity_ok": true
+  },
+  "table1": {
+    "cols": [
+      "Na.QA",
+      "Qasp",
+      "Mu.QA",
+      "Ho.QA",
+      "Wi.QA",
+      "Musq",
+      "Gv.Rp",
+      "QMSm",
+      "M.New",
+      "TREC",
+      "Tr.QA",
+      "SASm",
+      "PCnt",
+      "Pa.Rt",
+      "Lcc",
+      "RB.P",
+      "AVG"
+    ],
+    "grid": [
+      {
+        "method": "FullKV",
+        "ratio": 100.0,
+        "scores": {
+          "Na.QA": 25.7,
+          "Qasp": 29.75,
+          "Mu.QA": 41.12,
+          "Ho.QA": 45.55,
+          "Wi.QA": 35.87,
+          "Musq": 22.35,
+          "Gv.Rp": 25.63,
+          "QMSm": 23.03,
+          "M.New": 26.21,
+          "TREC": 73.0,
+          "Tr.QA": 90.56,
+          "SASm": 41.88,
+          "PCnt": 4.67,
+          "Pa.Rt": 69.25,
+          "Lcc": 58.05,
+          "RB.P": 50.77,
+          "AVG": 41.46
+        }
+      },
+      {
+        "method": "PyramidInfer",
+        "ratio": 39.3,
+        "scores": {
+          "Na.QA": 23.75,
+          "Qasp": 17.46,
+          "Mu.QA": 29.97,
+          "Ho.QA": 35.08,
+          "Wi.QA": 23.92,
+          "Musq": 16.9,
+          "Gv.Rp": 28.08,
+          "QMSm": 21.26,
+          "M.New": 24.42,
+          "TREC": 62.0,
+          "Tr.QA": 85.06,
+          "SASm": 41.45,
+          "PCnt": 1.04,
+          "Pa.Rt": 41.23,
+          "Lcc": 50.95,
+          "RB.P": 52.86,
+          "AVG": 34.71
+        }
+      },
+      {
+        "method": "PyramidKV",
+        "ratio": 40.5,
+        "scores": {
+          "Na.QA": 26.31,
+          "Qasp": 28.64,
+          "Mu.QA": 49.12,
+          "Ho.QA": 41.66,
+          "Wi.QA": 25.98,
+          "Musq": 19.02,
+          "Gv.Rp": 26.38,
+          "QMSm": 23.91,
+          "M.New": 22.66,
+          "TREC": 70.0,
+          "Tr.QA": 85.88,
+          "SASm": 42.53,
+          "PCnt": 2.69,
+          "Pa.Rt": 86.32,
+          "Lcc": 54.04,
+          "RB.P": 53.36,
+          "AVG": 41.16
+        }
+      },
+      {
+        "method": "SpindleKV",
+        "ratio": 40.1,
+        "scores": {
+          "Na.QA": 26.95,
+          "Qasp": 31.23,
+          "Mu.QA": 49.01,
+          "Ho.QA": 41.89,
+          "Wi.QA": 26.9,
+          "Musq": 18.6,
+          "Gv.Rp": 29.92,
+          "QMSm": 24.56,
+          "M.New": 24.89,
+          "TREC": 71.5,
+          "Tr.QA": 85.98,
+          "SASm": 43.39,
+          "PCnt": 2.74,
+          "Pa.Rt": 86.18,
+          "Lcc": 56.39,
+          "RB.P": 54.13,
+          "AVG": 42.14
+        }
+      },
+      {
+        "method": "PyramidInfer",
+        "ratio": 30.7,
+        "scores": {
+          "Na.QA": 22.65,
+          "Qasp": 14.57,
+          "Mu.QA": 30.14,
+          "Ho.QA": 33.87,
+          "Wi.QA": 23.52,
+          "Musq": 15.59,
+          "Gv.Rp": 26.82,
+          "QMSm": 21.1,
+          "M.New": 23.1,
+          "TREC": 61,
+          "Tr.QA": 84.18,
+          "SASm": 40.57,
+          "PCnt": 1.85,
+          "Pa.Rt": 32.25,
+          "Lcc": 50.64,
+          "RB.P": 53.02,
+          "AVG": 33.43
+        }
+      },
+      {
+        "method": "PyramidKV",
+        "ratio": 31.4,
+        "scores": {
+          "Na.QA": 26.12,
+          "Qasp": 27.31,
+          "Mu.QA": 48.31,
+          "Ho.QA": 41.44,
+          "Wi.QA": 25.14,
+          "Musq": 18.72,
+          "Gv.Rp": 25.28,
+          "QMSm": 23.61,
+          "M.New": 21.99,
+          "TREC": 69.0,
+          "Tr.QA": 86.27,
+          "SASm": 42.65,
+          "PCnt": 2.53,
+          "Pa.Rt": 84.81,
+          "Lcc": 53.71,
+          "RB.P": 52.77,
+          "AVG": 40.6
+        }
+      },
+      {
+        "method": "SpindleKV",
+        "ratio": 30.2,
+        "scores": {
+          "Na.QA": 26.69,
+          "Qasp": 30.19,
+          "Mu.QA": 49.32,
+          "Ho.QA": 42.09,
+          "Wi.QA": 27.23,
+          "Musq": 18.69,
+          "Gv.Rp": 28.52,
+          "QMSm": 24.19,
+          "M.New": 24.02,
+          "TREC": 71.0,
+          "Tr.QA": 86.38,
+          "SASm": 43.54,
+          "PCnt": 3.03,
+          "Pa.Rt": 87.18,
+          "Lcc": 55.19,
+          "RB.P": 53.62,
+          "AVG": 41.93
+        }
+      },
+      {
+        "method": "PyramidInfer",
+        "ratio": 25.1,
+        "scores": {
+          "Na.QA": 21.43,
+          "Qasp": 13.49,
+          "Mu.QA": 25.88,
+          "Ho.QA": 31.92,
+          "Wi.QA": 20.44,
+          "Musq": 14.83,
+          "Gv.Rp": 25.27,
+          "QMSm": 20.57,
+          "M.New": 22.06,
+          "TREC": 58,
+          "Tr.QA": 82.16,
+          "SASm": 40.77,
+          "PCnt": 1.45,
+          "Pa.Rt": 27.93,
+          "Lcc": 52.53,
+          "RB.P": 52.55,
+          "AVG": 32.0
+        }
+      },
+      {
+        "method": "PyramidKV",
+        "ratio": 25.7,
+        "scores": {
+          "Na.QA": 25.14,
+          "Qasp": 26.11,
+          "Mu.QA": 46.97,
+          "Ho.QA": 40.56,
+          "Wi.QA": 25.46,
+          "Musq": 19.06,
+          "Gv.Rp": 25.0,
+          "QMSm": 23.32,
+          "M.New": 21.55,
+          "TREC": 70.5,
+          "Tr.QA": 86.41,
+          "SASm": 41.92,
+          "PCnt": 3.26,
+          "Pa.Rt": 84.56,
+          "Lcc": 51.95,
+          "RB.P": 52.23,
+          "AVG": 40.25
+        }
+      },
+      {
+        "method": "SpindleKV",
+        "ratio": 25.2,
+        "scores": {
+          "Na.QA": 25.97,
+          "Qasp": 30.34,
+          "Mu.QA": 49.17,
+          "Ho.QA": 42.06,
+          "Wi.QA": 27.35,
+          "Musq": 18.22,
+          "Gv.Rp": 27.99,
+          "QMSm": 24.25,
+          "M.New": 23.19,
+          "TREC": 70.0,
+          "Tr.QA": 86.22,
+          "SASm": 42.96,
+          "PCnt": 2.74,
+          "Pa.Rt": 87.26,
+          "Lcc": 54.69,
+          "RB.P": 53.77,
+          "AVG": 41.64
+        }
+      },
+      {
+        "method": "PyramidInfer",
+        "ratio": 20.3,
+        "scores": {
+          "Na.QA": 18.73,
+          "Qasp": 11.96,
+          "Mu.QA": 24.34,
+          "Ho.QA": 27.1,
+          "Wi.QA": 15.87,
+          "Musq": 11.98,
+          "Gv.Rp": 24.89,
+          "QMSm": 20.07,
+          "M.New": 21.19,
+          "TREC": 54.0,
+          "Tr.QA": 76.19,
+          "SASm": 39.92,
+          "PCnt": 2.06,
+          "Pa.Rt": 20.83,
+          "Lcc": 51.83,
+          "RB.P": 52.5,
+          "AVG": 29.59
+        }
+      },
+      {
+        "method": "PyramidKV",
+        "ratio": 20.5,
+        "scores": {
+          "Na.QA": 24.96,
+          "Qasp": 25.19,
+          "Mu.QA": 47.12,
+          "Ho.QA": 39.94,
+          "Wi.QA": 25.45,
+          "Musq": 18.63,
+          "Gv.Rp": 24.05,
+          "QMSm": 23.35,
+          "M.New": 20.71,
+          "TREC": 69.5,
+          "Tr.QA": 85.48,
+          "SASm": 41.87,
+          "PCnt": 2.48,
+          "Pa.Rt": 83.56,
+          "Lcc": 52.02,
+          "RB.P": 51.35,
+          "AVG": 39.73
+        }
+      },
+      {
+        "method": "SpindleKV",
+        "ratio": 20.0,
+        "scores": {
+          "Na.QA": 26.03,
+          "Qasp": 29.49,
+          "Mu.QA": 49.61,
+          "Ho.QA": 41.87,
+          "Wi.QA": 26.5,
+          "Musq": 17.98,
+          "Gv.Rp": 27.01,
+          "QMSm": 23.73,
+          "M.New": 22.73,
+          "TREC": 70.0,
+          "Tr.QA": 86.28,
+          "SASm": 43.59,
+          "PCnt": 2.29,
+          "Pa.Rt": 86.99,
+          "Lcc": 53.81,
+          "RB.P": 53.57,
+          "AVG": 41.34
+        }
+      },
+      {
+        "method": "PyramidInfer",
+        "ratio": 15.4,
+        "scores": {
+          "Na.QA": 17.28,
+          "Qasp": 11.52,
+          "Mu.QA": 23.41,
+          "Ho.QA": 26.38,
+          "Wi.QA": 16.72,
+          "Musq": 11.98,
+          "Gv.Rp": 24.49,
+          "QMSm": 19.41,
+          "M.New": 20.77,
+          "TREC": 53.0,
+          "Tr.QA": 68.87,
+          "SASm": 39.78,
+          "PCnt": 3.53,
+          "Pa.Rt": 11.88,
+          "Lcc": 54.48,
+          "RB.P": 52.72,
+          "AVG": 28.51
+        }
+      },
+      {
+        "method": "PyramidKV",
+        "ratio": 15.0,
+        "scores": {
+          "Na.QA": 24.36,
+          "Qasp": 24.66,
+          "Mu.QA": 45.85,
+          "Ho.QA": 40.67,
+          "Wi.QA": 24.81,
+          "Musq": 17.83,
+          "Gv.Rp": 23.29,
+          "QMSm": 23.41,
+          "M.New": 20.53,
+          "TREC": 70.0,
+          "Tr.QA": 86.09,
+          "SASm": 40.74,
+          "PCnt": 3.27,
+          "Pa.Rt": 81.84,
+          "Lcc": 51.54,
+          "RB.P": 50.6,
+          "AVG": 39.34
+        }
+      },
+      {
+        "method": "SpindleKV",
+        "ratio": 14.8,
+        "scores": {
+          "Na.QA": 26.02,
+          "Qasp": 28.05,
+          "Mu.QA": 48.84,
+          "Ho.QA": 40.74,
+          "Wi.QA": 25.45,
+          "Musq": 19.05,
+          "Gv.Rp": 25.51,
+          "QMSm": 23.72,
+          "M.New": 21.95,
+          "TREC": 69.5,
+          "Tr.QA": 86.13,
+          "SASm": 42.47,
+          "PCnt": 2.7,
+          "Pa.Rt": 85.65,
+          "Lcc": 53.89,
+          "RB.P": 52.48,
+          "AVG": 40.76
+        }
+      }
+    ],
+    "order_spindle_ge_pkv_ge_pi_ok": true,
+    "reserve_below_within2_ok": true
+  },
+  "fig5_plot": 1.0,
+  "fig5": {
+    "t10": {
+      "full": 41.87,
+      "pi": [
+        [
+          39.3,
+          35.62
+        ],
+        [
+          31.3,
+          34.46
+        ],
+        [
+          26.0,
+          32.38
+        ],
+        [
+          21.7,
+          30.68
+        ],
+        [
+          16.6,
+          29.05
+        ]
+      ],
+      "pkv": [
+        [
+          40.6,
+          39.86
+        ],
+        [
+          30.5,
+          39.41
+        ],
+        [
+          24.2,
+          39.21
+        ],
+        [
+          21.6,
+          39.11
+        ],
+        [
+          16.1,
+          38.51
+        ]
+      ],
+      "sp": [
+        [
+          39.1,
+          41.13
+        ],
+        [
+          29.3,
+          41.08
+        ],
+        [
+          23.6,
+          40.26
+        ],
+        [
+          21.2,
+          40.1
+        ],
+        [
+          16.0,
+          39.63
+        ]
+      ]
+    },
+    "t11": {
+      "full": 33.39,
+      "pi": [
+        [
+          40.7,
+          29.09
+        ],
+        [
+          31.2,
+          28.28
+        ],
+        [
+          25.9,
+          27.5
+        ],
+        [
+          21.1,
+          26.69
+        ],
+        [
+          15.9,
+          25.56
+        ]
+      ],
+      "pkv": [
+        [
+          41.3,
+          33.31
+        ],
+        [
+          30.8,
+          33.13
+        ],
+        [
+          26.3,
+          32.91
+        ],
+        [
+          22.3,
+          32.83
+        ],
+        [
+          16.8,
+          32.47
+        ]
+      ],
+      "sp": [
+        [
+          41.1,
+          33.41
+        ],
+        [
+          30.8,
+          33.0
+        ],
+        [
+          26.0,
+          33.1
+        ],
+        [
+          22.1,
+          32.89
+        ],
+        [
+          16.7,
+          32.86
+        ]
+      ]
+    },
+    "t8": {
+      "h2o": [
+        [
+          20.0,
+          36.12
+        ],
+        [
+          40.1,
+          37.34
+        ]
+      ],
+      "snapkv": [
+        [
+          20.0,
+          39.56
+        ],
+        [
+          40.1,
+          40.48
+        ]
+      ],
+      "streaming": [
+        [
+          20.0,
+          37.46
+        ],
+        [
+          40.1,
+          39.29
+        ]
+      ],
+      "spindle": [
+        [
+          20.0,
+          40.1
+        ],
+        [
+          40.1,
+          41.13
+        ]
+      ]
+    },
+    "live": {
+      "full": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "pyr": [
+        0.151041179895401,
+        0.19791564717888832,
+        0.24479007348418236,
+        0.2916654087603092,
+        0.40104055404663086
+      ],
+      "spindle": [
+        0.151041179895401,
+        0.18749904040904608,
+        0.21874854901716823,
+        0.2656237930377834,
+        0.3541656214897595
+      ]
+    },
+    "published_spindle_ge_pkv_ok": true,
+    "live_mono_ok": true
+  },
+  "table4": {
+    "published": {
+      "llama3": {
+        "pyramidinfer": 0.615,
+        "pyramidkv": 0.938,
+        "spindle": 0.979
+      },
+      "mistral": {
+        "pyramidinfer": 0.621,
+        "pyramidkv": 0.962,
+        "spindle": 0.975
+      }
+    },
+    "published_spindle_best_ok": true,
+    "live": {
+      "budget": 10,
+      "pyramid_hit": true,
+      "spindle_hit": true,
+      "codebook_entries": 10
+    },
+    "live_ok": true
+  },
+  "ablations": {
+    "t2": {
+      "full": [
+        24.5,
+        36.23,
+        23.4,
+        90.48,
+        4.77,
+        59.21,
+        39.77
+      ],
+      "wo": [
+        [
+          39.1,
+          [
+            24.0,
+            28.02,
+            22.64,
+            89.05,
+            4.95,
+            58.24,
+            37.82
+          ]
+        ],
+        [
+          30.4,
+          [
+            21.47,
+            24.0,
+            22.21,
+            89.47,
+            4.7,
+            57.63,
+            36.58
+          ]
+        ],
+        [
+          21.3,
+          [
+            21.21,
+            24.91,
+            22.3,
+            89.95,
+            4.75,
+            55.86,
+            36.5
+          ]
+        ]
+      ],
+      "w": [
+        [
+          39.1,
+          [
+            23.87,
+            36.02,
+            23.28,
+            90.43,
+            5.23,
+            59.37,
+            39.7
+          ]
+        ],
+        [
+          29.3,
+          [
+            24.18,
+            34.95,
+            23.52,
+            90.43,
+            5.24,
+            59.24,
+            39.59
+          ]
+        ],
+        [
+          21.2,
+          [
+            23.92,
+            33.9,
+            22.66,
+            90.56,
+            5.58,
+            58.26,
+            39.15
+          ]
+        ]
+      ]
+    },
+    "t5": {
+      "full": [
+        18.4,
+        25.73,
+        20.97,
+        83.38,
+        5.5,
+        60.7,
+        35.78
+      ],
+      "cb478": [
+        18.57,
+        25.51,
+        21.05,
+        84.4,
+        6.0,
+        60.54,
+        36.01
+      ],
+      "cb294": [
+        15.99,
+        24.26,
+        19.68,
+        80.62,
+        6.0,
+        53.2,
+        33.29
+      ]
+    },
+    "t6": {
+      "full": [
+        18.4,
+        25.73,
+        20.97,
+        83.38,
+        5.5,
+        60.7,
+        35.78
+      ],
+      "wo": [
+        [
+          19.7,
+          [
+            17.17,
+            25.64,
+            20.73,
+            84.15,
+            5.5,
+            59.34,
+            35.42
+          ]
+        ],
+        [
+          28.3,
+          [
+            18.06,
+            25.7,
+            20.76,
+            84.04,
+            5.5,
+            59.06,
+            35.52
+          ]
+        ],
+        [
+          39.4,
+          [
+            18.47,
+            25.77,
+            20.81,
+            83.89,
+            5.56,
+            59.41,
+            35.65
+          ]
+        ]
+      ],
+      "w": [
+        [
+          20.5,
+          [
+            17.34,
+            25.64,
+            20.64,
+            84.15,
+            6,
+            60.31,
+            35.68
+          ]
+        ],
+        [
+          29.1,
+          [
+            18.13,
+            26.1,
+            20.95,
+            83.69,
+            6,
+            59.85,
+            35.79
+          ]
+        ],
+        [
+          40.2,
+          [
+            18.45,
+            25.74,
+            20.66,
+            84.31,
+            6,
+            60.45,
+            35.94
+          ]
+        ]
+      ]
+    },
+    "t2_repeat_wins_ok": true,
+    "t5_half_cache_ok": true,
+    "t6_reconstruct_wins_ok": true,
+    "live": {
+      "entries_single": 37,
+      "entries_duplicated": 37,
+      "dup_absorbed_ok": true,
+      "codebook_ratio": 0.7708333333333334,
+      "recon_with_magnitude": 1.989604569985204e-08,
+      "recon_without_magnitude": 15.081947326660156,
+      "magnitude_helps_ok": true
+    }
+  },
+  "repo_status": "official-code-audited",
+  "repo_audit": {
+    "repo_for_this_paper": "github.com/tyxqc/SpindleKV",
+    "issues_reviewable": 0,
+    "prs_reviewable": 0,
+    "stars": 1,
+    "forks": 0,
+    "license": "MIT",
+    "audited_symbols": {
+      "compressor": "compressor/compressor.py::Compressor/compress/decompress/compress_k_or_v",
+      "ratio": "compressor/compressor.py::CompressRatio/compute_ratio/update_pr_ratio/update_cb_ratio",
+      "pool": "compressor/pool.py::Pool.add_or_find_recursive/add_or_find_single/retrieve_tensors",
+      "gqa": "compressor/compressor.py::repeat_kv",
+      "rope": "compressor/compressor.py::apply_rotary_pos_emb_k"
+    },
+    "divergences_from_text": [
+      "per-layer default thresholds (key 0.98*3+0.90*29, value 0.95*2+0.85*30) vs Table 3 singles",
+      "DCT path, prepool, compensation bias, block machinery, cpp flag: code extras beyond main text",
+      "greedy max-degree realized online (match-or-append), not batch max-degree",
+      "paper states h_n=8/h_g=4 for models that ship 8 KV heads"
+    ],
+    "adaptations_made": "text-faithful; repo used only for the audit, not ported (different scale/arch)"
+  }
+}

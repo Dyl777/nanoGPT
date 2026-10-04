@@ -1,0 +1,91 @@
+@PL::Python
+@Task::Arxiv_2507_06517_SpindleKV
+@Modulu::SpindleKV
+
+@Technique::SpindleKV::[reproduce]
+
+@Comment::[Paper: SpindleKV: A Novel KV Cache Reduction Method Balancing Both Shallow and Deep Layers (Tang, Shi, Li, Qi, Liu, Zhang, Wang 2025, arXiv:2507.06517v1, ACL 2025 pp.28428-28442). Deep layers: attention-weight eviction with pyramid allocation (Eq.2-7); shallow layers: JIT codebook replacement via similarity graph + greedy max-degree (Eq.8-14, Alg.1); GQA dilemma solved by KV-repeat unfolding absorbed by the codebook; reserve ratio r=r1*r2*r3 (Eq.15). Graded scope: Table 3 hyperparams, Eq.5-7 allocation, Alg.1 codebook, Fig.1 reserve curves, Fig.3 distributions, Eq.15 ratio, Table 1 full LongBench grid, Fig.5 AVG series + Tables 10/11/8, Table 4 needle, Tables 2/5/6 ablations, repo audit - all curves wired to a toy nanoGPT analog (single model). Repo note: official code audited (tyxqc/SpindleKV, MIT, 1 star, 0 issues/PRs); divergences recorded (per-layer default thresholds, DCT/prepool extras, online greedy, h_n/h_g statement).]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2507_06517_table3_hyperparams,
+    paper_2507_06517_eq567_pyramid,
+    paper_2507_06517_alg1_codebook,
+    paper_2507_06517_fig1_reserve,
+    paper_2507_06517_fig3_distributions,
+    paper_2507_06517_eq15_reserve,
+    paper_2507_06517_table1_longbench,
+    paper_2507_06517_fig5_longbench,
+    paper_2507_06517_table4_needle,
+    paper_2507_06517_tables_ablation,
+    paper_2507_06517_repo_audit,
+    run_paper_06517,
+)
+
+@Impl::SpindleKV::reproduce{
+_ = "reproduce hyperparams + pyramid allocation + codebook + reserve curves + LongBench/needle tables + audit"
+@}
+
+@Graded::Table3_Hyperparams{
+# Table 3: exact values; live alpha == (1+beta)/2.
+t3 = paper_2507_06517_table3_hyperparams()
+@}::endpoints::[t3=t3]
+
+@Graded::Eq567_Pyramid{
+# Eq.5-7 live at m=32 and toy scale; monotonic mean identity; upper-branch flag.
+eq = paper_2507_06517_eq567_pyramid()
+@}::endpoints::[eq=eq]
+
+@Graded::Alg1_Codebook{
+# Alg.1/Eq.8-14 live on toy keys/values: coverage, recon, entry counts.
+plot_ok, a1 = paper_2507_06517_alg1_codebook()
+@}::endpoints::[plot_ok=plot_ok, a1=a1]
+
+@Graded::Fig1_Reserve{
+# Fig.1: published anchors + live eviction allocation + live codebook ratios.
+plot_ok, f1 = paper_2507_06517_fig1_reserve()
+@}::endpoints::[plot_ok=plot_ok, f1=f1]
+
+@Graded::Fig3_Distributions{
+# Fig.3: published sparsity/similarity observations + live toy distributions.
+plot_ok, f3 = paper_2507_06517_fig3_distributions()
+@}::endpoints::[plot_ok=plot_ok, f3=f3]
+
+@Graded::Eq15_Reserve{
+# Eq.15 live: r1*r2*r3 per layer and mean reserve.
+e15 = paper_2507_06517_eq15_reserve()
+@}::endpoints::[e15=e15]
+
+@Graded::Table1_LongBench{
+# Table 1 full Mistral grid; spindle >= pyramidkv >= pyramidinfer per band.
+t1 = paper_2507_06517_table1_longbench()
+@}::endpoints::[t1=t1]
+
+@Graded::Fig5_LongBench{
+# Fig.5 + Tables 10/11/8 AVG series + live nanoGPT mass-vs-ratio panel.
+plot_ok, f5 = paper_2507_06517_fig5_longbench()
+@}::endpoints::[plot_ok=plot_ok, f5=f5]
+
+@Graded::Table4_Needle{
+# Table 4 exact scores + live needle-recall probe at 15%.
+t4 = paper_2507_06517_table4_needle()
+@}::endpoints::[t4=t4]
+
+@Graded::Tables_Ablation{
+# Tables 2/5/6 exact + live duplicate-absorb, codebook-only, magnitude checks.
+abl = paper_2507_06517_tables_ablation()
+@}::endpoints::[abl=abl]
+
+@Graded::RepoAudit{
+# Official repo audited (1 star, 0 issues/PRs); divergences recorded.
+repo = paper_2507_06517_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::SpindleKVPaper::[Table3_Hyperparams, Eq567_Pyramid, Alg1_Codebook, Fig1_Reserve, Fig3_Distributions, Eq15_Reserve, Table1_LongBench, Fig5_LongBench, Table4_Needle, Tables_Ablation, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, t3, eq, a1, f1, f3, e15, t1, f5, t4, abl, repo]
