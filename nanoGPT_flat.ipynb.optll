@@ -10,7 +10,7 @@
 @Technique::Context::[ctx64, ctx256, ctx512, ctx1024, ctx2048]
 @Technique::Interface::[dense, bounded]
 @Technique::KVCacheEvict::[none, h2o, snapkv, nacl, infinipot, hashevict, morphkv, rocketkv, kvzip, adakv, spindlepyr]
-@Technique::KVCacheCompress::[none, kivi, kvquant, minicache, palu, spindlecodebook]
+@Technique::KVCacheCompress::[none, kivi, kvquant, minicache, palu, spindlecodebook, keepkv]
 @Technique::KVCachePlace::[resident, paged, infinigen, layerkv, inf2, kvpr, oneiros, clo]
 
 {
@@ -2477,6 +2477,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: LayerMix (arXiv:2608.28930, s10-12) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Probe signal under vote-weighted merging.** Probe AUROC re-measured on ZIP-merged states; vote counts as probe weights.\n",
+        "\n",
+        "- **Lossless readout.** Single-step exactness (Thm.3) gives probes an unperturbed substrate at the merge step.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 11. Scale-Up Axes \u2013 Vocab, Model Scale, Context (for meaningful LayerMix results)",
         "",
         "The §10 pipeline runs on char-64 / tiny-64 by default, where geometry is weak and LayerMix over 3 layers is degenerate. This section adds three independent OPTAL axes (all additive; every Impl keeps its own single-tag cell):",
@@ -3312,6 +3324,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: SABER (arXiv:2608.27963, s13) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Exits vs merged residency.** Early-exit gating and merged-entry residency are different stages; merged entries persist across exits.\n",
+        "\n",
+        "- **Bound discipline.** EMA prediction error (Thm.5) beside exit-confidence gating - two forward-looking estimates.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 14. Grokking Lab \u2013 Quantifying the Memorization-to-Generalization Transition: Scaling Laws and Phase Structure in Grokking (Kataria 2026, ICML PMLR 306, arXiv:2609.10657)",
         "",
         "**Paper in one paragraph.** MLPs on modular arithmetic memorize first, then abruptly generalize after long training with weight decay (grokking). A 384-config sweep (2 tasks x 3 widths x 4 D x 4 eta x 4 lambda; AdamW(0.9,0.98) full-batch to 150K steps; Tmem=train-acc>99%, Tgrok=test-acc>95%) fits Tgrok ~ H^-0.27 D^-2.04 eta^-0.50 lam^-0.64 (R2=0.732, 0.821 with interactions): data (4.1x per doubling) dominates capacity (1.2x). Sharp phase boundary at lam*~=1.0 (Conjecture 1); weight norms compress monotonically to median ratio 0.42 (Conjecture 2: transition at r* in 0.3-0.5). Compute-optimal: Cstep~=6H^2, H*~=F^0.58.",
@@ -3763,6 +3787,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: ConvMem (arXiv:2609.10441, s15) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Windows meet votes.** ConvMem windows, EMA windows, observation windows: window instincts in three places, never merged.\n",
+        "\n",
+        "- **Locality shared.** Score locality (KeepKV Fig.2d) and context locality (ConvMem) both exploit smoothness.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 16. Wired Grokking \u2013 nanoGPT Itself on Modular Arithmetic (Quantifying the Memorization-to-Generalization Transition, Kataria 2026, arXiv:2609.10657, s7 open question)",
         "",
         "The §14 lab reproduces the paper's MLP experiment beside the model. THE PAPER'S OWN OPEN QUESTION (§7: unmeasured data-fraction exponents for attention architectures) demands the transformer itself grok - so these cells wire nanoGPT directly: fixed-width arithmetic strings (`023+045=068|`, zero-padded so answer spans sit at deterministic positions) encoded with the EXISTING char vocab, trained with the UNCHANGED causal-LM objective (next-token loss; no new heads, no logic change), scored by greedy exact-match on the answer span for train vs held-out pairs (the paper's Tmem>99%/Tgrok>95% operationalization, transposed from MLP logits to sequence decoding). Two documented deviations from §2: minibatches instead of full-batch (transformer scale), greedy-decode metric instead of argmax logits (same >99%/>95% thresholds). All cells plain ALWAYS-PRESENT codeblocks (bundle rule): one training harness, no new Techniques.",
@@ -3970,6 +4006,18 @@
         "- **Codebook sizes across training.** Re-measuring greedy entry counts at Tmem vs Tgrok tracks constitutional-similarity drift - same loop, new readout.\n",
         "\n",
         "- **No loop changes.** s16 trains; s28 reads frozen captures.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: Grokking (arXiv:2609.10657, s14/s16) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Vote drift across training.** Re-measuring merge counts at Tmem vs Tgrok tracks redundancy formation - same loop, new readout.\n",
+        "\n",
+        "- **No loop changes.** s16 trains; s29 merges frozen captures.\n",
         "\n"
       ]
     },
@@ -4379,6 +4427,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: RiLM (arXiv:2609.10305, s19) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Readout-robust merging.** ZIP weights recompute under any head; legs re-run under geodesicflat unchanged.\n",
+        "\n",
+        "- **Budget geometry untouched.** Mobius/budget columns stay separate from vote rows.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 20. Depth Pruning \u2013 Forward-Free LLM Depth Pruning via Weight Redundancy (Yun & Lim 2026, arXiv:2609.09883; no public code found)",
         "",
         "**Paper in one paragraph.** Removing whole transformer blocks beats per-weight pruning for latency, but picking blocks usually needs calibration forwards (ShortGPT/Streamline/LoRP) or per-block magnitudes that ignore inter-layer relations (Mag+). WRP works from checkpoint weights alone: CKA similarity of centered attention-out + MLP-down Grams (Eq.1-2) averaged with 7-projection scale cosine (Eq.3) into S; spectral K in {2,4} from eigengaps vs depth-null (Eq.4-5); two-stage allocation protecting first/last. Results: +10.68-17.15 over Mag+ (avg 57.41 vs LoRP 57.93), best pruned avg on Qwen 8/40, selector GPU 0GB (Fig.1), -21-25% latency/memory at 25% cut (Fig.4).",
@@ -4657,6 +4717,18 @@
         "### Backprop: WRP (arXiv:2609.09883, s20) x later papers up to 2507.06517 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Pruned dims feed the codebook.** Fewer, denser vectors after absorption; Eq.1-2 and entry counts re-run on pruned checkpoints.\n",
+        "\n",
+        "- **Both frozen-weight.** No training either side.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: WRP (arXiv:2609.09883, s20) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Pruned pairs merge.** Fewer, denser vectors after absorption feed ZIP merging directly.\n",
         "\n",
         "- **Both frozen-weight.** No training either side.\n",
         "\n"
@@ -4983,6 +5055,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: TASCO (arXiv:2609.11393, s21) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Steered entries protected.** Prefix steering excludes steered tokens from merge candidacy - protection semantics compose.\n",
+        "\n",
+        "- **Seed discipline shared.** SAP-EPS reporting and runner-seeded draws isolate randomness.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 22. Direction of Ignorance \u2013 The Geometry of Ignorance: LLMs Know When to Temper Bayesian Priors (Liu et al. 2026, arXiv:2609.02959; no public code found)",
         "",
         "**Paper in one paragraph.** One unembedding direction encodes the corpus unigram: softmax(W d)=p_uni (Eq.1), found by centered OLS of log-freqs on unembedding rows (Eq.4/9, unique by normal equations, no forward passes). Final states split y=lam*d+y_ctx (Eq.2); lam=dhat'y/beta (Eq.5) is the tempered-Bayes exponent p~p_uni^lam*L_ctx (Eq.7: <0 invert, 0 remove, (0,1) soften, 1 Bayes, >1 sharpen). Universal across 4 families (Table 1: R2 .75-.92, nKL<=0.083); learned not innate (Fig.2); declines with coherent (not long/shuffled) context (Fig.3 + A/B switch); causal under Eq.8 patching with random-direction control flat (Fig.4, lam0=0.46+-0.20); |lam| falls with dim (Fig.5, Gemma-1B exception); distributed population code, not a neuron (Fig.10/G: neurons write INTO d_prior).",
@@ -5203,6 +5287,18 @@
         "- **Two frozen-state readouts.** lam priors (belief) and codebook structure (constituents) read the same states for different ends.\n",
         "\n",
         "- **No fusion.** Prior fitting and replacement ranking stay separate.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: Ignorance (arXiv:2609.02959, s22) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Two frozen-state readouts.** lam priors (belief) and vote structure (history) read the same states for different ends.\n",
+        "\n",
+        "- **No fusion.** Prior fitting and merging stay separate.\n",
         "\n"
       ]
     },
@@ -6240,6 +6336,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: SharedCircuits (arXiv:2609.04463, s23) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Attribution of merged entries.** AP gradients vs eviction scores for candidacy; merged entries as attribution units.\n",
+        "\n",
+        "- **Instrument chain explicit.** s26 audits gradients; s29 compares merging against attribution.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 24. Citation Graph \\u2013 references of the current and all prior papers (independent check; additive, touches nothing above)\n",
         "\n",
         "What was built and how (honesty first): paper 11's out-edges come from the Semantic Scholar API (35 references, 0 issues/PRs reviewable anywhere); papers 1-10's out-edges were extracted PDF-locally (arXiv PDFs + pymupdf, `HEAD = Surname(,|and) ... YEAR.` scan with context audit, arXiv-ID regex over refs blocks) after S2/OpenAlex throttled - evidence kept at `refgraph.json` plus term/name scans. CONFIRMED in-repo edges: BERT cites Attention (Vaswani 2017, in refs); RiLM cites Attention ([2] Vaswani et al.). CONFIRMED absences: no 2026 in-repo paper cites any other in-repo paper (no in-repo arXiv IDs in any refs block; no de Varda/Fedorenko/Pandey-as-Sana/Kataria hits); papers 3-10 do not cite BERT or Attention except RiLM (no Vaswani/Devlin hits elsewhere). Paper 11 cites NONE of papers 1-10. Head counts are lower bounds (numbered/IEEE styles under-split); every load-bearing claim below was verified by reading the matched context, and same-surname-different-work traps are called out explicitly (Mingjie Sun vs Alan Sun; Nanda-grokking vs Nanda-AP; Pandey-Llama vs Pandey-Sana; Andreas-Krause vs Andreas-Jacob; Marr-vs-'Marry Me a Little').\n",
@@ -6536,6 +6644,18 @@
         "- **Three low-rank compressions.** Rank-1 weight compile (s25), SLERP merge (s27), codebook entries (s28) - three substrates, one instinct.\n",
         "\n",
         "- **Clone discipline kept.** Absorption never touches originals; eviction never retrains; codebooks keep magnitudes.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: ImplicitPatch (arXiv:2511.17864, s25) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Three compressions.** Rank-1 weights (s25), codebook entries (s28), vote-weighted merges (s29) - three substrates.\n",
+        "\n",
+        "- **Exactness flavors.** Logit-match, magnitude recon, and single-step losslessness side by side.\n",
         "\n"
       ]
     },
@@ -7384,6 +7504,18 @@
         "- **Regions meet regimes.** s26 groups layers for scan-parallel backward; spindle splits layers for retention - region-partitioned spindle is the direct composition.\n",
         "\n",
         "- **Two auditors.** Gradient parity (s26) and retention/mass auditing (s28) on one frozen model.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: LBI (arXiv:2605.09204, s26) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Regions meet merge groups.** Gradient groups vs similarity merge groups; region-partitioned ZIP merging is the direct composition.\n",
+        "\n",
+        "- **Two auditors.** Gradient parity and perturbation auditing on one frozen model.\n",
         "\n"
       ]
     },
@@ -9085,6 +9217,363 @@
         "\"\"\"\n",
         "def spindle_backprop_gqa(model_gqa, ids, seed=0):\n",
         "    return spindle_gqa_check(model_gqa, ids, seed=seed)\n"
+      ]
+    }
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 29. KeepKV - arXiv:2504.09936 (Tian, Wang, Peng, Yuan, Wang, Yi, Liu, Cui, Yang 2025, AAAI 2026)\n",
+        "\n",
+        "**Paper in one paragraph.** Merging with a losslessness guarantee: eviction perturbs output by Eq.4 (low-score priority justified); convex merging always sags (Thm.2: merged score below the pre-merge sum, nonzero perturbation); Electoral Votes (merge counts p, init 1, summed) plus ZIP-Merging (Eq.7: score-weighted value mean, log-scaled key mean) give single-step zero perturbation (Thm.3, Alg.1); EMA scores with bias correction (Eq.8) extend to multi-step with bound 2e(1+e)g/(1-e)^2 (Thm.5) and justify similarity merging (Lemma 6); merge-first in prefill beats evict-first (App Table 3); threshold T=0.8 default (App Table 4); periodic lossless scheme stores full cache externally and reloads compressed reps. Validated on HELM/LM-eval (Fig.4), LongBench (Table 2), throughput (Table 1: 255.99 tokens/s, over 2x), ablations with evictors (Fig.5). Official code audited (0 issues/PRs); built on the H2O codebase as sketch attention.\n",
+        "\n",
+        "**Repo note:** official repo EXISTS (kkvcache/KeepKV, 3 stars, 2 forks, 0 issues, 0 PRs, 29 commits; see graded 16_RepoAudit). Our integration reimplements the paper text (not their code): batch ZIP merging with explicit votes instead of the sketch-attention fork, Table-3/4 values as parameters, main-text algorithm only.\n",
+        "\n",
+        "**Integration reasoning (s17 rule): one Compress value + plain legs.** Vote-weighted ZIP merging is mutually exclusive with the other compressors at the same K/V transform site (it replaces retained entries by merged ones plus a vote vector), so it compiles as @Technique::KVCacheCompress::keepkv. It takes its eviction/retention sets from any evictor (paper \u00a74.5 composes with H2O/PyramidInfer), so the combinations are plain runner legs, not axes. The periodic scheme (external full store + resident compressed + reload schedule) is a byte/schedule policy simulation in the declared \u00a727-placer sense. The shared \u00a727 harness is reused untouched; vote-aware scoring lives in the Impl and the runner leg.\n",
+        "\n",
+        "### Technique -> Impl -> original paper -> repo map\n",
+        "\n",
+        "| KeepKV part | Paper ref | Impl value | Official repo |\n",
+        "|---|---|---|---|\n",
+        "| ZIP merging + votes (Eq.6-7, Alg.1) | arXiv:2504.09936 \u00a73.3 | KVCacheCompress::keepkv | kkvcache/KeepKV |\n",
+        "| Evictor pairings (H2O/PyramidInfer sets) | arXiv:2504.09936 \u00a74.5 | plain runner legs (no axis) | kkvcache/KeepKV |\n",
+        "| Periodic lossless scheme | arXiv:2504.09936 \u00a73.3 | plain byte/schedule plan (no axis) | kkvcache/KeepKV |\n",
+        "\n",
+        "**Adaptations with consequences (documented, kept):** (1) batch ZIP merging with explicit vote vectors (paper Alg.1 loop) instead of the repo's sketch-attention fork; (2) EMA predicted scores arrive as an argument (harness scores), the alpha/window as parameters; exact-score calls reproduce Thm.3 losslessness; (3) periodic external-store bytes counted exactly, reload timing labeled stand-in; (4) harness has no RoPE: merging runs on captured projections directly (same note as \u00a727/28); (5) CaM comparison (App C.2) recorded in relations, not reimplemented.\n"
+      ]
+    }
+    @Impl::KVCacheCompress::keepkv{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"KeepKV vote-weighted ZIP merging (Tian et al., arXiv:2504.09936 \u00a73.3; Eq.6-7, Alg.1).\n",
+        "\n",
+        "Merges evicted pairs into most-similar retained ones (cosine, threshold T)\n",
+        "with Electoral Votes (counts init 1, summed) and ZIP weights (w = p*s).\n",
+        "Stored: merged entries + vote vector. Vote-aware scoring\n",
+        "(p-weighted attention, Eq.6/20) is provided by merged_attention for the\n",
+        "ZIP weights need unnormalized exp scores (paper s^t); normalized rows\n",
+        "break the log scaling (documented).\n",
+        "runner leg; plain recon is also returned. Table-4 default T=0.8.\"\"\"\n",
+        "class KeepKVCompressor:\n",
+        "    scope = \"token\"\n",
+        "    def __init__(self, threshold=0.8):\n",
+        "        self.threshold = threshold\n",
+        "    def zip_merge(self, K, V, e, c, se, sc, pe=1.0, pc=1.0):\n",
+        "        se = max(float(se), 1e-30)\n",
+        "        sc = max(float(sc), 1e-30)\n",
+        "        we, wc = pe * se, pc * sc\n",
+        "        vr = (we * V[e] + wc * V[c]) / (we + wc)\n",
+        "        num = (we * K[e] + wc * K[c]) * _m27.log((we + wc) / (pe + pc))\n",
+        "        den = we * _m27.log(se) + wc * _m27.log(sc)\n",
+        "        if abs(float(den)) > 1e-30:\n",
+        "            kr = num / den\n",
+        "        else:\n",
+        "            kr = (we * K[e] + wc * K[c]) / (we + wc)\n",
+        "        return kr, vr, pe + pc\n",
+        "    def merged_attention(self, K, V, p, qlast, head_dim):\n",
+        "        s = _t27.exp(qlast.unsqueeze(0) @ K.T / (head_dim ** 0.5)).squeeze(0)\n",
+        "        w = p.to(s.dtype) * s\n",
+        "        o = (w.unsqueeze(-1) * V).sum(0) / w.sum().clamp_min(1e-30)\n",
+        "        return o, s\n",
+        "    def compress(self, K, V, keep=None, scores=None, **kw):\n",
+        "        T, d = K.shape\n",
+        "        if keep is None:\n",
+        "            keep = _t27.arange(T)\n",
+        "        else:\n",
+        "            keep = _t27.as_tensor(sorted(int(i) for i in keep), dtype=_t27.long)\n",
+        "        if keep.numel() == 0:\n",
+        "            keep = _t27.arange(T)\n",
+        "        ev = _t27.tensor([i for i in range(T) if i not in set(keep.tolist())], dtype=_t27.long)\n",
+        "        if scores is None:\n",
+        "            scores = _t27.ones(T) / max(1, T)\n",
+        "        Kn = K / K.norm(dim=-1, keepdim=True).clamp_min(1e-12)\n",
+        "        Kp, Vp, pp = [K[i] for i in keep.tolist()], [V[i] for i in keep.tolist()], [1.0] * keep.numel()\n",
+        "        grp = {j: [int(keep[j])] for j in range(keep.numel())}\n",
+        "        dropped = []\n",
+        "        for e in ev.tolist():\n",
+        "            sims = Kn[e] @ _t27.stack([Kn[i] for i in keep.tolist()]).T\n",
+        "            ci = int(sims.argmax())\n",
+        "            c = int(keep[ci])\n",
+        "            if float(sims.max()) < self.threshold:\n",
+        "                dropped.append(e)\n",
+        "                continue\n",
+        "            kr, vr, pr = self.zip_merge(K, V, e, c, float(scores[e]), float(scores[c]),\n",
+        "                                        pe=1.0, pc=float(pp[ci]))\n",
+        "            Kp[ci], Vp[ci], pp[ci] = kr, vr, pr\n",
+        "            grp[ci].append(e)\n",
+        "        Kh = _t27.stack(Kp)\n",
+        "        Vh = _t27.stack(Vp)\n",
+        "        p = _t27.tensor(pp)\n",
+        "        Khf = _t27.zeros_like(K)\n",
+        "        Vhf = _t27.zeros_like(V)\n",
+        "        for j, srcs in grp.items():\n",
+        "            for t in srcs:\n",
+        "                Khf[t], Vhf[t] = Kh[j], Vh[j]\n",
+        "        nb = int((Kh.numel() + Vh.numel()) * 4 + p.numel() * 4)\n",
+        "        rep = _t27.tensor(sorted(t for srcs in grp.values() for t in srcs), dtype=_t27.long)\n",
+        "        return Kh, Vh, {\"bytes\": nb, \"votes\": p, \"n_merged\": int(ev.numel()),\n",
+        "                        \"dropped\": len(dropped), \"represented\": rep,\n",
+        "                        \"recon_k\": float((K - Khf).norm() / (K.norm() + 1e-12)),\n",
+        "                        \"recon_v\": float((V - Vhf).norm() / (V.norm() + 1e-12))}\n"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ALWAYS-PRESENT \u00a729 KeepKV composition (paper \u00a73.3-4.5) | Plain preset: any evictor supplies the keep/evict split per head, KeepKV merges evicted into most-similar retained (threshold T) with ZIP weights; plus the periodic-lossless byte/schedule plan (external full store + resident compressed + reloads) | NOT a new axis (combination precedent).\n",
+        "import torch as _t27\n",
+        "def keepkv_preset(harness, evictor=None, budget=32, threshold=0.8, seed=0):\n",
+        "    \"\"\"KeepKV over an evictor split, per head (paper \u00a74.5 pattern).\n",
+        "\n",
+        "    evictor: NoneEvictor-style keep-set source (default: H2O top-K); pass any\n",
+        "        \u00a727 evictor instance. Merging follows Alg.1 with current-step unnormalized scores as ZIP weights\n",
+        "        (exactness per Thm.3 needs unnormalized exp scores: the log terms do not survive normalization);\n",
+        "        accumulated scores drive evictor selection only.\n",
+        "    Returns mass (represented-token), output error (vote-aware), bytes, sag-vs-zip.\n",
+        "    Returns mass (vote-aware), output error (vote-aware), bytes, sag-vs-zip.\n",
+        "    \"\"\"\n",
+        "    kk = KeepKVCompressor(threshold)\n",
+        "    if evictor is None:\n",
+        "        evictor = H2OEvictor()\n",
+        "    mass, err, nbytes, sag, zerr = [], [], 0, [], []\n",
+        "    for k, c in harness.cache.items():\n",
+        "        S = c[\"S\"]\n",
+        "        T = c[\"K\"].shape[0]\n",
+        "        W = min(8, T)\n",
+        "        kept = evictor.select(S.sum(0), min(budget, T), win=S[-W:], recent_w=6, seed=seed)\n",
+        "        acc = S.sum(0)\n",
+        "        Kh, Vh, meta = kk.compress(c[\"K\"], c[\"V\"], keep=kept, scores=_t27.exp(\n",
+        "            c[\"qlast\"].unsqueeze(0) @ c[\"K\"].T / (c[\"head_dim\"] ** 0.5)).squeeze(0))\n",
+        "        nbytes += meta[\"bytes\"]\n",
+        "        o_full = S[-1] @ c[\"V\"]\n",
+        "        o_z, s_z = kk.merged_attention(Kh, Vh, meta[\"votes\"], c[\"qlast\"], c[\"head_dim\"])\n",
+        "        err.append(float((o_z - o_full).norm() / (o_full.norm() + 1e-12)))\n",
+        "        mass.append(float(S[-1][meta[\"represented\"]].sum()))\n",
+        "        ev = [i for i in range(T) if i not in set(kept.tolist())]\n",
+        "        if ev:\n",
+        "            e0 = ev[0]\n",
+        "            Kn = c[\"K\"] / c[\"K\"].norm(dim=-1, keepdim=True).clamp_min(1e-12)\n",
+        "            sims = Kn[e0] @ Kn[kept].T\n",
+        "            cc = int(kept[int(sims.argmax())])\n",
+        "            krc, vrc = _keepkv_convex(c[\"K\"], c[\"V\"], e0, cc)\n",
+        "            src = float(torch.exp(c[\"qlast\"] @ krc / (c[\"head_dim\"] ** 0.5)))\n",
+        "            rest = [i for i in range(T) if i not in (e0, cc)]\n",
+        "            cur = _t27.exp(c[\"qlast\"].unsqueeze(0) @ c[\"K\"].T / (c[\"head_dim\"] ** 0.5)).squeeze(0)\n",
+        "            oc = (cur[rest] @ c[\"V\"][rest] + src * vrc) / (cur[rest].sum() + src)\n",
+        "            sag.append(float((oc - o_full).norm()))\n",
+        "            se0 = float(cur[e0])\n",
+        "            sc0 = float(cur[cc])\n",
+        "            krz, vrz, prz = kk.zip_merge(c[\"K\"], c[\"V\"], e0, cc, se0, sc0)\n",
+        "            srz = float(torch.exp(c[\"qlast\"] @ krz / (c[\"head_dim\"] ** 0.5)))\n",
+        "            oz = (cur[rest] @ c[\"V\"][rest] + prz * srz * vrz) / (cur[rest].sum() + prz * srz)\n",
+        "            zerr.append(float((oz - o_full).norm()))\n",
+        "    return {\"recipe\": {\"split\": type(evictor).__name__, \"merge\": \"ZIP votes (T=%.2f)\" % threshold},\n",
+        "            \"mass\": float(sum(mass) / max(1, len(mass))),\n",
+        "            \"out_err\": float(sum(err) / max(1, len(err))), \"bytes\": nbytes,\n",
+        "            \"sag_mean\": float(sum(sag) / max(1, len(sag))),\n",
+        "            \"zip_mean\": float(sum(zerr) / max(1, len(zerr)))}\n",
+        "def _keepkv_convex(K, V, e, c):\n",
+        "    Kn = K / K.norm(dim=-1, keepdim=True).clamp_min(1e-12)\n",
+        "    sims = Kn[[e, c]] @ Kn[c]\n",
+        "    w = _t27.softmax(sims, dim=0)\n",
+        "    return w[0] * K[e] + w[1] * K[c], w[0] * V[e] + w[1] * V[c]\n",
+        "def keepkv_periodic_plan(spec, period=64, resident_ratio=0.2):\n",
+        "    \"\"\"Periodic lossless scheme (paper \u00a73.3): full cache lives externally;\n",
+        "    resident compressed reps reload every period steps. Policy simulation\n",
+        "    (declared): exact byte math, reload schedule; transfer timing stand-in.\n",
+        "    \"\"\"\n",
+        "    full = 2 * spec[\"T\"] * spec[\"H\"] * spec[\"hs\"] * spec[\"bpe\"] * spec[\"L\"]\n",
+        "    resident = int(full * resident_ratio)\n",
+        "    reloads = max(1, spec[\"T\"] // max(1, period))\n",
+        "    return {\"external_bytes\": full, \"resident_bytes\": resident,\n",
+        "            \"reload_every\": period, \"n_reloads\": reloads,\n",
+        "            \"reload_bytes\": resident * reloads,\n",
+        "            \"effective_residency\": resident / max(1, full)}\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ALWAYS-PRESENT runner: KeepKV end-to-end | Legs full / evict-only (H2O) / convex-merge / keepkv (votes+ZIP) / keepkv+pyramid-sets + periodic byte plan | emits outputs/keepkv_results.json | plain orchestrator, no Impl tag by design.\n",
+        "import torch as _t27\n",
+        "import json as _j29\n",
+        "import time as _time29\n",
+        "from pathlib import Path as _P29\n",
+        "def run_keepkv_benchmark(make_model, ids, budget=32, seed=16,\n",
+        "                         out_path=\"outputs/keepkv_results.json\"):\n",
+        "    \"\"\"Run KeepKV legs on one prefilled model.\n",
+        "\n",
+        "    make_model: zero-arg factory for the compiled-path NanoGPT (factory seeds\n",
+        "    construction; runner seeds its own draws). Writes outputs/keepkv_results.json.\n",
+        "    \"\"\"\n",
+        "    t0 = _time29.time()\n",
+        "    model = make_model()\n",
+        "    model.eval()\n",
+        "    H = KVCacheHarness(model, budget=budget).prefill(ids)\n",
+        "    full = H.eq12_bytes()[\"full\"]\n",
+        "    m0 = H.retained_mass({k: _t27.arange(H.T) for k in H.cache})\n",
+        "    legs = {\"full\": {\"paper_claim\": \"baseline (FullKV 100%)\",\n",
+        "                     \"mass\": float(sum(m0.values()) / max(1, len(m0))),\n",
+        "                     \"bytes\": full, \"ratio\": 1.0}}\n",
+        "    ev = H2OEvictor()\n",
+        "    kept = {}\n",
+        "    for k, c in H.cache.items():\n",
+        "        S = c[\"S\"]\n",
+        "        kept[k] = ev.select(S.sum(0), min(budget, H.T), win=S[-8:], recent_w=6, seed=seed)\n",
+        "    me = H.retained_mass(kept)\n",
+        "    ee = H.attn_output_error(kept)\n",
+        "    be = H.eq12_bytes({k: int(v.numel()) for k, v in kept.items()})\n",
+        "    legs[\"evict_h2o\"] = {\"paper_claim\": \"reported: H2O baseline (Table 2, beaten by KeepKV)\",\n",
+        "                         \"mass\": float(sum(me.values()) / max(1, len(me))),\n",
+        "                         \"out_err\": float(sum(ee.values()) / max(1, len(ee))),\n",
+        "                         \"bytes\": be[\"kept\"], \"ratio\": be[\"ratio\"]}\n",
+        "    kk = KeepKVCompressor()\n",
+        "    mc, ec, bc, sc, zc = [], [], 0, [], []\n",
+        "    for k, c in H.cache.items():\n",
+        "        S = c[\"S\"]\n",
+        "        acc = S.sum(0)\n",
+        "        Kh, Vh, meta = kk.compress(c[\"K\"], c[\"V\"], keep=kept[k], scores=_t27.exp(\n",
+        "            c[\"qlast\"].unsqueeze(0) @ c[\"K\"].T / (c[\"head_dim\"] ** 0.5)).squeeze(0))\n",
+        "        bc += meta[\"bytes\"]\n",
+        "        o_full = S[-1] @ c[\"V\"]\n",
+        "        o_z, s_z = kk.merged_attention(Kh, Vh, meta[\"votes\"], c[\"qlast\"], c[\"head_dim\"])\n",
+        "        ec.append(float((o_z - o_full).norm() / (o_full.norm() + 1e-12)))\n",
+        "        mc.append(float(S[-1][meta[\"represented\"]].sum()))\n",
+        "        Kn = c[\"K\"] / c[\"K\"].norm(dim=-1, keepdim=True).clamp_min(1e-12)\n",
+        "        evl = [i for i in range(H.T) if i not in set(kept[k].tolist())]\n",
+        "        if evl:\n",
+        "            e0 = evl[0]\n",
+        "            sims = Kn[e0] @ Kn[kept[k]].T\n",
+        "            cc = int(kept[k][int(sims.argmax())])\n",
+        "            krc, vrc = _keepkv_convex(c[\"K\"], c[\"V\"], e0, cc)\n",
+        "            src = float(torch.exp(c[\"qlast\"] @ krc / (c[\"head_dim\"] ** 0.5)))\n",
+        "            rest = [i for i in range(H.T) if i not in (e0, cc)]\n",
+        "            cur = _t27.exp(c[\"qlast\"].unsqueeze(0) @ c[\"K\"].T / (c[\"head_dim\"] ** 0.5)).squeeze(0)\n",
+        "            oc = (cur[rest] @ c[\"V\"][rest] + src * vrc) / (cur[rest].sum() + src)\n",
+        "            sc.append(float((oc - o_full).norm()))\n",
+        "            krz, vrz, prz = kk.zip_merge(c[\"K\"], c[\"V\"], e0, cc, float(cur[e0]), float(cur[cc]))\n",
+        "            srz = float(torch.exp(c[\"qlast\"] @ krz / (c[\"head_dim\"] ** 0.5)))\n",
+        "            oz = (cur[rest] @ c[\"V\"][rest] + prz * srz * vrz) / (cur[rest].sum() + prz * srz)\n",
+        "            zc.append(float((oz - o_full).norm()))\n",
+        "    legs[\"keepkv_h2o_sets\"] = {\"paper_claim\": \"reported: best AVG per band (Table 2); 255.99 tokens/s (Table 1)\",\n",
+        "                               \"mass\": float(sum(mc) / max(1, len(mc))),\n",
+        "                               \"out_err\": float(sum(ec) / max(1, len(ec))),\n",
+        "                               \"bytes\": bc, \"ratio\": bc / max(1, full),\n",
+        "                               \"sag_mean\": float(sum(sc) / max(1, len(sc))),\n",
+        "                               \"zip_mean\": float(sum(zc) / max(1, len(zc)))}\n",
+        "    legs[\"convex_merge\"] = {\"paper_claim\": \"reported: convex merging always sags (Thm.2)\",\n",
+        "                            \"sag_mean\": float(sum(sc) / max(1, len(sc)))}\n",
+        "    spec = {\"T\": H.T, \"L\": H.n_layers, \"H\": len(H.layers[0]),\n",
+        "            \"hs\": H.cache[(0, 0)][\"head_dim\"], \"bpe\": 4}\n",
+        "    legs[\"periodic\"] = dict({\"paper_claim\": \"headline scheme: external full store + reloads (policy simulation)\"},\n",
+        "                            **keepkv_periodic_plan(spec))\n",
+        "    res = {\"paper\": \"arXiv:2504.09936\", \"seed\": seed, \"T\": H.T, \"budget\": budget,\n",
+        "           \"purpose\": \"smoke-scale mechanism legs (mass/error/bytes/sag); paper magnitudes are reported claims only\",\n",
+        "           \"legs\": legs, \"seconds\": round(_time29.time() - t0, 1)}\n",
+        "    _P29(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
+        "    _P29(out_path).write_text(_j29.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
+        "    ok = {n: (\"error\" not in v) for n, v in legs.items()}\n",
+        "    print(_j29.dumps({\"legs_ok\": ok}, indent=2))\n",
+        "    return res\n"
+      ]
+    }
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Relations: KeepKV (arXiv:2504.09936) x All Previous Papers (standing rule)\n",
+        "\n",
+        "- Vote-weighted merging meets every prior section at the frozen forward: eviction selects (forward importance), merging preserves (history-weighted), votes rescale (influence restoration). All relations STACK unless stated; keepkv extends the \u00a727 Compress axis; evictor pairings and the periodic plan are plain legs.\n",
+        "\n",
+        "- **vs LayerMix (arXiv:2608.28930, s10-12): STACK (expected).** Probe signal re-measured on merged caches; vote vectors as probe weights (entries with more votes count more).\n",
+        "- **vs SABER (arXiv:2608.27963, s13): STACK (expected).** Exit gating and vote-weighted residency are different stages; merged entries persist across exits.\n",
+        "- **vs Grokking (arXiv:2609.10657, s14/s16): STACK (expected).** Vote-count drift re-measured at Tmem vs Tgrok - same loop, new readout.\n",
+        "- **vs ConvMem (arXiv:2609.10441, s15): STACK (expected).** Windows, observation windows, EMA windows: three window instincts, never merged.\n",
+        "- **vs RiLM (arXiv:2609.10305, s19): STACK (expected).** Merging runs on projections under any readout; re-runs under geodesicflat unchanged.\n",
+        "- **vs WRP (arXiv:2609.09883, s20): STACK (expected).** Pruned dims feed ZIP merging directly (fewer, denser pairs).\n",
+        "- **vs TASCO (arXiv:2609.11393, s21): STACK (expected).** Steered prefixes get protection from merge candidacy - protection semantics compose.\n",
+        "- **vs Ignorance (arXiv:2609.02959, s22): STACK (expected).** lam priors and vote structure are two frozen-state readouts.\n",
+        "- **vs SharedCircuits (arXiv:2609.04463, s23): STACK (kept).** AP gradients vs eviction scores for merge candidacy; merged entries as attribution units.\n",
+        "- **vs ImplicitPatch (arXiv:2511.17864, s25): STACK (kept).** Rank-1 weight compile vs vote-weighted history compile - two exactness-flavored compressions.\n",
+        "- **vs LBI (arXiv:2605.09204, s26): STACK (kept).** Regions (gradient groups) vs merge groups (similarity groups); region-partitioned merging is the direct composition.\n",
+        "- **vs KVCache survey (arXiv:2603.20397, s27): STACK (kept, closest kin).** KeepKV instantiates survey merging (CaM/D2O/KVMerger rows): convex baselines reproduced as the sag leg, similarity selection justified by Lemma 6, quantization-orthogonality kept (merging x KIVI compose).\n",
+        "- **vs SpindleKV (arXiv:2507.06517, s28): STACK (kept, sibling).** Codebook replacement (s28, direction+magnitude entries) vs vote-weighted merging (s29, history-weighted entries): two answers to eviction loss, composable per layer (pyramid sets feed ZIP merges).\n",
+        "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** Eq.1-3 attention form is Vaswani 2017 (foundation, not a runtime surface). App C.2 (CaM comparison) recorded here, not reimplemented.\n",
+        "\n",
+        "- **STACK:** keepkv after any evictor (takes keep/evict sets as input); with any backbone/vocab/scale/context/interface wiring; periodic plan beside any placer (external vs tiered residency are different stores).\n",
+        "- **ALTERNATIVE (pick 1 per run):** one compressor per run (keepkv joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
+        "- **NEVER-SAME-PATH:** merged cache presented as lossless without the vote-weighted scoring (losslessness holds under p-weighted attention only; plain recon error is reported alongside); Table-1/2 magnitudes cited as smoke-scale evidence (smoke reports mass/error/bytes/sag; paper numbers are labeled claims); bound cited as a live guarantee (measured Theta under the computed bound, not paper-scale coverage).\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ### Backprop: sag vs ZIP on identical scores (Thm.2 vs Thm.3, s29 x s27 axes)\n",
+        "\"\"\"Convex-vs-ZIP merge comparison on a prefilled harness.\n",
+        "\n",
+        "Per head: merge the lowest-score evicted pair into its most-similar retained\n",
+        "pair both ways (cosine convex vs vote-weighted ZIP) and report both output\n",
+        "perturbations. Takes a prefilled harness plus keep-sets; returns means.\n",
+        "\"\"\"\n",
+        "def keepkv_backprop_sagzip(harness, kept_map, seed=0):\n",
+        "    import torch as _t27\n",
+        "    kk = KeepKVCompressor()\n",
+        "    sag, zip = [], []\n",
+        "    for k, c in harness.cache.items():\n",
+        "        S = c[\"S\"]\n",
+        "        T = c[\"K\"].shape[0]\n",
+        "        kept = kept_map[k]\n",
+        "        ev = [i for i in range(T) if i not in set(int(x) for x in kept.tolist())]\n",
+        "        if not ev:\n",
+        "            continue\n",
+        "        e0 = ev[0]\n",
+        "        Kn = c[\"K\"] / c[\"K\"].norm(dim=-1, keepdim=True).clamp_min(1e-12)\n",
+        "        sims = Kn[e0] @ Kn[kept].T\n",
+        "        cc = int(kept[int(sims.argmax())])\n",
+        "        o_full = S[-1] @ c[\"V\"]\n",
+        "        krc, vrc = _keepkv_convex(c[\"K\"], c[\"V\"], e0, cc)\n",
+        "        src = float(torch.exp(c[\"qlast\"] @ krc / (c[\"head_dim\"] ** 0.5)))\n",
+        "        rest = [i for i in range(T) if i not in (e0, cc)]\n",
+        "        cur = _t27.exp(c[\"qlast\"].unsqueeze(0) @ c[\"K\"].T / (c[\"head_dim\"] ** 0.5)).squeeze(0)\n",
+        "        oc = (cur[rest] @ c[\"V\"][rest] + src * vrc) / (cur[rest].sum() + src)\n",
+        "        sag.append(float((oc - o_full).norm()))\n",
+        "        acc = S.sum(0)\n",
+        "        krz, vrz, prz = kk.zip_merge(c[\"K\"], c[\"V\"], e0, cc, float(cur[e0]), float(cur[cc]))\n",
+        "        srz = float(torch.exp(c[\"qlast\"] @ krz / (c[\"head_dim\"] ** 0.5)))\n",
+        "        oz = (cur[rest] @ c[\"V\"][rest] + prz * srz * vrz) / (cur[rest].sum() + prz * srz)\n",
+        "        zip.append(float((oz - o_full).norm()))\n",
+        "    return {\"sag_mean\": float(sum(sag) / max(1, len(sag))),\n",
+        "            \"zip_mean\": float(sum(zip) / max(1, len(zip)))}\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ### Backprop: periodic byte plan (headline scheme, s29 x s27 Place)\n",
+        "\"\"\"External-store + resident + reload byte math on a spec dict.\n",
+        "\n",
+        "Takes {\"T\",\"L\",\"H\",\"hs\",\"bpe\"} plus period/resident_ratio; returns the\n",
+        "keepkv_periodic_plan verdict (policy simulation, declared).\n",
+        "\"\"\"\n",
+        "def keepkv_backprop_periodic(spec, period=64, resident_ratio=0.2):\n",
+        "    return keepkv_periodic_plan(spec, period=period, resident_ratio=resident_ratio)\n"
       ]
     }
   ],

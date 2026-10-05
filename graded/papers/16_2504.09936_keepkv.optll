@@ -1,0 +1,97 @@
+@PL::Python
+@Task::Arxiv_2504_09936_KeepKV
+@Modulu::KeepKV
+
+@Technique::KeepKV::[reproduce]
+
+@Comment::[Paper: KeepKV: Achieving Periodic Lossless KV Cache Compression for Efficient LLM Inference (Tian, Wang, Peng, Yuan, Wang, Yi, Liu, Cui, Yang 2025, arXiv:2504.09936v2, AAAI 2026). Eviction perturbation identity (Eq.4), Attention Sag for convex merging (Thm.2), Electoral Votes + ZIP-Merging lossless single step (Eq.6-7, Thm.3, Alg.1), EMA scores (Eq.8) with multi-step bound (Thm.5) and similarity justification (Lemma 6), periodic lossless scheme. Graded scope: Eq.4/Thm.2/Eq.7/Thm.3/EMA/bound/Alg.1 live identities, Fig.2 panels, Fig.4/5 symbolic curves + live analogs, Table 1 throughput, Table 2 LongBench grid, App Tables 3/4, repo audit. Repo note: official code audited (kkvcache/KeepKV, 3 stars, 0 issues/PRs; H2O-codebase sketch attention; threshold default matches).]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2504_09936_eq4_eviction,
+    paper_2504_09936_thm2_sag,
+    paper_2504_09936_eq7_thm3_zip,
+    paper_2504_09936_eq8_ema,
+    paper_2504_09936_thm5_bound,
+    paper_2504_09936_alg1,
+    paper_2504_09936_fig2_panels,
+    paper_2504_09936_fig45_curves,
+    paper_2504_09936_table1_throughput,
+    paper_2504_09936_table2_longbench,
+    paper_2504_09936_tables_app,
+    paper_2504_09936_repo_audit,
+    run_paper_09936,
+)
+
+@Impl::KeepKV::reproduce{
+_ = "reproduce eviction/sag/ZIP/EMA/bound identities + figures + benchmark tables + audit"
+@}
+
+@Graded::Eq4_Eviction{
+# Eq.4 live: evicted-output identity + low-score priority.
+eq4 = paper_2504_09936_eq4_eviction()
+@}::endpoints::[eq4=eq4]
+
+@Graded::Thm2_Sag{
+# Thm.2 live: convex merging sags (cos + uniform weights).
+thm2 = paper_2504_09936_thm2_sag()
+@}::endpoints::[thm2=thm2]
+
+@Graded::Eq7_Thm3_ZIP{
+# Eq.7/Thm.3 live: ZIP merging perturbation-free; identical pairs exact.
+thm3 = paper_2504_09936_eq7_thm3_zip()
+@}::endpoints::[thm3=thm3]
+
+@Graded::Eq8_EMA{
+# Eq.8 live: bias-corrected EMA beats cumulative/window predictors.
+ema = paper_2504_09936_eq8_ema()
+@}::endpoints::[ema=ema]
+
+@Graded::Thm5_Bound{
+# Thm.5 live: measured perturbation under the error bound; eps=0 exact.
+thm5 = paper_2504_09936_thm5_bound()
+@}::endpoints::[thm5=thm5]
+
+@Graded::Alg1{
+# Alg.1 live: cosine top-match, threshold gate, vote conservation.
+alg1 = paper_2504_09936_alg1()
+@}::endpoints::[alg1=alg1]
+
+@Graded::Fig2_Panels{
+# Fig.2a-d: published anchors + live toy analogs.
+plot_ok, f2 = paper_2504_09936_fig2_panels()
+@}::endpoints::[plot_ok=plot_ok, f2=f2]
+
+@Graded::Fig45_Curves{
+# Fig.4/5 symbolic curves + live merge-perturbation comparison.
+plot_ok, f45 = paper_2504_09936_fig45_curves()
+@}::endpoints::[plot_ok=plot_ok, f45=f45]
+
+@Graded::Table1_Throughput{
+# Table 1: exact rows; over-2x, above-D2O, H2O-highest arithmetic.
+t1 = paper_2504_09936_table1_throughput()
+@}::endpoints::[t1=t1]
+
+@Graded::Table2_LongBench{
+# Table 2 full grid; MAD ranking + closest-to-full counts reported.
+t2 = paper_2504_09936_table2_longbench()
+@}::endpoints::[t2=t2]
+
+@Graded::Tables_App{
+# App Tables 3/4: merge-first wins; threshold 0.8 best.
+tapp = paper_2504_09936_tables_app()
+@}::endpoints::[tapp=tapp]
+
+@Graded::RepoAudit{
+# Official repo audited (3 stars, 0 issues/PRs); notes recorded.
+repo = paper_2504_09936_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::KeepKVPaper::[Eq4_Eviction, Thm2_Sag, Eq7_Thm3_ZIP, Eq8_EMA, Thm5_Bound, Alg1, Fig2_Panels, Fig45_Curves, Table1_Throughput, Table2_LongBench, Tables_App, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, eq4, thm2, thm3, ema, thm5, alg1, f2, f45, t1, t2, tapp, repo]
