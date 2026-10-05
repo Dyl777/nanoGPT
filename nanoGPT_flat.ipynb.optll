@@ -10,7 +10,7 @@
 @Technique::Context::[ctx64, ctx256, ctx512, ctx1024, ctx2048]
 @Technique::Interface::[dense, bounded]
 @Technique::KVCacheEvict::[none, h2o, snapkv, nacl, infinipot, hashevict, morphkv, rocketkv, kvzip, adakv, spindlepyr]
-@Technique::KVCacheCompress::[none, kivi, kvquant, minicache, palu, spindlecodebook, keepkv]
+@Technique::KVCacheCompress::[none, kivi, kvquant, minicache, palu, spindlecodebook, keepkv, coupledquant]
 @Technique::KVCachePlace::[resident, paged, infinigen, layerkv, inf2, kvpr, oneiros, clo]
 
 {
@@ -2489,6 +2489,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: LayerMix (arXiv:2608.28930, s10-12) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Probe signal under grouped codes.** Probe AUROC re-measured on coupled-quantized states; centroid tables as shared probe geometry.\n",
+        "\n",
+        "- **Calibration transfer.** Centroids learned once, reused everywhere (Table 10) - like frozen probes, fit once.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 11. Scale-Up Axes \u2013 Vocab, Model Scale, Context (for meaningful LayerMix results)",
         "",
         "The §10 pipeline runs on char-64 / tiny-64 by default, where geometry is weak and LayerMix over 3 layers is degenerate. This section adds three independent OPTAL axes (all additive; every Impl keeps its own single-tag cell):",
@@ -3336,6 +3348,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: SABER (arXiv:2608.27963, s13) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Exits vs code precision.** Early-exit gating and centroid precision are different stages; codes persist across exits.\n",
+        "\n",
+        "- **Batch math shared.** Exit batching and code batch multipliers both trade memory for throughput.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 14. Grokking Lab \u2013 Quantifying the Memorization-to-Generalization Transition: Scaling Laws and Phase Structure in Grokking (Kataria 2026, ICML PMLR 306, arXiv:2609.10657)",
         "",
         "**Paper in one paragraph.** MLPs on modular arithmetic memorize first, then abruptly generalize after long training with weight decay (grokking). A 384-config sweep (2 tasks x 3 widths x 4 D x 4 eta x 4 lambda; AdamW(0.9,0.98) full-batch to 150K steps; Tmem=train-acc>99%, Tgrok=test-acc>95%) fits Tgrok ~ H^-0.27 D^-2.04 eta^-0.50 lam^-0.64 (R2=0.732, 0.821 with interactions): data (4.1x per doubling) dominates capacity (1.2x). Sharp phase boundary at lam*~=1.0 (Conjecture 1); weight norms compress monotonically to median ratio 0.42 (Conjecture 2: transition at r* in 0.3-0.5). Compute-optimal: Cstep~=6H^2, H*~=F^0.58.",
@@ -3799,6 +3823,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: ConvMem (arXiv:2609.10441, s15) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Three grouping instincts.** ConvMem windows, code groups, calibration windows - grouped by position, channel, time; never merged.\n",
+        "\n",
+        "- **Locality shared.** Score locality and channel dependence both reward local structure.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 16. Wired Grokking \u2013 nanoGPT Itself on Modular Arithmetic (Quantifying the Memorization-to-Generalization Transition, Kataria 2026, arXiv:2609.10657, s7 open question)",
         "",
         "The §14 lab reproduces the paper's MLP experiment beside the model. THE PAPER'S OWN OPEN QUESTION (§7: unmeasured data-fraction exponents for attention architectures) demands the transformer itself grok - so these cells wire nanoGPT directly: fixed-width arithmetic strings (`023+045=068|`, zero-padded so answer spans sit at deterministic positions) encoded with the EXISTING char vocab, trained with the UNCHANGED causal-LM objective (next-token loss; no new heads, no logic change), scored by greedy exact-match on the answer span for train vs held-out pairs (the paper's Tmem>99%/Tgrok>95% operationalization, transposed from MLP logits to sequence decoding). Two documented deviations from §2: minibatches instead of full-batch (transformer scale), greedy-decode metric instead of argmax logits (same >99%/>95% thresholds). All cells plain ALWAYS-PRESENT codeblocks (bundle rule): one training harness, no new Techniques.",
@@ -4018,6 +4054,18 @@
         "- **Vote drift across training.** Re-measuring merge counts at Tmem vs Tgrok tracks redundancy formation - same loop, new readout.\n",
         "\n",
         "- **No loop changes.** s16 trains; s29 merges frozen captures.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: Grokking (arXiv:2609.10657, s14/s16) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Correlation drift across training.** Channel MAC re-measured at Tmem vs Tgrok - same loop, new readout.\n",
+        "\n",
+        "- **No loop changes.** s16 trains; s30 quantizes frozen captures.\n",
         "\n"
       ]
     },
@@ -4439,6 +4487,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: RiLM (arXiv:2609.10305, s19) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Readout-robust codes.** Grouped VQ runs on projections under any head; legs re-run under geodesicflat unchanged.\n",
+        "\n",
+        "- **Budget geometry untouched.** Mobius/budget columns stay separate from code rows.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 20. Depth Pruning \u2013 Forward-Free LLM Depth Pruning via Weight Redundancy (Yun & Lim 2026, arXiv:2609.09883; no public code found)",
         "",
         "**Paper in one paragraph.** Removing whole transformer blocks beats per-weight pruning for latency, but picking blocks usually needs calibration forwards (ShortGPT/Streamline/LoRP) or per-block magnitudes that ignore inter-layer relations (Mag+). WRP works from checkpoint weights alone: CKA similarity of centered attention-out + MLP-down Grams (Eq.1-2) averaged with 7-projection scale cosine (Eq.3) into S; spectral K in {2,4} from eigengaps vs depth-null (Eq.4-5); two-stage allocation protecting first/last. Results: +10.68-17.15 over Mag+ (avg 57.41 vs LoRP 57.93), best pruned avg on Qwen 8/40, selector GPU 0GB (Fig.1), -21-25% latency/memory at 25% cut (Fig.4).",
@@ -4729,6 +4789,18 @@
         "### Backprop: WRP (arXiv:2609.09883, s20) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Pruned pairs merge.** Fewer, denser vectors after absorption feed ZIP merging directly.\n",
+        "\n",
+        "- **Both frozen-weight.** No training either side.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: WRP (arXiv:2609.09883, s20) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Pruned channels quantize.** Fewer dims after absorption feed grouped codes directly.\n",
         "\n",
         "- **Both frozen-weight.** No training either side.\n",
         "\n"
@@ -5067,6 +5139,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: TASCO (arXiv:2609.11393, s21) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Steered tokens at precision.** Prefix steering keeps steered tokens full-precision (mixed-precision instinct); protection semantics compose.\n",
+        "\n",
+        "- **Seed discipline shared.** SAP-EPS reporting and runner-seeded draws isolate randomness.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 22. Direction of Ignorance \u2013 The Geometry of Ignorance: LLMs Know When to Temper Bayesian Priors (Liu et al. 2026, arXiv:2609.02959; no public code found)",
         "",
         "**Paper in one paragraph.** One unembedding direction encodes the corpus unigram: softmax(W d)=p_uni (Eq.1), found by centered OLS of log-freqs on unembedding rows (Eq.4/9, unique by normal equations, no forward passes). Final states split y=lam*d+y_ctx (Eq.2); lam=dhat'y/beta (Eq.5) is the tempered-Bayes exponent p~p_uni^lam*L_ctx (Eq.7: <0 invert, 0 remove, (0,1) soften, 1 Bayes, >1 sharpen). Universal across 4 families (Table 1: R2 .75-.92, nKL<=0.083); learned not innate (Fig.2); declines with coherent (not long/shuffled) context (Fig.3 + A/B switch); causal under Eq.8 patching with random-direction control flat (Fig.4, lam0=0.46+-0.20); |lam| falls with dim (Fig.5, Gemma-1B exception); distributed population code, not a neuron (Fig.10/G: neurons write INTO d_prior).",
@@ -5299,6 +5383,18 @@
         "- **Two frozen-state readouts.** lam priors (belief) and vote structure (history) read the same states for different ends.\n",
         "\n",
         "- **No fusion.** Prior fitting and merging stay separate.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: Ignorance (arXiv:2609.02959, s22) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Two frozen-state readouts.** lam priors (belief) and code structure (dependence) read the same states for different ends.\n",
+        "\n",
+        "- **No fusion.** Prior fitting and quantization stay separate.\n",
         "\n"
       ]
     },
@@ -6348,6 +6444,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: SharedCircuits (arXiv:2609.04463, s23) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Two gradient consumers.** AP gradients vs Fisher activation-grads from one backward; centroids as attribution units.\n",
+        "\n",
+        "- **Instrument chain explicit.** s26 audits gradients; s30 weights by them.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 24. Citation Graph \\u2013 references of the current and all prior papers (independent check; additive, touches nothing above)\n",
         "\n",
         "What was built and how (honesty first): paper 11's out-edges come from the Semantic Scholar API (35 references, 0 issues/PRs reviewable anywhere); papers 1-10's out-edges were extracted PDF-locally (arXiv PDFs + pymupdf, `HEAD = Surname(,|and) ... YEAR.` scan with context audit, arXiv-ID regex over refs blocks) after S2/OpenAlex throttled - evidence kept at `refgraph.json` plus term/name scans. CONFIRMED in-repo edges: BERT cites Attention (Vaswani 2017, in refs); RiLM cites Attention ([2] Vaswani et al.). CONFIRMED absences: no 2026 in-repo paper cites any other in-repo paper (no in-repo arXiv IDs in any refs block; no de Varda/Fedorenko/Pandey-as-Sana/Kataria hits); papers 3-10 do not cite BERT or Attention except RiLM (no Vaswani/Devlin hits elsewhere). Paper 11 cites NONE of papers 1-10. Head counts are lower bounds (numbered/IEEE styles under-split); every load-bearing claim below was verified by reading the matched context, and same-surname-different-work traps are called out explicitly (Mingjie Sun vs Alan Sun; Nanda-grokking vs Nanda-AP; Pandey-Llama vs Pandey-Sana; Andreas-Krause vs Andreas-Jacob; Marr-vs-'Marry Me a Little').\n",
@@ -6656,6 +6764,18 @@
         "- **Three compressions.** Rank-1 weights (s25), codebook entries (s28), vote-weighted merges (s29) - three substrates.\n",
         "\n",
         "- **Exactness flavors.** Logit-match, magnitude recon, and single-step losslessness side by side.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: ImplicitPatch (arXiv:2511.17864, s25) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Three compressions.** Rank-1 weights (s25), codebook entries (s28), centroid codes (s30) - three alphabets.\n",
+        "\n",
+        "- **Exactness flavors.** Logit-match, magnitude recon, and BPA-counted codes side by side.\n",
         "\n"
       ]
     },
@@ -7516,6 +7636,18 @@
         "- **Regions meet merge groups.** Gradient groups vs similarity merge groups; region-partitioned ZIP merging is the direct composition.\n",
         "\n",
         "- **Two auditors.** Gradient parity and perturbation auditing on one frozen model.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: LBI (arXiv:2605.09204, s26) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Regions meet groups.** Gradient groups vs channel groups; region-partitioned codebooks compose directly.\n",
+        "\n",
+        "- **Two auditors.** Gradient parity and recon auditing on one frozen model.\n",
         "\n"
       ]
     },
@@ -9574,6 +9706,331 @@
         "\"\"\"\n",
         "def keepkv_backprop_periodic(spec, period=64, resident_ratio=0.2):\n",
         "    return keepkv_periodic_plan(spec, period=period, resident_ratio=resident_ratio)\n"
+      ]
+    }
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 30. Coupled Quantization - arXiv:2405.03917 (Zhang, Yi, Xu, Shrivastava 2024, NeurIPS 2024)\n",
+        "\n",
+        "**Paper in one paragraph.** Channel-coupled vector quantization for KV cache: joint entropy grows sublinearly in group size (Eq.3-4, Fig.2) so per-channel quantization is suboptimal; groups of c contiguous channels share one b-bit code (CQ-<c>c<b>b, Eq.5 k-means, Eq.6 Fisher-weighted with diag-Fisher importance); both keys and values channel-coupled (unlike KIVI/KVQuant split); 1-bit CQ-8c8b beats KVQuant-2b at half memory (Table 1); sliding-window FP16 + rest coupled reaches near-native accuracy (Table 4); ablations confirm coupling and Fisher gains (Tables 5/6/8, Fig.5); throughput via bigger batches (Fig.4, Table 14 on par with KIVI); BPA formula App F; centroid overhead App E. Official code: NONE (checklist Q5 proprietary xMAD.ai); third-party pseudo-implementation noted, not used. Zhaozhuo Xu co-authors KIVI and CQ.\n",
+        "\n",
+        "**Repo note:** no public code exists (see graded 17_RepoAudit). Our integration reimplements the paper text (not third-party code): Lloyd k-means with k-means++ seeding, uniform and Fisher-weighted variants, grouped VQ with exact byte/BPA accounting.\n",
+        "\n",
+        "**Integration reasoning (s17 rule): one Compress value.** Grouped channel VQ is mutually exclusive with the other compressors at the same K/V transform site (it replaces entries by centroid codes plus a centroid table), so it compiles as @Technique::KVCacheCompress::coupledquant with (channels, bits, fisher) parameters. Fisher weights arrive as an optional argument from one backward pass (paper Eq.6 needs activation grads); without grads it runs uniform. Sliding-window (Table 4) and KIVI-analog legs are plain runner legs, not axes. The shared \u00a727 harness is reused untouched.\n",
+        "\n",
+        "### Technique -> Impl -> original paper -> repo map\n",
+        "\n",
+        "| CQ part | Paper ref | Impl value | Official repo |\n",
+        "|---|---|---|---|\n",
+        "| Coupled VQ + centroids (Eq.5/6) | arXiv:2405.03917 \u00a73.2 | KVCacheCompress::coupledquant | none (proprietary xMAD.ai) |\n",
+        "| Sliding-window composition (Table 4) | arXiv:2405.03917 \u00a74.2 | plain runner leg (no axis) | none |\n",
+        "| BPA accounting (App F) | arXiv:2405.03917 App F | plain byte math (no axis) | none |\n",
+        "\n",
+        "**Adaptations with consequences (documented, kept):** (1) Lloyd k-means (uniform/Fisher) instead of the paper's GPU k-means++100-iter runs - same objectives, smoke iteration counts; (2) Fisher grads from one last-token backward on harness captures (paper: calibration-set Fisher); (3) BPA table term uses the live context length (paper amortizes at T=65536); (4) harness has no RoPE: coupled groups run on captured projections directly; (5) kernel-fusion/shared-memory throughput claims stay paper-reported (policy note, not measured).\n"
+      ]
+    }
+    @Impl::KVCacheCompress::coupledquant{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+      "\"\"\"Coupled Quantization (Zhang et al., arXiv:2405.03917 \u00a73.2; Eq.5-6).\n",
+      "\n",
+      "Groups of c contiguous channels share one b-bit code (nearest centroid,\n",
+      "L2). Uniform Lloyd k-means by default; Fisher-weighted variant takes\n",
+      "per-activation grads (diag-Fisher importance, Eq.6). Stored: codes +\n",
+      "FP16 centroid table; bytes and code-BPA reported (App F table term uses\n",
+      "the live context length). CQ-<c>c<b>b naming; b/c bits per channel.\n",
+      "Keys and values both channel-coupled (paper \u00a74.3).\"\"\"\n",
+      "class CoupledQuantCompressor:\n",
+      "    scope = \"token\"\n",
+      "    def __init__(self, channels=4, bits=8, fisher=False):\n",
+      "        self.channels, self.bits, self.fisher = channels, bits, fisher\n",
+      "    def _kmeans(self, X, k, weights=None, seed=0):\n",
+      "        g = _t27.Generator().manual_seed(seed)\n",
+      "        C = [X[_t27.randint(X.shape[0], (1,), generator=g).item()]]\n",
+      "        for _ in range(1, k):\n",
+      "            d2 = ((X.unsqueeze(1) - _t27.stack(C).unsqueeze(0)) ** 2).sum(-1).min(-1).values\n",
+      "            s = d2.sum()\n",
+      "            if s <= 0:\n",
+      "                probs = _t27.ones_like(d2) / max(1, d2.numel())\n",
+      "            else:\n",
+      "                probs = d2 / s\n",
+      "            C.append(X[_t27.multinomial(probs, 1, generator=g).item()])\n",
+      "        C = _t27.stack(C)\n",
+      "        w = _t27.ones(X.shape[0]) if weights is None else weights\n",
+      "        for _ in range(10):\n",
+      "            a = ((X.unsqueeze(1) - C.unsqueeze(0)) ** 2).sum(-1).argmin(-1)\n",
+      "            Cn = _t27.zeros_like(C)\n",
+      "            for j in range(k):\n",
+      "                m = a == j\n",
+      "                if m.any():\n",
+      "                    Cn[j] = (X[m] * w[m].unsqueeze(-1)).sum(0) / w[m].sum().clamp_min(1e-30)\n",
+      "                else:\n",
+      "                    Cn[j] = X[_t27.randint(X.shape[0], (1,), generator=g)]\n",
+      "            if _t27.allclose(Cn, C):\n",
+      "                C = Cn\n",
+      "                break\n",
+      "            C = Cn\n",
+      "        a = ((X.unsqueeze(1) - C.unsqueeze(0)) ** 2).sum(-1).argmin(-1)\n",
+      "        return C, a\n",
+      "    def _vq(self, X, grads=None):\n",
+      "        T, d = X.shape\n",
+      "        c, b = self.channels, self.bits\n",
+      "        assert d % c == 0\n",
+      "        out = _t27.zeros_like(X)\n",
+      "        tbl, used, poss = 0, 0, 0\n",
+      "        for gi in range(d // c):\n",
+      "            Xg = X[:, gi * c:(gi + 1) * c]\n",
+      "            wg = None\n",
+      "            if self.fisher and grads is not None:\n",
+      "                wg = (grads[:, gi * c:(gi + 1) * c] ** 2).sum(-1)\n",
+      "            C, a = self._kmeans(Xg, 2 ** b, wg, seed=gi)\n",
+      "            out[:, gi * c:(gi + 1) * c] = C[a]\n",
+      "            tbl += C.numel()\n",
+      "            used += int(a.unique().numel())\n",
+      "            poss += 2 ** b\n",
+      "        return out, tbl, used / max(1, poss)\n",
+      "    def compress(self, K, V, grads_k=None, grads_v=None, **kw):\n",
+      "        Kh, tk, uk = self._vq(K, grads_k)\n",
+      "        Vh, tv, uv = self._vq(V, grads_v)\n",
+      "        T, d = K.shape\n",
+      "        codes = T * (d // self.channels) * self.bits / 8\n",
+      "        tbl = (tk + tv) * 2\n",
+      "        nb = int(codes * 2 + tbl)\n",
+      "        return Kh, Vh, {\"bytes\": nb, \"code_bpa\": self.bits / self.channels,\n",
+      "                        \"table_bytes\": int(tbl), \"codes_used_frac\": (uk + uv) / 2,\n",
+      "                        \"recon_k\": float((K - Kh).norm() / (K.norm() + 1e-12)),\n",
+      "                        \"recon_v\": float((V - Vh).norm() / (V.norm() + 1e-12))}\n"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+      "# ALWAYS-PRESENT runner: CQ end-to-end | Legs full / per-channel-2bit (KIVI-analog via kvc_sym_quant) / coupled (c=4,b=8 + c=8,b=8) / Fisher-weighted (one backward for grads) / sliding-window-32 + BPA row | emits outputs/cq_results.json | plain orchestrator, no Impl tag by design.\n",
+      "import torch as _t27\n",
+      "import json as _j30\n",
+      "import time as _time30\n",
+      "from pathlib import Path as _P30\n",
+      "def _cq_harness_grads(model, ids):\n",
+      "    \"\"\"One forward+backward on last-token CE; per-head K/V activation grads.\n",
+      "\n",
+      "    Hooks Head.key/Head.value outputs (head-layout models); returns\n",
+      "    {(li,hi): (gK, gV)}. Self-contained for the Fisher leg.\n",
+      "    \"\"\"\n",
+      "    caps, grads, hooks = {}, {}, []\n",
+      "    def _fh(name):\n",
+      "        def fn(m, inp, out):\n",
+      "            caps[name] = out\n",
+      "        return fn\n",
+      "    for li, b in enumerate(model.blocks):\n",
+      "        for hi, h in enumerate(b.self_attn.heads):\n",
+      "            hooks.append(h.key.register_forward_hook(_fh((li, hi, \"k\"))))\n",
+      "            hooks.append(h.value.register_forward_hook(_fh((li, hi, \"v\"))))\n",
+      "    dev = next(model.parameters()).device\n",
+      "    xb = _t27.tensor([ids], dtype=_t27.long).to(dev)\n",
+      "    model.eval()\n",
+      "    logits = model(xb)\n",
+      "    loss = _t27.nn.functional.cross_entropy(logits[:, -1, :], xb[:, -1])\n",
+      "    model.zero_grad()\n",
+      "    gs = _t27.autograd.grad(loss, [caps[k] for k in caps])\n",
+      "    for h in hooks:\n",
+      "        h.remove()\n",
+      "    out = {}\n",
+      "    items = list(caps.items())\n",
+      "    for (key, g) in zip([k for k, _ in items], gs):\n",
+      "        out.setdefault((key[0], key[1]), {})[key[2]] = g.detach().squeeze(0)\n",
+      "    return out\n",
+      "def run_cq_benchmark(make_model, ids, seed=17, out_path=\"outputs/cq_results.json\"):\n",
+      "    \"\"\"Run CQ legs on one prefilled model.\n",
+      "\n",
+      "    make_model: zero-arg factory for the compiled-path NanoGPT (factory seeds\n",
+      "    construction; runner seeds its own draws). Writes outputs/cq_results.json.\n",
+      "    \"\"\"\n",
+      "    t0 = _time30.time()\n",
+      "    model = make_model()\n",
+      "    model.eval()\n",
+      "    H = KVCacheHarness(model, budget=None).prefill(ids)\n",
+      "    full = H.eq12_bytes()[\"full\"]\n",
+      "    m0 = H.retained_mass({k: _t27.arange(H.T) for k in H.cache})\n",
+      "    legs = {\"full\": {\"paper_claim\": \"baseline (FP16 16 BPA)\",\n",
+      "                     \"mass\": float(sum(m0.values()) / max(1, len(m0))),\n",
+      "                     \"bytes\": full, \"ratio\": 1.0}}\n",
+      "    rk, rv, nk = [], [], 0\n",
+      "    for k, c in H.cache.items():\n",
+      "        Kh, _ = kvc_sym_quant(c[\"K\"], 2, red_dim=0)\n",
+      "        Vh, _ = kvc_sym_quant(c[\"V\"], 2, red_dim=1)\n",
+      "        rk.append(float((c[\"K\"] - Kh).norm() / (c[\"K\"].norm() + 1e-12)))\n",
+      "        rv.append(float((c[\"V\"] - Vh).norm() / (c[\"V\"].norm() + 1e-12)))\n",
+      "        nk += int(c[\"K\"].numel() + c[\"V\"].numel()) * 2 / 8\n",
+      "    legs[\"perchannel_2b\"] = {\"paper_claim\": \"reported: KIVI-style collapses at 1-2b; CQ wins (Tables 1/5)\",\n",
+      "                            \"recon_k\": float(sum(rk) / max(1, len(rk))),\n",
+      "                            \"recon_v\": float(sum(rv) / max(1, len(rv))),\n",
+      "                            \"bytes\": nk, \"ratio\": nk / max(1, full)}\n",
+      "    for tag, cc, bb in ((\"cq4c8b\", 4, 8), (\"cq8c8b\", 8, 8)):\n",
+      "        cq = CoupledQuantCompressor(channels=cc, bits=bb)\n",
+      "        rks, rvs, nbytes, oerr, cu = [], [], 0, [], []\n",
+      "        for k, c in H.cache.items():\n",
+      "            Kh, Vh, meta = cq.compress(c[\"K\"], c[\"V\"])\n",
+      "            rks.append(meta[\"recon_k\"])\n",
+      "            rvs.append(meta[\"recon_v\"])\n",
+      "            nbytes += meta[\"bytes\"]\n",
+      "            cu.append(meta[\"codes_used_frac\"])\n",
+      "            lk = (c[\"qlast\"].unsqueeze(0) @ Kh.T / (c[\"head_dim\"] ** 0.5))\n",
+      "            o2 = (_t27.softmax(lk, dim=-1) @ Vh).squeeze(0)\n",
+      "            o1 = c[\"S\"][-1] @ c[\"V\"]\n",
+      "            oerr.append(float((o1 - o2).norm() / (o1.norm() + 1e-12)))\n",
+      "        legs[tag] = {\"paper_claim\": \"reported: CQ-4c8b 2.00 BPA / CQ-8c8b 1.00 BPA (Table 1)\",\n",
+      "                     \"code_bpa\": bb / cc, \"bytes\": nbytes, \"ratio\": nbytes / max(1, full),\n",
+      "                     \"recon_k\": float(sum(rks) / max(1, len(rks))),\n",
+      "                     \"recon_v\": float(sum(rvs) / max(1, len(rvs))),\n",
+      "                     \"codes_used\": float(sum(cu) / max(1, len(cu))),\n",
+      "                     \"out_err\": float(sum(oerr) / max(1, len(oerr)))}\n",
+      "    try:\n",
+      "        fg = _cq_harness_grads(model, ids)\n",
+      "        cqf = CoupledQuantCompressor(channels=8, bits=8, fisher=True)\n",
+      "        rks, rvs, nbytes, cu = [], [], 0, []\n",
+      "        for k, c in H.cache.items():\n",
+      "            gk = fg.get(k, {}).get(\"k\")\n",
+      "            gv = fg.get(k, {}).get(\"v\")\n",
+      "            Kh, Vh, meta = cqf.compress(c[\"K\"], c[\"V\"], grads_k=gk, grads_v=gv)\n",
+      "            rks.append(meta[\"recon_k\"])\n",
+      "            rvs.append(meta[\"recon_v\"])\n",
+      "            nbytes += meta[\"bytes\"]\n",
+      "            cu.append(meta[\"codes_used_frac\"])\n",
+      "        legs[\"fisher_8c8b\"] = {\"paper_claim\": \"reported: Fisher 8.09 vs uniform 32.12 (Table 6)\",\n",
+      "                               \"recon_k\": float(sum(rks) / max(1, len(rks))),\n",
+      "                               \"recon_v\": float(sum(rvs) / max(1, len(rvs))),\n",
+      "                               \"codes_used\": float(sum(cu) / max(1, len(cu))),\n",
+      "                               \"bytes\": nbytes, \"ratio\": nbytes / max(1, full)}\n",
+      "    except Exception as e:\n",
+      "        legs[\"fisher_8c8b\"] = {\"error\": str(e)}\n",
+      "    W = min(32, H.T)\n",
+      "    cq = CoupledQuantCompressor(channels=8, bits=8)\n",
+      "    nbytes, oerr, cu = 0, [], []\n",
+      "    for k, c in H.cache.items():\n",
+      "        Kh, Vh, meta = cq.compress(c[\"K\"][:-W], c[\"V\"][:-W])\n",
+      "        nbytes += meta[\"bytes\"] + int(2 * W * c[\"head_dim\"] * 4)\n",
+      "        cu.append(meta[\"codes_used_frac\"])\n",
+      "        Kf = _t27.cat([Kh, c[\"K\"][-W:]])\n",
+      "        Vf = _t27.cat([Vh, c[\"V\"][-W:]])\n",
+      "        lk = (c[\"qlast\"].unsqueeze(0) @ Kf.T / (c[\"head_dim\"] ** 0.5))\n",
+      "        o2 = (_t27.softmax(lk, dim=-1) @ Vf).squeeze(0)\n",
+      "        o1 = c[\"S\"][-1] @ c[\"V\"]\n",
+      "        oerr.append(float((o1 - o2).norm() / (o1.norm() + 1e-12)))\n",
+      "    legs[\"window32_8c8b\"] = {\"paper_claim\": \"reported: -0.618/-0.476 avg loss at 1-bit (Table 4)\",\n",
+      "                             \"bytes\": nbytes, \"ratio\": nbytes / max(1, full),\n",
+      "                             \"codes_used\": float(sum(cu) / max(1, len(cu))),\n",
+      "                             \"out_err\": float(sum(oerr) / max(1, len(oerr)))}\n",
+      "    res = {\"paper\": \"arXiv:2405.03917\", \"seed\": seed, \"T\": H.T,\n",
+      "           \"purpose\": \"smoke-scale mechanism legs (recon/bytes/BPA); paper magnitudes are reported claims only\",\n",
+      "           \"legs\": legs, \"seconds\": round(_time30.time() - t0, 1)}\n",
+      "    _P30(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
+      "    _P30(out_path).write_text(_j30.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
+      "    ok = {n: (\"error\" not in v) for n, v in legs.items()}\n",
+      "    print(_j30.dumps({\"legs_ok\": ok}, indent=2))\n",
+      "    return res\n"
+      ]
+    }
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Relations: CQ (arXiv:2405.03917) x All Previous Papers (standing rule)\n",
+        "\n",
+        "- Joint channel VQ meets every prior section at the frozen forward: groups share codes (dependence exploited), centroids learned once (calibration transfer), Fisher weights protect salient activations. All relations STACK unless stated; coupledquant extends the \u00a727 Compress axis.\n",
+        "\n",
+        "- **vs LayerMix (arXiv:2608.28930, s10-12): STACK (expected).** Probe signal re-measured on coupled-quantized states; centroid tables as shared probe geometry.\n",
+        "- **vs SABER (arXiv:2608.27963, s13): STACK (expected).** Exit gating and code precision are different stages; quantized entries persist across exits.\n",
+        "- **vs Grokking (arXiv:2609.10657, s14/s16): STACK (expected).** Correlation drift re-measured at Tmem vs Tgrok - same loop, new readout.\n",
+        "- **vs ConvMem (arXiv:2609.10441, s15): STACK (expected).** Context windows, code groups, calibration windows: three grouping instincts, never merged.\n",
+        "- **vs RiLM (arXiv:2609.10305, s19): STACK (expected).** Grouped VQ runs on projections under any readout; re-runs under geodesicflat unchanged.\n",
+        "- **vs WRP (arXiv:2609.09883, s20): STACK (expected).** Pruned dims feed grouped VQ directly (fewer channels per group budget).\n",
+        "- **vs TASCO (arXiv:2609.11393, s21): STACK (expected).** Steered tokens kept at higher precision (mixed-precision instinct shared with MiKV); protection semantics compose.\n",
+        "- **vs Ignorance (arXiv:2609.02959, s22): STACK (expected).** lam priors and code structure are two frozen-state readouts.\n",
+        "- **vs SharedCircuits (arXiv:2609.04463, s23): STACK (kept).** AP gradients vs Fisher activation-grads: two gradient consumers, one backward; centroids as attribution units.\n",
+        "- **vs ImplicitPatch (arXiv:2511.17864, s25): STACK (kept).** Rank-1 weight compile vs grouped-code history compile - two compressions.\n",
+        "- **vs LBI (arXiv:2605.09204, s26): STACK (kept).** Regions (gradient groups) vs channel groups (dependence groups); region-partitioned codebooks compose directly.\n",
+        "- **vs KVCache survey (arXiv:2603.20397, s27): STACK (kept, closest kin).** CQ sits beside KIVI (asymmetric 2-bit, same first author Zhaozhuo Xu) and KVQuant (NUQ tables) on the Compress axis: per-channel/per-token vs coupled-group, same BPA accounting, quantization-orthogonality kept.\n",
+        "- **vs SpindleKV (arXiv:2507.06517, s28): STACK (kept, sibling).** Codebook replacement (direction+magnitude entries) vs coupled VQ (centroid codes): two codebooks, different alphabets; pyramid sets feed grouped codes.\n",
+        "- **vs KeepKV (arXiv:2504.09936, s29): STACK (kept, sibling).** Vote-weighted merging vs grouped quantization: history weights vs channel codes; merge-then-quantize composes per head.\n",
+        "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** Scaled dot-product form is Vaswani 2017 (foundation, not a runtime surface).\n",
+        "\n",
+        "- **STACK:** coupledquant after any evictor (operates on survivors); with any backbone/vocab/scale/context/interface wiring; Fisher grads from any backward; sliding-window leg beside any placer.\n",
+        "- **ALTERNATIVE (pick 1 per run):** one compressor per run (coupledquant joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
+        "- **NEVER-SAME-PATH:** centroid tables presented as free (table bytes always counted; App-F term uses live context); paper PPL/accuracy cited as smoke-scale evidence (smoke reports recon/bytes/BPA; paper numbers are labeled claims); Fisher live gain presented as paper-scale PPL gain (smoke reports weighted-objective convergence + recon deltas).\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+      "# ### Backprop: coupling sweep (Table-5 analog, s30 x s27 Compress)\n",
+      "\"\"\"Grouped-VQ error vs (channels, bits) on a prefilled harness.\n",
+      "\n",
+      "Table 5 shows error falling as channels couple at fixed bits. Takes a\n",
+      "prefilled harness; returns recon errors per config (the live Table-5 row).\n",
+      "\"\"\"\n",
+      "def cq_backprop_coupling(harness, seed=0):\n",
+      "    import torch as _t27\n",
+      "    rows = []\n",
+      "    for cc, bb in ((1, 1), (2, 2), (4, 4), (8, 8)):\n",
+      "        cq = CoupledQuantCompressor(channels=cc, bits=bb)\n",
+      "        rk, rv, cu = [], [], []\n",
+      "        for k, c in harness.cache.items():\n",
+      "            Kh, Vh, meta = cq.compress(c[\"K\"], c[\"V\"])\n",
+      "            rk.append(meta[\"recon_k\"])\n",
+      "            rv.append(meta[\"recon_v\"])\n",
+      "            cu.append(meta[\"codes_used_frac\"])\n",
+      "        rows.append({\"config\": \"%dc%db\" % (cc, bb),\n",
+      "                     \"recon_k\": float(sum(rk) / max(1, len(rk))),\n",
+      "                     \"recon_v\": float(sum(rv) / max(1, len(rv))),\n",
+      "                     \"codes_used\": float(sum(cu) / max(1, len(cu)))})\n",
+      "    return {\"rows\": rows}\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+      "# ### Backprop: Fisher-weighted vs uniform (Table-6 analog, s30 x s23 grads)\n",
+      "\"\"\"Uniform vs Fisher-weighted grouped VQ on harness captures with live grads.\n",
+      "\n",
+      "Table 6 shows Fisher-guided centroids winning on PPL. Takes a prefilled\n",
+      "harness plus {(li,hi): (gK, gV)} grad maps (same shape as _cq_harness_grads);\n",
+      "returns weighted-objective + recon errors per variant (the live Table-6 row).\n",
+      "\"\"\"\n",
+      "def cq_backprop_fisher(harness, grads):\n",
+      "    import torch as _t27\n",
+      "    out = {}\n",
+      "    for tag, fisher in ((\"uniform\", False), (\"fisher\", True)):\n",
+      "        cq = CoupledQuantCompressor(channels=4, bits=4, fisher=fisher)\n",
+      "        werr, rk, rv = [], [], []\n",
+      "        for k, c in harness.cache.items():\n",
+      "            gk = grads.get(k, {}).get(\"k\") if grads else None\n",
+      "            gv = grads.get(k, {}).get(\"v\") if grads else None\n",
+      "            Kh, Vh, meta = cq.compress(c[\"K\"], c[\"V\"], grads_k=gk, grads_v=gv)\n",
+      "            rk.append(meta[\"recon_k\"])\n",
+      "            rv.append(meta[\"recon_v\"])\n",
+      "            if gk is not None:\n",
+      "                w = (gk ** 2).sum(-1)\n",
+      "                werr.append(float((((c[\"K\"] - Kh) ** 2).sum(-1) * w).sum()))\n",
+      "        out[tag] = {\"recon_k\": float(sum(rk) / max(1, len(rk))),\n",
+      "                    \"recon_v\": float(sum(rv) / max(1, len(rv))),\n",
+      "                    \"weighted_err\": float(sum(werr) / max(1, len(werr))) if werr else None}\n",
+      "    return out\n"
       ]
     }
   ],

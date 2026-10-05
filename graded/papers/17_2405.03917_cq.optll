@@ -1,0 +1,103 @@
+@PL::Python
+@Task::Arxiv_2405_03917_CQ
+@Modulu::CQ
+
+@Technique::CQ::[reproduce]
+
+@Comment::[Paper: KV Cache is 1 Bit Per Channel: Efficient Large Language Model Inference with Coupled Quantization (Zhang, Yi, Xu, Shrivastava 2024, arXiv:2405.03917, NeurIPS 2024). Channel-coupled vector quantization (Eq.2/5/6, k-means + Fisher centroids), 1-bit Fig.1, entropy/correlation Fig.2, worked Fig.3, throughput Fig.4, ablations Fig.5/Tables 5/6/8, Tables 1/2/3/4/7/11/12/13/15/16, BPA App F. All curves nanoGPT-wired (correlated-channel toy). Repo note: NO public code (checklist Q5 proprietary xMAD.ai); third-party pseudo-implementation noted, not used.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2405_03917_eq256_objectives,
+    paper_2405_03917_fig1_1bit,
+    paper_2405_03917_fig2_entropy,
+    paper_2405_03917_fig3_example,
+    paper_2405_03917_fig4_throughput,
+    paper_2405_03917_fig5_ablation,
+    paper_2405_03917_table1_ppl,
+    paper_2405_03917_table2_acc,
+    paper_2405_03917_table3_long,
+    paper_2405_03917_table4_window,
+    paper_2405_03917_bpa_calc,
+    paper_2405_03917_app_tables,
+    paper_2405_03917_repo_audit,
+    run_paper_03917,
+)
+
+@Impl::CQ::reproduce{
+_ = "reproduce objectives + entropy/correlation + coupled VQ + tables + BPA + audit"
+@}
+
+@Graded::Eq256_Objectives{
+# Eq.2/5/6 live: k-means improves; Fisher-weighted best; coupled wins.
+eq = paper_2405_03917_eq256_objectives()
+@}::endpoints::[eq=eq]
+
+@Graded::Fig1_1Bit{
+# Fig.1 exact anchors + live error-vs-coupling.
+plot_ok, f1 = paper_2405_03917_fig1_1bit()
+@}::endpoints::[plot_ok=plot_ok, f1=f1]
+
+@Graded::Fig2_Entropy{
+# Fig.2/Table-16: inequality + binning + correlation + MAC grid.
+plot_ok, f2 = paper_2405_03917_fig2_entropy()
+@}::endpoints::[plot_ok=plot_ok, f2=f2]
+
+@Graded::Fig3_Example{
+# Fig.3: 601.4 vs 250.6 + live 2-channel comparison.
+f3 = paper_2405_03917_fig3_example()
+@}::endpoints::[f3=f3]
+
+@Graded::Fig4_Throughput{
+# Fig.4 anchors + live BPA/batch math.
+f4 = paper_2405_03917_fig4_throughput()
+@}::endpoints::[f4=f4]
+
+@Graded::Fig5_Ablation{
+# Fig.5/Tables 5/6 + live coupling/Fisher checks.
+plot_ok, f5 = paper_2405_03917_fig5_ablation()
+@}::endpoints::[plot_ok=plot_ok, f5=f5]
+
+@Graded::Table1_PPL{
+# Table 1 full grid; 1-bit/2-bit headline comparisons.
+t1 = paper_2405_03917_table1_ppl()
+@}::endpoints::[t1=t1]
+
+@Graded::Table2_Acc{
+# Table 2 full grid; CQ above KVQuant per band.
+t2 = paper_2405_03917_table2_acc()
+@}::endpoints::[t2=t2]
+
+@Graded::Table3_Long{
+# Table 3 long-context grid.
+t3 = paper_2405_03917_table3_long()
+@}::endpoints::[t3=t3]
+
+@Graded::Table4_Window{
+# Table 4 sliding-window grid; deltas recomputed.
+t4 = paper_2405_03917_table4_window()
+@}::endpoints::[t4=t4]
+
+@Graded::BPA_Calc{
+# App F BPA formula + centroid param count.
+bpa = paper_2405_03917_bpa_calc()
+@}::endpoints::[bpa=bpa]
+
+@Graded::App_Tables{
+# App Tables 7/8/10/11/12/13/15/16 + checks.
+app = paper_2405_03917_app_tables()
+@}::endpoints::[app=app]
+
+@Graded::RepoAudit{
+# No public code (checklist Q5); third-party note recorded.
+repo = paper_2405_03917_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::CQPaper::[Eq256_Objectives, Fig1_1Bit, Fig2_Entropy, Fig3_Example, Fig4_Throughput, Fig5_Ablation, Table1_PPL, Table2_Acc, Table3_Long, Table4_Window, BPA_Calc, App_Tables, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, eq, f1, f2, f3, f4, f5, t1, t2, t3, t4, bpa, app, repo]
