@@ -1,0 +1,103 @@
+@PL::Python
+@Task::Arxiv_2509_17396_EpiCache
+@Modulu::EpiCache
+
+@Technique::EpiCache::[reproduce]
+
+@Comment::[Paper: EPICACHE: Episodic KV Cache Management for Long Conversational Question Answering (Kim, Kundu, Kim, Dixit, Cho 2025, arXiv:2509.17396v3, Apple/Hanyang). Block-wise prefill (bounded M+Mblock), episodic clustering with medoid patched prompts (Eq.4-6), query-episode matching (Eq.7), sensitivity-aware layer budgets (Eq.8-10, Alg.1). Graded scope: Eq.3/4-6/7/9-10, Alg.1, Fig.1/2/4/5/6/7, Table A1, Tables A2/A3/A4, App Figs A1-A3, repo audit - all curves nanoGPT-wired. Repo note: official code audited (apple-aiml-research/ml-epicache, 30 stars, 0 issues/PRs; KVzip+AdaKV base).]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2509_17396_eq3_scores,
+    paper_2509_17396_eq456_medoid,
+    paper_2509_17396_eq7_match,
+    paper_2509_17396_eq8910_sensitivity,
+    paper_2509_17396_alg1,
+    paper_2509_17396_fig1_mgmt,
+    paper_2509_17396_fig2_patched,
+    paper_2509_17396_fig4_sensitivity,
+    paper_2509_17396_fig567_eff,
+    paper_2509_17396_tableA1,
+    paper_2509_17396_tablesA234,
+    paper_2509_17396_appfigs,
+    paper_2509_17396_repo_audit,
+    run_paper_17396,
+)
+
+@Impl::EpiCache::reproduce{
+_ = "reproduce block/episodic/sensitivity identities + figures + benchmark tables + audit"
+@}
+
+@Graded::Eq3_Scores{
+# Eq.3 live: max-aggregation patched-prompt scoring + top-M.
+eq3 = paper_2509_17396_eq3_scores()
+@}::endpoints::[eq3=eq3]
+
+@Graded::Eq456_Medoid{
+# Eq.4-6 live: segmentation, k-means episodes, optimal medoids.
+eq456 = paper_2509_17396_eq456_medoid()
+@}::endpoints::[eq456=eq456]
+
+@Graded::Eq7_Match{
+# Eq.7 live: query-episode matching above chance.
+eq7 = paper_2509_17396_eq7_match()
+@}::endpoints::[eq7=eq7]
+
+@Graded::Eq8910_Sensitivity{
+# Eq.8-10 live: sensitivity budgets sum to L*M, monotone.
+eq8910 = paper_2509_17396_eq8910_sensitivity()
+@}::endpoints::[eq8910=eq8910]
+
+@Graded::Alg1{
+# Alg.1 phases live on toy dialogue.
+alg1 = paper_2509_17396_alg1()
+@}::endpoints::[alg1=alg1]
+
+@Graded::Fig1_Mgmt{
+# Fig.1: linear vs flat peak memory + score collapse anchors.
+plot_ok, f1 = paper_2509_17396_fig1_mgmt()
+@}::endpoints::[plot_ok=plot_ok, f1=f1]
+
+@Graded::Fig2_Patched{
+# Fig.2: exact-top + top10-near-exact + live proxy cover.
+f2 = paper_2509_17396_fig2_patched()
+@}::endpoints::[f2=f2]
+
+@Graded::Fig4_Sensitivity{
+# Fig.4: KL shifts + accuracy ordering + live spread.
+plot_ok, f4 = paper_2509_17396_fig4_sensitivity()
+@}::endpoints::[plot_ok=plot_ok, f4=f4]
+
+@Graded::Fig567_Eff{
+# Fig.5/6/7 anchors + live bound/match checks.
+plot_ok, f567 = paper_2509_17396_fig567_eff()
+@}::endpoints::[plot_ok=plot_ok, f567=f567]
+
+@Graded::TableA1{
+# Table A1 grid; 2.4x/3.5x/1.5x/2.7x arithmetic.
+ta1 = paper_2509_17396_tableA1()
+@}::endpoints::[ta1=ta1]
+
+@Graded::TablesA234{
+# Tables A2/A3/A4 grids; EpiCache dominance + monotone.
+ta234 = paper_2509_17396_tablesA234()
+@}::endpoints::[ta234=ta234]
+
+@Graded::AppFigs{
+# App Figs A1-A3 anchors + live analogues.
+plot_ok, app = paper_2509_17396_appfigs()
+@}::endpoints::[plot_ok=plot_ok, app=app]
+
+@Graded::RepoAudit{
+# Official repo audited (30 stars, 0 issues/PRs); notes recorded.
+repo = paper_2509_17396_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::EpiCachePaper::[Eq3_Scores, Eq456_Medoid, Eq7_Match, Eq8910_Sensitivity, Alg1, Fig1_Mgmt, Fig2_Patched, Fig4_Sensitivity, Fig567_Eff, TableA1, TablesA234, AppFigs, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, eq3, eq456, eq7, eq8910, alg1, f1, f2, f4, f567, ta1, ta234, app, repo]

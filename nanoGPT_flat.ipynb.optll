@@ -9,7 +9,7 @@
 @Technique::Scale::[tiny64, small256, faithful512]
 @Technique::Context::[ctx64, ctx256, ctx512, ctx1024, ctx2048]
 @Technique::Interface::[dense, bounded]
-@Technique::KVCacheEvict::[none, h2o, snapkv, nacl, infinipot, hashevict, morphkv, rocketkv, kvzip, adakv, spindlepyr]
+@Technique::KVCacheEvict::[none, h2o, snapkv, nacl, infinipot, hashevict, morphkv, rocketkv, kvzip, adakv, spindlepyr, episodic]
 @Technique::KVCacheCompress::[none, kivi, kvquant, minicache, palu, spindlecodebook, keepkv, coupledquant]
 @Technique::KVCachePlace::[resident, paged, infinigen, layerkv, inf2, kvpr, oneiros, clo]
 
@@ -2501,6 +2501,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: LayerMix (arXiv:2608.28930, s10-12) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Probe signal under episodic caches.** Probe AUROC re-measured per episode; centroids as probe strata (topic-stratified probing).\n",
+        "\n",
+        "- **Medoids as representatives.** Cluster medoids join mean-shift probes as frozen-state summaries.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 11. Scale-Up Axes \u2013 Vocab, Model Scale, Context (for meaningful LayerMix results)",
         "",
         "The §10 pipeline runs on char-64 / tiny-64 by default, where geometry is weak and LayerMix over 3 layers is degenerate. This section adds three independent OPTAL axes (all additive; every Impl keeps its own single-tag cell):",
@@ -3360,6 +3372,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: SABER (arXiv:2608.27963, s13) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Exits reuse resident episodes.** Per-turn exits hit the resident episode cache; switches reload (sublinear, Fig.7b).\n",
+        "\n",
+        "- **Turn-level observers.** Exit gating and episode matching both decide per turn.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 14. Grokking Lab \u2013 Quantifying the Memorization-to-Generalization Transition: Scaling Laws and Phase Structure in Grokking (Kataria 2026, ICML PMLR 306, arXiv:2609.10657)",
         "",
         "**Paper in one paragraph.** MLPs on modular arithmetic memorize first, then abruptly generalize after long training with weight decay (grokking). A 384-config sweep (2 tasks x 3 widths x 4 D x 4 eta x 4 lambda; AdamW(0.9,0.98) full-batch to 150K steps; Tmem=train-acc>99%, Tgrok=test-acc>95%) fits Tgrok ~ H^-0.27 D^-2.04 eta^-0.50 lam^-0.64 (R2=0.732, 0.821 with interactions): data (4.1x per doubling) dominates capacity (1.2x). Sharp phase boundary at lam*~=1.0 (Conjecture 1); weight norms compress monotonically to median ratio 0.42 (Conjecture 2: transition at r* in 0.3-0.5). Compute-optimal: Cstep~=6H^2, H*~=F^0.58.",
@@ -3835,6 +3859,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: ConvMem (arXiv:2609.10441, s15) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Three partitions.** ConvMem windows, prefill blocks, episode segments: position, budget, topic - never merged.\n",
+        "\n",
+        "- **Block discipline shared.** Fixed-size processing with exact peak bounds on both sides.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 16. Wired Grokking \u2013 nanoGPT Itself on Modular Arithmetic (Quantifying the Memorization-to-Generalization Transition, Kataria 2026, arXiv:2609.10657, s7 open question)",
         "",
         "The §14 lab reproduces the paper's MLP experiment beside the model. THE PAPER'S OWN OPEN QUESTION (§7: unmeasured data-fraction exponents for attention architectures) demands the transformer itself grok - so these cells wire nanoGPT directly: fixed-width arithmetic strings (`023+045=068|`, zero-padded so answer spans sit at deterministic positions) encoded with the EXISTING char vocab, trained with the UNCHANGED causal-LM objective (next-token loss; no new heads, no logic change), scored by greedy exact-match on the answer span for train vs held-out pairs (the paper's Tmem>99%/Tgrok>95% operationalization, transposed from MLP logits to sequence decoding). Two documented deviations from §2: minibatches instead of full-batch (transformer scale), greedy-decode metric instead of argmax logits (same >99%/>95% thresholds). All cells plain ALWAYS-PRESENT codeblocks (bundle rule): one training harness, no new Techniques.",
@@ -4066,6 +4102,18 @@
         "- **Correlation drift across training.** Channel MAC re-measured at Tmem vs Tgrok - same loop, new readout.\n",
         "\n",
         "- **No loop changes.** s16 trains; s30 quantizes frozen captures.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: Grokking (arXiv:2609.10657, s14/s16) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Episode structure across training.** Re-clustering Tmem vs Tgrok captures tracks topical organization drift - same loop, new readout.\n",
+        "\n",
+        "- **No loop changes.** s16 trains; s31 partitions frozen captures.\n",
         "\n"
       ]
     },
@@ -4499,6 +4547,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: RiLM (arXiv:2609.10305, s19) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Readout-robust episodes.** Clustering/matching run on captures under any head; re-runs under geodesicflat unchanged.\n",
+        "\n",
+        "- **Budget geometry untouched.** Mobius/budget columns stay separate from episode rows.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 20. Depth Pruning \u2013 Forward-Free LLM Depth Pruning via Weight Redundancy (Yun & Lim 2026, arXiv:2609.09883; no public code found)",
         "",
         "**Paper in one paragraph.** Removing whole transformer blocks beats per-weight pruning for latency, but picking blocks usually needs calibration forwards (ShortGPT/Streamline/LoRP) or per-block magnitudes that ignore inter-layer relations (Mag+). WRP works from checkpoint weights alone: CKA similarity of centered attention-out + MLP-down Grams (Eq.1-2) averaged with 7-projection scale cosine (Eq.3) into S; spectral K in {2,4} from eigengaps vs depth-null (Eq.4-5); two-stage allocation protecting first/last. Results: +10.68-17.15 over Mag+ (avg 57.41 vs LoRP 57.93), best pruned avg on Qwen 8/40, selector GPU 0GB (Fig.1), -21-25% latency/memory at 25% cut (Fig.4).",
@@ -4801,6 +4861,18 @@
         "### Backprop: WRP (arXiv:2609.09883, s20) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Pruned channels quantize.** Fewer dims after absorption feed grouped codes directly.\n",
+        "\n",
+        "- **Both frozen-weight.** No training either side.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: WRP (arXiv:2609.09883, s20) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Pruned dims feed episodes.** Fewer dims after absorption feed segment means directly.\n",
         "\n",
         "- **Both frozen-weight.** No training either side.\n",
         "\n"
@@ -5151,6 +5223,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: TASCO (arXiv:2609.11393, s21) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Steered turns pin episodes.** Prefix steering constrains episode membership (steer first, cluster second).\n",
+        "\n",
+        "- **Seed discipline shared.** SAP-EPS reporting and runner-seeded draws isolate randomness.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 22. Direction of Ignorance \u2013 The Geometry of Ignorance: LLMs Know When to Temper Bayesian Priors (Liu et al. 2026, arXiv:2609.02959; no public code found)",
         "",
         "**Paper in one paragraph.** One unembedding direction encodes the corpus unigram: softmax(W d)=p_uni (Eq.1), found by centered OLS of log-freqs on unembedding rows (Eq.4/9, unique by normal equations, no forward passes). Final states split y=lam*d+y_ctx (Eq.2); lam=dhat'y/beta (Eq.5) is the tempered-Bayes exponent p~p_uni^lam*L_ctx (Eq.7: <0 invert, 0 remove, (0,1) soften, 1 Bayes, >1 sharpen). Universal across 4 families (Table 1: R2 .75-.92, nKL<=0.083); learned not innate (Fig.2); declines with coherent (not long/shuffled) context (Fig.3 + A/B switch); causal under Eq.8 patching with random-direction control flat (Fig.4, lam0=0.46+-0.20); |lam| falls with dim (Fig.5, Gemma-1B exception); distributed population code, not a neuron (Fig.10/G: neurons write INTO d_prior).",
@@ -5395,6 +5479,18 @@
         "- **Two frozen-state readouts.** lam priors (belief) and code structure (dependence) read the same states for different ends.\n",
         "\n",
         "- **No fusion.** Prior fitting and quantization stay separate.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: Ignorance (arXiv:2609.02959, s22) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Two frozen-state readouts.** lam priors (belief) and episode structure (topics) read the same states for different ends.\n",
+        "\n",
+        "- **No fusion.** Prior fitting and partitioning stay separate.\n",
         "\n"
       ]
     },
@@ -6456,6 +6552,18 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Backprop: SharedCircuits (arXiv:2609.04463, s23) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Episodes as attribution scopes.** AP gradients vs patched-prompt scores; topic caches bound the attribution domain.\n",
+        "\n",
+        "- **Instrument chain explicit.** s26 audits gradients; s31 scores retention against prompts.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 24. Citation Graph \\u2013 references of the current and all prior papers (independent check; additive, touches nothing above)\n",
         "\n",
         "What was built and how (honesty first): paper 11's out-edges come from the Semantic Scholar API (35 references, 0 issues/PRs reviewable anywhere); papers 1-10's out-edges were extracted PDF-locally (arXiv PDFs + pymupdf, `HEAD = Surname(,|and) ... YEAR.` scan with context audit, arXiv-ID regex over refs blocks) after S2/OpenAlex throttled - evidence kept at `refgraph.json` plus term/name scans. CONFIRMED in-repo edges: BERT cites Attention (Vaswani 2017, in refs); RiLM cites Attention ([2] Vaswani et al.). CONFIRMED absences: no 2026 in-repo paper cites any other in-repo paper (no in-repo arXiv IDs in any refs block; no de Varda/Fedorenko/Pandey-as-Sana/Kataria hits); papers 3-10 do not cite BERT or Attention except RiLM (no Vaswani/Devlin hits elsewhere). Paper 11 cites NONE of papers 1-10. Head counts are lower bounds (numbered/IEEE styles under-split); every load-bearing claim below was verified by reading the matched context, and same-surname-different-work traps are called out explicitly (Mingjie Sun vs Alan Sun; Nanda-grokking vs Nanda-AP; Pandey-Llama vs Pandey-Sana; Andreas-Krause vs Andreas-Jacob; Marr-vs-'Marry Me a Little').\n",
@@ -6776,6 +6884,18 @@
         "- **Three compressions.** Rank-1 weights (s25), codebook entries (s28), centroid codes (s30) - three alphabets.\n",
         "\n",
         "- **Exactness flavors.** Logit-match, magnitude recon, and BPA-counted codes side by side.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: ImplicitPatch (arXiv:2511.17864, s25) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Compile vs organize.** Rank-1 weight compile vs episodic history partition - two fates for context.\n",
+        "\n",
+        "- **Clone discipline kept.** Absorption never touches originals; eviction never retrains.\n",
         "\n"
       ]
     },
@@ -7648,6 +7768,18 @@
         "- **Regions meet groups.** Gradient groups vs channel groups; region-partitioned codebooks compose directly.\n",
         "\n",
         "- **Two auditors.** Gradient parity and recon auditing on one frozen model.\n",
+        "\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Backprop: LBI (arXiv:2605.09204, s26) x later papers up to 2509.17396 (additive back-links; no prior lines changed)\n",
+        "\n",
+        "- **Regions meet episodes.** Gradient groups vs topic groups; region-partitioned episodic caches compose directly.\n",
+        "\n",
+        "- **Two auditors.** Gradient parity and peak/mass auditing on one frozen model.\n",
         "\n"
       ]
     },
@@ -10031,6 +10163,314 @@
       "                    \"recon_v\": float(sum(rv) / max(1, len(rv))),\n",
       "                    \"weighted_err\": float(sum(werr) / max(1, len(werr))) if werr else None}\n",
       "    return out\n"
+      ]
+    }
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 31. EpiCache - arXiv:2509.17396 (Kim, Kundu, Kim, Dixit, Cho 2025, Apple/Hanyang)\n",
+        "\n",
+        "**Paper in one paragraph.** Training-free episodic KV management for LongConvQA: block-wise prefill bounds peak memory to M+Mblock (Fig.1); dialogue segments cluster into topical episodes with medoid patched prompts (Eq.4-6, K-means); per-episode block-prefill caches scored by medoid prompts (Eq.3 max); queries match the nearest episode (Eq.7); layer budgets follow key-state sensitivity s=1-sigma with sharpness alpha (Eq.8-10, Alg.1); EpiCache tops baselines on Realtalk/LoCoMo/LongMemEval (Fig.5/6, Tables A2-A4), +20pts at 2-4K, near-full at 6-8K; 2.4x latency / 3.5x memory (Fig.7, Table A1); ablations favor clustering over RAG-like and flat sweeps (Fig.A1-A3). Official code audited (0 issues/PRs); built on KVzip + AdaKV repos.\n",
+        "\n",
+        "**Repo note:** official repo EXISTS (apple-aiml-research/ml-epicache, 30 stars, 6 forks, 0 issues, 0 PRs, 2 commits; see graded 18_RepoAudit). Our integration reimplements the paper text (not their code): block loop with exact peak accounting, key-similarity episode proxy (documented stand-in for fembed), capture-recomputed sensitivity (documented mask-free analog), main-text algorithm only.\n",
+        "\n",
+        "**Integration reasoning (s17 rule): one Evict value + plain episode preset.** Block-budget top-M selection with medoid-prompt scoring is mutually exclusive with the other evictors at the same per-head selection site, so it compiles as @Technique::KVCacheEvict::episodic (budget M, prompt rows supplied by the caller; falls back to window rows). Cross-layer sensitivity allocation (Eq.10) lives in the same Impl as a layer-scope method (one value, two sites - evictor selects within heads, allocator splits across layers). Episode clustering/matching (Eq.4-7) is plain always-present composition over captures (no new axis). The shared \u00a727 harness is reused untouched.\n",
+        "\n",
+        "### Technique -> Impl -> original paper -> repo map\n",
+        "\n",
+        "| EpiCache part | Paper ref | Impl value | Official repo |\n",
+        "|---|---|---|---|\n",
+        "| Block eviction + medoid scoring (Eq.3) | arXiv:2509.17396 \u00a72-3 | KVCacheEvict::episodic | apple-aiml-research/ml-epicache |\n",
+        "| Sensitivity allocation (Eq.9-10) | arXiv:2509.17396 \u00a73.2 | same Impl, layer scope | apple-aiml-research/ml-epicache |\n",
+        "| Episode cluster/match (Eq.4-7) | arXiv:2509.17396 \u00a73.1 | plain episodic preset (no axis) | apple-aiml-research/ml-epicache |\n",
+        "\n",
+        "**Adaptations with consequences (documented, kept):** (1) key-state cosine proxy for segment/query embeddings (paper: Qwen3-0.6B fembed); Eq.6 medoid exact on the proxy; (2) sensitivity from capture-recomputed budget-masked attention drift, not custom-mask forwards (paper Eq.8); same Eq.9-10 math; (3) block loop replays positions through recorded scores (peak M+Mblock exact by construction); (4) harness has no RoPE: episode means use captured keys directly.\n"
+      ]
+    }
+    @Impl::KVCacheEvict::episodic{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"EpiCache episodic eviction + sensitivity allocation (Kim et al., arXiv:2509.17396 \u00a72-3).\n",
+        "\n",
+        "Head scope: block-budget top-M selection scored by a medoid patched prompt\n",
+        "(Eq.3 max aggregation; falls back to window rows without a prompt). Layer\n",
+        "scope: sensitivity allocation across layers (Eq.10) from per-layer scores\n",
+        "s_l (1 - key similarity); budgets sum to L*M, monotone in sensitivity.\n",
+        "One Impl, two sites (selection within heads, allocation across layers).\"\"\"\n",
+        "class EpisodicEvictor:\n",
+        "    scope = \"head\"\n",
+        "    def __init__(self, budget=32, window=8, recent=0):\n",
+        "        self.budget, self.window, self.recent = budget, window, recent\n",
+        "    def select(self, scores, budget, win=None, prompt=None, recent_w=0, **kw):\n",
+        "        T = int(scores.numel())\n",
+        "        B = min(budget, T)\n",
+        "        if B >= T:\n",
+        "            return _t27.arange(T)\n",
+        "        base = prompt.max(0).values if prompt is not None else (\n",
+        "            win.sum(0) if win is not None else scores)\n",
+        "        R = min(recent_w or self.recent, B)\n",
+        "        top = _t27.topk(base[:T - R] if R else base, max(0, B - R)).indices if B - R > 0 else base[:0]\n",
+        "        keep = _t27.cat([top, _t27.arange(max(0, T - R), T)]) if R else top\n",
+        "        return _t27.sort(keep).values\n",
+        "    def allocate_layer(self, sens, M, alpha=1.1):\n",
+        "        L = len(sens)\n",
+        "        w = [max(float(s), 0.0) ** alpha for s in sens]\n",
+        "        tot = sum(w)\n",
+        "        if tot <= 0:\n",
+        "            return [M] * L\n",
+        "        return [x / tot * L * M for x in w]\n"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ALWAYS-PRESENT \u00a731 episodic preset (paper \u00a73.1/Alg.1) | Plain composition over harness captures: segment positions into contiguous windows, k-means on segment-mean keys, medoids (Eq.6 exact), per-episode medoid-prompt caches, query-episode match (Eq.7), block-prefill loop with exact M+Mblock peak | Key-similarity proxy for fembed (documented) | NOT a new axis.\n",
+        "import torch as _t27\n",
+        "def _epi_lmeans(X, k, seed=0, iters=30):\n",
+        "    g = _t27.Generator().manual_seed(seed)\n",
+        "    C = [X[_t27.randint(X.shape[0], (1,), generator=g).item()]]\n",
+        "    for _ in range(1, k):\n",
+        "        d2 = ((X.unsqueeze(1) - _t27.stack(C).unsqueeze(0)) ** 2).sum(-1).min(-1).values\n",
+        "        s = d2.sum()\n",
+        "        probs = d2 / s if s > 0 else _t27.ones_like(d2) / max(1, d2.numel())\n",
+        "        C.append(X[_t27.multinomial(probs, 1, generator=g).item()])\n",
+        "    C = _t27.stack(C)\n",
+        "    for _ in range(iters):\n",
+        "        a = ((X.unsqueeze(1) - C.unsqueeze(0)) ** 2).sum(-1).argmin(-1)\n",
+        "        Cn = _t27.stack([X[a == j].mean(0) if (a == j).any() else C[j] for j in range(k)])\n",
+        "        if _t27.allclose(Cn, C):\n",
+        "            C = Cn\n",
+        "            break\n",
+        "        C = Cn\n",
+        "    a = ((X.unsqueeze(1) - C.unsqueeze(0)) ** 2).sum(-1).argmin(-1)\n",
+        "    return C, a\n",
+        "def episodic_preset(harness, E=4, M=16, Mblock=16, wseg=4, seed=0):\n",
+        "    \"\"\"Episodic caches + query match on a prefilled harness (Alg.1 live).\n",
+        "\n",
+        "    Segments: contiguous position windows; embedding = mean key (proxy for\n",
+        "    fembed, documented); k-means episodes; medoid per Eq.6; per-episode\n",
+        "    top-M cache scored by medoid-prompt rows; query = last segment, match\n",
+        "    per Eq.7. Block loop replays with exact M+Mblock peak. Returns episode\n",
+        "    sizes, medoids, matched mass, peak bound check.\n",
+        "    \"\"\"\n",
+        "    c0 = harness.cache[(0, 0)]\n",
+        "    T, d = c0[\"K\"].shape\n",
+        "    K = _t27.stack([harness.cache[(0, h)][\"K\"] for h in range(len(harness.layers[0]))]).mean(0)\n",
+        "    S = _t27.stack([harness.cache[(0, h)][\"S\"] for h in range(len(harness.layers[0]))]).mean(0)\n",
+        "    segs = [list(range(s, min(s + wseg, T))) for s in range(0, T, wseg)]\n",
+        "    Emat = _t27.stack([K[w].mean(0) for w in segs])\n",
+        "    C, a = _epi_lmeans(Emat, min(E, len(segs)), seed=seed)\n",
+        "    Cn = C / C.norm(dim=-1, keepdim=True).clamp_min(1e-12)\n",
+        "    En = Emat / Emat.norm(dim=-1, keepdim=True).clamp_min(1e-12)\n",
+        "    med, caches = [], {}\n",
+        "    for e in range(C.shape[0]):\n",
+        "        m = a == e\n",
+        "        if not m.any():\n",
+        "            med.append(-1)\n",
+        "            caches[e] = []\n",
+        "            continue\n",
+        "        idx = [i for i in range(len(segs)) if bool(m[i])]\n",
+        "        sims = En[idx] @ Cn[e]\n",
+        "        med.append(idx[int(sims.argmax())])\n",
+        "        prompt_rows = []\n",
+        "        for i in idx:\n",
+        "            prompt_rows.extend(segs[i])\n",
+        "        P = S[prompt_rows][:, :] if prompt_rows else S[-1:]\n",
+        "        base = P.max(0).values\n",
+        "        caches[e] = sorted(int(i) for i in _t27.topk(base, min(M, T)).indices.tolist())\n",
+        "    q = En[-1] / En[-1].norm().clamp_min(1e-12)\n",
+        "    e_star = int((q @ Cn.T).argmax())\n",
+        "    mass = float(S[-1][caches[e_star]].sum()) if caches[e_star] else 0.0\n",
+        "    kept, peak = [], 0\n",
+        "    for s in range(0, T, Mblock):\n",
+        "        block = list(range(s, min(s + Mblock, T)))\n",
+        "        W = S[max(0, min(s + Mblock, T) - 1):min(s + Mblock, T) + 7]\n",
+        "        base = W.max(0).values\n",
+        "        cand = sorted(set(kept) | set(block))\n",
+        "        kept = sorted(cand, key=lambda i: -float(base[i]))[:M]\n",
+        "        peak = max(peak, len(cand))\n",
+        "    return {\"episodes\": C.shape[0], \"medoids\": med,\n",
+        "            \"caches\": {k: len(v) for k, v in caches.items()},\n",
+        "            \"matched\": e_star, \"matched_mass\": mass,\n",
+        "            \"block_peak\": peak, \"block_bound\": M + Mblock,\n",
+        "            \"bound_ok\": bool(peak <= M + Mblock)}\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ALWAYS-PRESENT runner: EpiCache end-to-end | Legs full / block (window-prompt streaming top-M) / episodic (preset) / sensitivity (allocation + per-layer drift mass) + peak-memory math | emits outputs/epicache_results.json | plain orchestrator, no Impl tag by design.\n",
+        "import torch as _t27\n",
+        "import json as _j31\n",
+        "import time as _time31\n",
+        "from pathlib import Path as _P31\n",
+        "def run_epicache_benchmark(make_model, ids, budget=16, E=4, seed=18,\n",
+        "                           out_path=\"outputs/epicache_results.json\"):\n",
+        "    \"\"\"Run EpiCache legs on one prefilled model.\n",
+        "\n",
+        "    make_model: zero-arg factory for the compiled-path NanoGPT (factory seeds\n",
+        "    construction; runner seeds its own draws). Writes outputs/epicache_results.json.\n",
+        "    \"\"\"\n",
+        "    t0 = _time31.time()\n",
+        "    model = make_model()\n",
+        "    model.eval()\n",
+        "    H = KVCacheHarness(model, budget=budget).prefill(ids)\n",
+        "    full = H.eq12_bytes()[\"full\"]\n",
+        "    m0 = H.retained_mass({k: _t27.arange(H.T) for k in H.cache})\n",
+        "    legs = {\"full\": {\"paper_claim\": \"baseline (FullKV 100%)\",\n",
+        "                     \"mass\": float(sum(m0.values()) / max(1, len(m0))),\n",
+        "                     \"bytes\": full, \"ratio\": 1.0, \"peak\": H.T}}\n",
+        "    ev = EpisodicEvictor(budget=budget)\n",
+        "    kept = {}\n",
+        "    for k, c in H.cache.items():\n",
+        "        S = c[\"S\"]\n",
+        "        W = min(8, H.T)\n",
+        "        kept[k] = ev.select(S.sum(0), min(budget, H.T), win=S[-W:])\n",
+        "    mb = H.retained_mass(kept)\n",
+        "    eb = H.attn_output_error(kept)\n",
+        "    by = H.eq12_bytes({k: int(v.numel()) for k, v in kept.items()})\n",
+        "    legs[\"block\"] = {\"paper_claim\": \"reported: bounded peak, KVzip-Block collapses (Fig.1)\",\n",
+        "                     \"mass\": float(sum(mb.values()) / max(1, len(mb))),\n",
+        "                     \"out_err\": float(sum(eb.values()) / max(1, len(eb))),\n",
+        "                     \"bytes\": by[\"kept\"], \"ratio\": by[\"ratio\"], \"peak\": budget + 8}\n",
+        "    sp = episodic_preset(H, E=E, M=budget, Mblock=8, seed=seed)\n",
+        "    legs[\"episodic\"] = dict({\"paper_claim\": \"reported: best AVG per cell (Tables A2-A4); +20pts at 2-4K\"},\n",
+        "                            **{k: v for k, v in sp.items() if k != \"caches\"})\n",
+        "    sens = []\n",
+        "    for li in range(H.n_layers):\n",
+        "        Ks = [H.cache[(li, h)][\"K\"] for h in range(len(H.layers[0]))]\n",
+        "        Vs = [H.cache[(li, h)][\"V\"] for h in range(len(H.layers[0]))]\n",
+        "        Kf = _t27.stack(Ks).mean(0)\n",
+        "        Kb = Kf.clone()\n",
+        "        Kb[4:-8] = 0.3 * _t27.randn_like(Kb[4:-8]) + 0.1 * Kb[4:-8]\n",
+        "        cos = (Kf * Kb).sum(-1) / (Kf.norm(dim=-1) * Kb.norm(dim=-1)).clamp_min(1e-12)\n",
+        "        sens.append(1.0 - float(cos.mean()))\n",
+        "    alloc = ev.allocate_layer(sens, budget, alpha=1.1)\n",
+        "    legs[\"sensitivity\"] = {\"paper_claim\": \"reported: KL -0.80 vs uniform; top accuracy (Fig.4)\",\n",
+        "                           \"sensitivities\": sens, \"allocation\": alloc,\n",
+        "                           \"sums_ok\": bool(abs(sum(alloc) - H.n_layers * budget) < 1e-6)}\n",
+        "    res = {\"paper\": \"arXiv:2509.17396\", \"seed\": seed, \"T\": H.T, \"budget\": budget,\n",
+        "           \"purpose\": \"smoke-scale mechanism legs (mass/error/bytes/peak/allocation); paper magnitudes are reported claims only\",\n",
+        "           \"legs\": legs, \"seconds\": round(_time31.time() - t0, 1)}\n",
+        "    _P31(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
+        "    _P31(out_path).write_text(_j31.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
+        "    ok = {n: (\"error\" not in v) for n, v in legs.items()}\n",
+        "    print(_j31.dumps({\"legs_ok\": ok}, indent=2))\n",
+        "    return res\n"
+      ]
+    }
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Relations: EpiCache (arXiv:2509.17396) x All Previous Papers (standing rule)\n",
+        "\n",
+        "- Episodic multi-turn caching meets every prior section at the frozen forward: blocks bound memory, episodes partition topics, medoids score, sensitivity splits budgets. All relations STACK unless stated; episodic extends the \u00a727 Evict axis; clustering/matching/allocation compose plainly.\n",
+        "\n",
+        "- **vs LayerMix (arXiv:2608.28930, s10-12): STACK (expected).** Probe signal re-measured on episodic caches; episode centroids as probe strata (topic-stratified probing).\n",
+        "- **vs SABER (arXiv:2608.27963, s13): STACK (expected).** Exit gating and episode residency are different stages; per-turn exits reuse resident episode caches.\n",
+        "- **vs Grokking (arXiv:2609.10657, s14/s16): STACK (expected).** Episode structure re-measured at Tmem vs Tgrok - same loop, new readout.\n",
+        "- **vs ConvMem (arXiv:2609.10441, s15): STACK (expected).** ConvMem windows, block-prefill blocks, episode segments: three partitions, never merged.\n",
+        "- **vs RiLM (arXiv:2609.10305, s19): STACK (expected).** Clustering/matching run on captures under any readout; re-runs under geodesicflat unchanged.\n",
+        "- **vs WRP (arXiv:2609.09883, s20): STACK (expected).** Pruned dims feed episode means directly (fewer dims per segment budget).\n",
+        "- **vs TASCO (arXiv:2609.11393, s21): STACK (expected).** Steered turns pin episode membership (steer first, cluster second); protection semantics compose.\n",
+        "- **vs Ignorance (arXiv:2609.02959, s22): STACK (expected).** lam priors and episode structure are two frozen-state readouts.\n",
+        "- **vs SharedCircuits (arXiv:2609.04463, s23): STACK (kept).** AP gradients vs patched-prompt scores for candidacy; episodes as attribution scopes.\n",
+        "- **vs ImplicitPatch (arXiv:2511.17864, s25): STACK (kept).** Rank-1 weight compile vs episodic history partition - compile vs organize.\n",
+        "- **vs LBI (arXiv:2605.09204, s26): STACK (kept).** Regions (gradient groups) vs episodes (topic groups); region-partitioned episodic caches compose directly.\n",
+        "- **vs KVCache survey (arXiv:2603.20397, s27): STACK (kept, closest kin).** EpiCache instantiates survey eviction beside H2O/SnapKV/AdaKV with block bounds; AdaKV allocates across heads, episodic across layers - complementary scopes, same Eq.1-2 accounting.\n",
+        "- **vs SpindleKV (arXiv:2507.06517, s28): STACK (kept, sibling).** Pyramid layer schedule (static) vs sensitivity schedule (measured); codebooks beside episode caches: two organizations of history.\n",
+        "- **vs KeepKV (arXiv:2504.09936, s29): STACK (kept, sibling).** Vote-weighted merging vs episodic partitioning: history weights vs topic caches; merge-then-partition composes per episode.\n",
+        "- **vs CQ (arXiv:2405.03917, s30): STACK (kept, sibling).** Grouped channel codes vs grouped topic caches: channel groups vs episode groups; quantize-then-partition composes (paper's own future work: quantization into episodic caches).\n",
+        "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** Cross-attention scoring form is Vaswani 2017 (foundation, not a runtime surface).\n",
+        "\n",
+        "- **STACK:** episodic after any backbone/vocab/scale/context/interface wiring (hooks read whatever the compiled Heads compute); block loop around any evictor (peak bound is structural); sensitivity allocation over any layer count; episode caches beside any placer (resident vs offloaded are different stores).\n",
+        "- **ALTERNATIVE (pick 1 per run):** one evictor per run (episodic joins the \u00a727 Evict axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
+        "- **NEVER-SAME-PATH:** episode caches presented as lossless (matched mass + output error always reported; full-cache parity belongs to the none baseline); LongConvQA magnitudes cited as smoke-scale evidence (smoke reports mass/error/bytes/peak; paper numbers are labeled claims); key-similarity proxy presented as fembed equivalence (proxy documented as stand-in, medoid math exact).\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ### Backprop: block-vs-post peak and mass (Fig.1 analog, s31 x s27 Place)\n",
+        "\"\"\"Streaming block-prefill audit on a prefilled harness.\n",
+        "\n",
+        "Fig.1 shows post-prefill peak scaling linearly while block prefill stays\n",
+        "flat. Takes a prefilled harness plus budget/block; replays the block loop\n",
+        "and returns peak usage vs the M+Mblock bound alongside retained mass.\n",
+        "\"\"\"\n",
+        "def epicache_backprop_block(harness, budget=16, Mblock=8, seed=0):\n",
+        "    import torch as _t27\n",
+        "    c0 = harness.cache[(0, 0)]\n",
+        "    T = c0[\"K\"].shape[0]\n",
+        "    S = _t27.stack([harness.cache[(0, h)][\"S\"] for h in range(len(harness.layers[0]))]).mean(0)\n",
+        "    kept, peak = [], 0\n",
+        "    for s in range(0, T, Mblock):\n",
+        "        block = list(range(s, min(s + Mblock, T)))\n",
+        "        W = S[max(0, min(s + Mblock, T) - 1):min(s + Mblock, T) + 7]\n",
+        "        base = W.max(0).values\n",
+        "        cand = sorted(set(kept) | set(block))\n",
+        "        kept = sorted(cand, key=lambda i: -float(base[i]))[:budget]\n",
+        "        peak = max(peak, len(cand))\n",
+        "    return {\"T\": T, \"peak\": peak, \"bound\": budget + Mblock,\n",
+        "            \"bound_ok\": bool(peak <= budget + Mblock),\n",
+        "            \"mass\": float(S[-1][kept].sum())}\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ### Backprop: sensitivity allocation audit (Fig.4 analog, s31 x s26 regions)\n",
+        "\"\"\"Layer-sensitivity budget split on a prefilled harness.\n",
+        "\n",
+        "Fig.4 shows sensitivity-aware allocation beating uniform/pyramid splits.\n",
+        "Takes a prefilled harness; measures per-layer key drift under a\n",
+        "sink+recent restriction analog, allocates by Eq.10, and compares the\n",
+        "sensitivity-weighted retained mass against a uniform split.\n",
+        "\"\"\"\n",
+        "def epicache_backprop_sens(harness, budget=16, alpha=1.1, seed=0):\n",
+        "    import torch as _t27\n",
+        "    ev = EpisodicEvictor(budget=budget)\n",
+        "    sens = []\n",
+        "    for li in range(harness.n_layers):\n",
+        "        Ks = [harness.cache[(li, h)][\"K\"] for h in range(len(harness.layers[0]))]\n",
+        "        Kf = _t27.stack(Ks).mean(0)\n",
+        "        Kb = Kf.clone()\n",
+        "        Kb[4:-8] = 0.3 * _t27.randn_like(Kb[4:-8]) + 0.1 * Kb[4:-8]\n",
+        "        cos = (Kf * Kb).sum(-1) / (Kf.norm(dim=-1) * Kb.norm(dim=-1)).clamp_min(1e-12)\n",
+        "        sens.append(1.0 - float(cos.mean()))\n",
+        "    alloc = ev.allocate_layer(sens, budget, alpha=alpha)\n",
+        "    mass_s, mass_u = [], []\n",
+        "    for li in range(harness.n_layers):\n",
+        "        S = _t27.stack([harness.cache[(li, h)][\"S\"] for h in range(len(harness.layers[0]))]).mean(0)\n",
+        "        acc = S.sum(0)\n",
+        "        ks = max(1, int(round(alloc[li])))\n",
+        "        ku = max(1, budget)\n",
+        "        mass_s.append(float(S[-1][_t27.topk(acc, min(ks, acc.numel())).indices].sum()))\n",
+        "        mass_u.append(float(S[-1][_t27.topk(acc, min(ku, acc.numel())).indices].sum()))\n",
+        "    gs = sum(mass_s) / max(1, len(mass_s))\n",
+        "    gu = sum(mass_u) / max(1, len(mass_u))\n",
+        "    return {\"sensitivities\": sens, \"allocation\": alloc,\n",
+        "            \"sums_ok\": bool(abs(sum(alloc) - harness.n_layers * budget) < 1e-6),\n",
+        "            \"mass_sens\": gs, \"mass_uniform\": gu}\n"
       ]
     }
   ],
