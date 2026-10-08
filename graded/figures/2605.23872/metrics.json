@@ -1,0 +1,2382 @@
+{
+  "arxiv": "2605.23872",
+  "title": "Training-Free Looped Transformers",
+  "authors": "Lizhang Chen, Jonathan Li, Chen Liang, Ni Lao, Qiang Liu (UT Austin)",
+  "eq9": {
+    "layers": 5,
+    "dim": 6,
+    "max_abs_err_eq9": 9.5367431640625e-07,
+    "eq9_ok": true,
+    "fg_norm": 22.46650505065918,
+    "fg_scale": 22.466503143310547,
+    "proof": "App B.1: sum_i (y_{i+1}-y_i) telescopes to g(x)-x",
+    "note": "layer-mode F_g is the single-layer field; block-mode is the sum in Eq (9)"
+  },
+  "eq10": {
+    "scalar": {
+      "exact_x1": 0.36787944117144233,
+      "single_h1_euler_err": 0.36787944117144233,
+      "K_substeps": [
+        [
+          2,
+          0.25,
+          0.117879
+        ],
+        [
+          4,
+          0.316406,
+          0.051473
+        ],
+        [
+          8,
+          0.343609,
+          0.024271
+        ],
+        [
+          16,
+          0.356074,
+          0.011805
+        ],
+        [
+          32,
+          0.362055,
+          0.005824
+        ],
+        [
+          64,
+          0.364987,
+          0.002893
+        ]
+      ],
+      "err_decreases_with_K": true,
+      "all_better_than_single_step": true,
+      "limit_is_exact": true
+    },
+    "matrix": {
+      "A": [
+        [
+          -0.8,
+          -2.5
+        ],
+        [
+          2.5,
+          -0.8
+        ]
+      ],
+      "rows": [
+        {
+          "K": 1,
+          "substep_err": 4.7870005285052555,
+          "naive_err": 4.7870005285052555
+        },
+        {
+          "K": 2,
+          "substep_err": 3.1044698726076527,
+          "naive_err": 12.26884544877892
+        },
+        {
+          "K": 4,
+          "substep_err": 1.2941329979053957,
+          "naive_err": 83.22202988562682
+        },
+        {
+          "K": 8,
+          "substep_err": 0.5172663028930431,
+          "naive_err": 3258.4282158890965
+        },
+        {
+          "K": 16,
+          "substep_err": 0.22795357419841625,
+          "naive_err": 5099013.439522553
+        }
+      ],
+      "substep_beats_naive_at_K_ge_2": true,
+      "naive_error_grows_with_K": true,
+      "convergence_order_note": "substep error -> O(1/K); naive targets x(t=K) so it drifts to O(K)"
+    }
+  },
+  "eq16": {
+    "rows": [
+      {
+        "beta": 0.0,
+        "K": 2,
+        "b_sum": 1.0,
+        "b_min": 0.5,
+        "alg1_vs_eq16": 5.960464477539063e-08,
+        "alg3_vs_eq16": 0.24619591236114502,
+        "alg3_gap_pred": 0.24619591236114502,
+        "alg3_is_eq16_minus_gap": 5.960464477539063e-08
+      },
+      {
+        "beta": 0.0,
+        "K": 3,
+        "b_sum": 1.0,
+        "b_min": 0.333333333333,
+        "alg1_vs_eq16": 1.1920928955078125e-07,
+        "alg3_vs_eq16": 0.16477173566818237,
+        "alg3_gap_pred": 0.16477172076702118,
+        "alg3_is_eq16_minus_gap": 1.4901161193847656e-08
+      },
+      {
+        "beta": 0.0,
+        "K": 4,
+        "b_sum": 1.0,
+        "b_min": 0.25,
+        "alg1_vs_eq16": 1.1920928955078125e-07,
+        "alg3_vs_eq16": 0.12390023469924927,
+        "alg3_gap_pred": 0.12390023469924927,
+        "alg3_is_eq16_minus_gap": 5.960464477539063e-08
+      },
+      {
+        "beta": 0.0,
+        "K": 6,
+        "b_sum": 1.0,
+        "b_min": 0.166666666667,
+        "alg1_vs_eq16": 2.384185791015625e-07,
+        "alg3_vs_eq16": 0.08285081386566162,
+        "alg3_gap_pred": 0.08285079151391983,
+        "alg3_is_eq16_minus_gap": 1.4901161193847656e-08
+      },
+      {
+        "beta": 0.25,
+        "K": 2,
+        "b_sum": 1.0,
+        "b_min": 0.375,
+        "alg1_vs_eq16": 5.960464477539063e-08,
+        "alg3_vs_eq16": 0.18464696407318115,
+        "alg3_gap_pred": 0.18464693427085876,
+        "alg3_is_eq16_minus_gap": 5.960464477539063e-08
+      },
+      {
+        "beta": 0.25,
+        "K": 3,
+        "b_sum": 1.0,
+        "b_min": 0.25,
+        "alg1_vs_eq16": 1.1920928955078125e-07,
+        "alg3_vs_eq16": 0.12357878684997559,
+        "alg3_gap_pred": 0.12357878684997559,
+        "alg3_is_eq16_minus_gap": 1.1920928955078125e-07
+      },
+      {
+        "beta": 0.25,
+        "K": 4,
+        "b_sum": 1.0,
+        "b_min": 0.1875,
+        "alg1_vs_eq16": 1.1920928955078125e-07,
+        "alg3_vs_eq16": 0.09292519092559814,
+        "alg3_gap_pred": 0.09292517602443695,
+        "alg3_is_eq16_minus_gap": 1.1920928955078125e-07
+      },
+      {
+        "beta": 0.25,
+        "K": 6,
+        "b_sum": 1.0,
+        "b_min": 0.125,
+        "alg1_vs_eq16": 1.1920928955078125e-07,
+        "alg3_vs_eq16": 0.06213819980621338,
+        "alg3_gap_pred": 0.06213809549808502,
+        "alg3_is_eq16_minus_gap": 1.1920928955078125e-07
+      },
+      {
+        "beta": 0.5,
+        "K": 2,
+        "b_sum": 1.0,
+        "b_min": 0.25,
+        "alg1_vs_eq16": 5.960464477539063e-08,
+        "alg3_vs_eq16": 0.12309795618057251,
+        "alg3_gap_pred": 0.12309795618057251,
+        "alg3_is_eq16_minus_gap": 5.960464477539063e-08
+      },
+      {
+        "beta": 0.5,
+        "K": 3,
+        "b_sum": 1.0,
+        "b_min": 0.166666666667,
+        "alg1_vs_eq16": 1.1920928955078125e-07,
+        "alg3_vs_eq16": 0.08238589763641357,
+        "alg3_gap_pred": 0.08238586038351059,
+        "alg3_is_eq16_minus_gap": 1.1920928955078125e-07
+      },
+      {
+        "beta": 0.5,
+        "K": 4,
+        "b_sum": 1.0,
+        "b_min": 0.125,
+        "alg1_vs_eq16": 1.1920928955078125e-07,
+        "alg3_vs_eq16": 0.06195014715194702,
+        "alg3_gap_pred": 0.061950117349624634,
+        "alg3_is_eq16_minus_gap": 1.1920928955078125e-07
+      },
+      {
+        "beta": 0.5,
+        "K": 6,
+        "b_sum": 1.0,
+        "b_min": 0.083333333333,
+        "alg1_vs_eq16": 1.1920928955078125e-07,
+        "alg3_vs_eq16": 0.041425466537475586,
+        "alg3_gap_pred": 0.041425395756959915,
+        "alg3_is_eq16_minus_gap": 1.1920928955078125e-07
+      },
+      {
+        "beta": 1.0,
+        "K": 2,
+        "b_sum": 1.0,
+        "b_min": 0.0,
+        "alg1_vs_eq16": 0.0,
+        "alg3_vs_eq16": 0.0,
+        "alg3_gap_pred": 0.0,
+        "alg3_is_eq16_minus_gap": 0.0
+      },
+      {
+        "beta": 1.0,
+        "K": 3,
+        "b_sum": 1.0,
+        "b_min": 0.0,
+        "alg1_vs_eq16": 0.0,
+        "alg3_vs_eq16": 0.0,
+        "alg3_gap_pred": 0.0,
+        "alg3_is_eq16_minus_gap": 0.0
+      },
+      {
+        "beta": 1.0,
+        "K": 4,
+        "b_sum": 1.0,
+        "b_min": 0.0,
+        "alg1_vs_eq16": 0.0,
+        "alg3_vs_eq16": 0.0,
+        "alg3_gap_pred": 0.0,
+        "alg3_is_eq16_minus_gap": 0.0
+      },
+      {
+        "beta": 1.0,
+        "K": 6,
+        "b_sum": 1.0,
+        "b_min": 0.0,
+        "alg1_vs_eq16": 0.0,
+        "alg3_vs_eq16": 0.0,
+        "alg3_gap_pred": 0.0,
+        "alg3_is_eq16_minus_gap": 0.0
+      }
+    ],
+    "alg1_eq16_ok": true,
+    "alg1_max_abs_err": 2.384185791015625e-07,
+    "alg3_eq16_ok": false,
+    "alg3_max_abs_err": 0.24619591236114502,
+    "alg3_gap_pred_max": 0.24619591236114502,
+    "b_nonneg_and_unit": true,
+    "beta0_is_substep": true,
+    "beta1_is_g": true,
+    "printed_alg3_off_by_one": {
+      "statement": "Alg 3 loops k=1..K-1, so it applies K-1 sub-steps; Eq (16) needs K",
+      "discrepancy": "beta*g(x0) + (1-beta)*F^(K)(x0) vs K-1-substep endpoint",
+      "magnitude": 0.24619591236114502,
+      "third_party_check": "JegZheng/tflt-dev strategies.py anchored_euler uses K sub-steps (matches Eq 16)"
+    }
+  },
+  "table1_strategies": {
+    "K": 3,
+    "rows": [
+      {
+        "strategy": "naive",
+        "table1_row": "Table 1 Naive Loop",
+        "update_rule": "x_{k+1} = g(x_k)",
+        "claimed_passes": "K",
+        "measured_passes": 3,
+        "matches_claimed": true,
+        "finite": true,
+        "error": null,
+        "out_norm": 3.7440993785858154
+      },
+      {
+        "strategy": "fwd_euler",
+        "table1_row": "Table 1 Forward Euler",
+        "update_rule": "x_{k+1} = x_k + (1/K) F_g(x_k)",
+        "claimed_passes": "K",
+        "measured_passes": 3,
+        "matches_claimed": true,
+        "finite": true,
+        "error": null,
+        "out_norm": 2.9614875316619873
+      },
+      {
+        "strategy": "midpoint",
+        "table1_row": "Table 1 Midpoint (RK2)",
+        "update_rule": "x + h F_g(x + h/2 F_g(x))",
+        "claimed_passes": "2K",
+        "measured_passes": 6,
+        "matches_claimed": true,
+        "finite": true,
+        "error": null,
+        "out_norm": 3.901665210723877
+      },
+      {
+        "strategy": "heun",
+        "table1_row": "Table 1 Heun (RK2)",
+        "update_rule": "x + h/2 (F_g(x) + F_g(x + h F_g(x)))",
+        "claimed_passes": "2K",
+        "measured_passes": 6,
+        "matches_claimed": true,
+        "finite": true,
+        "error": null,
+        "out_norm": 3.8879055976867676
+      },
+      {
+        "strategy": "rk4",
+        "table1_row": "Table 1 RK4",
+        "update_rule": "x + h/6 (k1 + 2k2 + 2k3 + k4)",
+        "claimed_passes": "4K",
+        "measured_passes": 12,
+        "matches_claimed": true,
+        "finite": true,
+        "error": null,
+        "out_norm": 3.910740852355957
+      },
+      {
+        "strategy": "heavy_ball",
+        "table1_row": "Table 1 Heavy-ball (alpha,beta)",
+        "update_rule": "x + alpha F_g(x) + beta (x - x_prev)",
+        "claimed_passes": "K",
+        "measured_passes": 3,
+        "matches_claimed": true,
+        "finite": true,
+        "error": null,
+        "out_norm": 3.153013229370117
+      },
+      {
+        "strategy": "anderson",
+        "table1_row": "Table 1 Anderson (m,beta)",
+        "update_rule": "(1-beta)(x - dX g*) + beta (g(x) - dF g*)",
+        "claimed_passes": "K",
+        "measured_passes": 3,
+        "matches_claimed": true,
+        "finite": true,
+        "error": null,
+        "out_norm": 2.9562718868255615
+      },
+      {
+        "strategy": "aitken",
+        "table1_row": "Table 1 Aitken d2 (per coordinate)",
+        "update_rule": "x - d1^2 / d2, safeguarded",
+        "claimed_passes": "K",
+        "measured_passes": 6,
+        "matches_claimed": false,
+        "finite": true,
+        "error": null,
+        "out_norm": 3.2403664588928223
+      },
+      {
+        "strategy": "uniform",
+        "table1_row": "Table 1 Uniform Loop",
+        "update_rule": "g( mean(x_0..x_k) )",
+        "claimed_passes": "K",
+        "measured_passes": 3,
+        "matches_claimed": true,
+        "finite": true,
+        "error": null,
+        "out_norm": 3.0712578296661377
+      }
+    ],
+    "all_pass_counts_match": true,
+    "aitken_discrepancy": {
+      "claimed": "K",
+      "measured_rule_cost": "2 g evaluations per safeguarded d2 step",
+      "reuse_note": "Table 1 lists K; the stated update needs 2K unless g(g(x_k)) is reused as the next step's d1",
+      "paper": "Table 1 row 'Aitken d2 (per-coordinate)' + notation note"
+    },
+    "seven_evaluated_strategies": [
+      "naiveloop",
+      "damped_euler",
+      "rk2_midpoint",
+      "rk2_heun",
+      "rk4",
+      "heavy_ball",
+      "anderson"
+    ],
+    "k1_is_identity_for_all": true
+  },
+  "fig2_plot": 1.0,
+  "fig2_valley": {
+    "train_mse": 1.151397705078125,
+    "grid": 220,
+    "valley_q05": 1.2348053455352783,
+    "rows": [
+      {
+        "K": 2,
+        "naive_endpoint_loss": 1.39223051071167,
+        "substep_endpoint_loss": 1.281381368637085,
+        "naive_in_valley_frac": 0.0,
+        "substep_in_valley_frac": 0.1796875,
+        "naive_over_substep": 1.086507533812894
+      },
+      {
+        "K": 4,
+        "naive_endpoint_loss": 1.4979207515716553,
+        "substep_endpoint_loss": 1.2646156549453735,
+        "naive_in_valley_frac": 0.0,
+        "substep_in_valley_frac": 0.212890625,
+        "naive_over_substep": 1.1844869591119838
+      },
+      {
+        "K": 8,
+        "naive_endpoint_loss": 1.5220167636871338,
+        "substep_endpoint_loss": 1.2451729774475098,
+        "naive_in_valley_frac": 0.0,
+        "substep_in_valley_frac": 0.1875,
+        "naive_over_substep": 1.2223335964189717
+      }
+    ],
+    "naive_leaves_valley": true,
+    "substep_stays_partly_inside": true,
+    "ratio_grows_with_K": true,
+    "trajectory_check": {
+      "rows": [
+        {
+          "K": 1,
+          "naive_err_vs_x1": 0.16914646327495575,
+          "naive_err_vs_xK": 0.16914646327495575,
+          "substep_err_vs_x1": 0.16914646327495575
+        },
+        {
+          "K": 2,
+          "naive_err_vs_x1": 0.47484317421913147,
+          "naive_err_vs_xK": 0.16515512764453888,
+          "substep_err_vs_x1": 0.06724844872951508
+        },
+        {
+          "K": 4,
+          "naive_err_vs_x1": 0.6756702065467834,
+          "naive_err_vs_xK": 0.08693277090787888,
+          "substep_err_vs_x1": 0.03074180707335472
+        },
+        {
+          "K": 8,
+          "naive_err_vs_x1": 0.7249256372451782,
+          "naive_err_vs_xK": 0.013170912861824036,
+          "substep_err_vs_x1": 0.014732942916452885
+        }
+      ],
+      "naive_error_vs_x1_grows": true,
+      "naive_tracks_xK_not_x1": true,
+      "substep_error_vs_x1_shrinks": true,
+      "meaning": "naive K-folding integrates to t=K; damped sub-steps refine the t=1 endpoint (Sec 2.3)"
+    },
+    "published": {
+      "baseline_mse": 0.015,
+      "naive_K2": 2.88,
+      "substep_K2": 0.36,
+      "naive_K8": 335.0,
+      "substep_K8": 1.04,
+      "gap_K2": "8x",
+      "gap_K8": "320x"
+    },
+    "note": "absolute MSE is toy-specific; the reported claim is the growing naive-vs-substep gap"
+  },
+  "table2": {
+    "table2a": [
+      {
+        "n": "n=1",
+        "window": [
+          14
+        ],
+        "score": 55.72,
+        "delta": 0.18
+      },
+      {
+        "n": "n=2",
+        "window": [
+          13,
+          14
+        ],
+        "score": 55.6,
+        "delta": 0.06
+      },
+      {
+        "n": "n=3",
+        "window": [
+          13,
+          14,
+          15
+        ],
+        "score": 55.75,
+        "delta": 0.21
+      },
+      {
+        "n": "n=4",
+        "window": [
+          12,
+          15
+        ],
+        "score": 56.09,
+        "delta": 0.55
+      },
+      {
+        "n": "n=6",
+        "window": [
+          11,
+          16
+        ],
+        "score": 54.72,
+        "delta": -0.82
+      },
+      {
+        "n": "n=12",
+        "window": [
+          8,
+          19
+        ],
+        "score": 54.91,
+        "delta": -0.63
+      },
+      {
+        "n": "n=28",
+        "window": [
+          0,
+          27
+        ],
+        "score": 27.81,
+        "delta": -27.73
+      }
+    ],
+    "table2a_implied_baselines": [
+      55.54
+    ],
+    "table2a_baseline_consistent": true,
+    "table2a_baseline": 55.54,
+    "table2a_best_n": "n=4",
+    "table2a_cliff_at_n_ge_6": true,
+    "table2b": [
+      {
+        "model": "Qwen3-0.6B-Base",
+        "n3": 0.57,
+        "n4": 0.22,
+        "winner": "n=3"
+      },
+      {
+        "model": "Qwen3-1.7B-Base",
+        "n3": 0.21,
+        "n4": 0.55,
+        "winner": "n=4"
+      },
+      {
+        "model": "Qwen3-4B-Base",
+        "n3": 0.43,
+        "n4": 0.85,
+        "winner": "n=4"
+      },
+      {
+        "model": "Llama-3.2-3B-Instruct",
+        "n3": 0.23,
+        "n4": 0.45,
+        "winner": "n=4"
+      }
+    ],
+    "table2b_n4_wins_ge_1_7B": true,
+    "table2c": [
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "ARC-Challenge",
+        "block_K3": 0.17,
+        "layer": 0.85
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "CSQA",
+        "block_K3": 0.16,
+        "layer": 0.33
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "OBQA",
+        "block_K3": 1.0,
+        "layer": -1.4
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "MMLU",
+        "block_K3": -1.18,
+        "layer": 0.0
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "SciQ",
+        "block_K3": 0.2,
+        "layer": null
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "GPQA-Main",
+        "block_K3": -1.11,
+        "layer": null
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "ARC-Challenge",
+        "block_K3": -1.45,
+        "layer": 0.51
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "CSQA",
+        "block_K3": -0.66,
+        "layer": 0.49
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "OBQA",
+        "block_K3": -0.2,
+        "layer": 1.2
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "MMLU",
+        "block_K3": 0.74,
+        "layer": null
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "SciQ",
+        "block_K3": -0.5,
+        "layer": -0.6
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "GPQA-Main",
+        "block_K3": -2.0,
+        "layer": 0.9
+      }
+    ],
+    "table2c_layer_wins_count": 7,
+    "table2c_pairs": 9,
+    "table2c_layer_better_frac": 0.7778,
+    "table2c_range_claim": "+0.5 to +1.7 pp on hard MoE benchmarks",
+    "discrepancy_caption_vs_header": {
+      "caption": "block K=3 / layer K=2",
+      "header": "block (K=3) | layer (K=3)",
+      "note": "Table 2c caption and column header disagree on the layer-mode loop count"
+    },
+    "discrepancy_baseline_2a_vs_table6": {
+      "table2a_implied": 55.54,
+      "table6_1.7b_16task_baseline": 55.6,
+      "table10_baseline": 55.598,
+      "table9_reference": 56.113,
+      "note": "the 16-task no-loop baseline is quoted as 55.54 (2a) and 55.60 (6) / 55.598 (10)"
+    }
+  },
+  "tables34": {
+    "table3": [
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "MMLU-Pro 5-shot",
+        "base": 0.5714,
+        "loop": 0.5979,
+        "delta_pp": 2.64,
+        "delta_recomputed": 2.65,
+        "kind": "dense"
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "GPQA-Main 0-shot",
+        "base": 0.3371,
+        "loop": 0.3571,
+        "delta_pp": 2.01,
+        "delta_recomputed": 2.0,
+        "kind": "dense"
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "CommonsenseQA 7-shot",
+        "base": 0.7887,
+        "loop": 0.7993,
+        "delta_pp": 1.06,
+        "delta_recomputed": 1.06,
+        "kind": "dense"
+      },
+      {
+        "model": "Llama-3.2-3B-Instruct",
+        "bench": "GPQA-Main 0-shot",
+        "base": 0.2991,
+        "loop": 0.3103,
+        "delta_pp": 1.12,
+        "delta_recomputed": 1.12,
+        "kind": "dense"
+      },
+      {
+        "model": "Llama-3.2-3B-Instruct",
+        "bench": "MMLU-Pro 5-shot",
+        "base": 0.3164,
+        "loop": 0.3236,
+        "delta_pp": 0.71,
+        "delta_recomputed": 0.72,
+        "kind": "dense"
+      },
+      {
+        "model": "Llama-3.2-3B-Instruct",
+        "bench": "MMLU 0-shot",
+        "base": 0.5966,
+        "loop": 0.6039,
+        "delta_pp": 0.72,
+        "delta_recomputed": 0.73,
+        "kind": "dense"
+      },
+      {
+        "model": "Llama-3.2-1B-Instruct",
+        "bench": "GPQA-Main 0-shot",
+        "base": 0.279,
+        "loop": 0.2969,
+        "delta_pp": 1.79,
+        "delta_recomputed": 1.79,
+        "kind": "dense"
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "ARC-Challenge 25-shot",
+        "base": 0.4829,
+        "loop": 0.506,
+        "delta_pp": 2.3,
+        "delta_recomputed": 2.31,
+        "kind": "moe"
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "CommonsenseQA 7-shot",
+        "base": 0.7961,
+        "loop": 0.8133,
+        "delta_pp": 1.72,
+        "delta_recomputed": 1.72,
+        "kind": "moe"
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "OpenBookQA 0-shot",
+        "base": 0.316,
+        "loop": 0.332,
+        "delta_pp": 1.6,
+        "delta_recomputed": 1.6,
+        "kind": "moe"
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "MMLU 0-shot",
+        "base": 0.6786,
+        "loop": 0.686,
+        "delta_pp": 0.74,
+        "delta_recomputed": 0.74,
+        "kind": "moe"
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "OpenBookQA 0-shot",
+        "base": 0.316,
+        "loop": 0.328,
+        "delta_pp": 1.2,
+        "delta_recomputed": 1.2,
+        "kind": "moe"
+      },
+      {
+        "model": "DeepSeek-V2-Lite-Chat",
+        "bench": "ARC-Challenge 25-shot",
+        "base": 0.5794,
+        "loop": 0.5879,
+        "delta_pp": 0.85,
+        "delta_recomputed": 0.85,
+        "kind": "moe"
+      }
+    ],
+    "table3_deltas_recomputed_ok": true,
+    "table3_max_abs_delta_err": 0.010000000000000231,
+    "table3_dense_max": 2.64,
+    "table3_moe_max": 2.3,
+    "table3_moe_smaller_than_dense": true,
+    "table4": [
+      {
+        "bench": "ARC-Easy",
+        "baseline": 79.04,
+        "Kstage_RK": 79.38,
+        "Heun_K1": 79.08,
+        "d_rk": 0.34,
+        "d_heun": 0.04
+      },
+      {
+        "bench": "HellaSwag",
+        "baseline": 77.74,
+        "Kstage_RK": 77.93,
+        "Heun_K1": 77.78,
+        "d_rk": 0.19,
+        "d_heun": 0.04
+      },
+      {
+        "bench": "SciQ",
+        "baseline": 94.8,
+        "Kstage_RK": 95.0,
+        "Heun_K1": 94.9,
+        "d_rk": 0.2,
+        "d_heun": 0.1
+      },
+      {
+        "bench": "CSQA",
+        "baseline": 78.71,
+        "Kstage_RK": 79.85,
+        "Heun_K1": 79.61,
+        "d_rk": 1.14,
+        "d_heun": 0.9
+      },
+      {
+        "bench": "TruthfulQA",
+        "baseline": 34.15,
+        "Kstage_RK": 34.64,
+        "Heun_K1": 34.27,
+        "d_rk": 0.49,
+        "d_heun": 0.12
+      },
+      {
+        "bench": "MMLU-flex",
+        "baseline": 66.67,
+        "Kstage_RK": 67.46,
+        "Heun_K1": 66.67,
+        "d_rk": 0.79,
+        "d_heun": 0.0
+      },
+      {
+        "bench": "GPQA-Main",
+        "baseline": 37.28,
+        "Kstage_RK": 37.5,
+        "Heun_K1": 37.72,
+        "d_rk": 0.22,
+        "d_heun": 0.44
+      },
+      {
+        "bench": "SuperGPQA",
+        "baseline": 31.0,
+        "Kstage_RK": 31.7,
+        "Heun_K1": 31.05,
+        "d_rk": 0.7,
+        "d_heun": 0.05
+      },
+      {
+        "bench": "LAMBADA-PPL",
+        "baseline": 4.12,
+        "Kstage_RK": 4.11,
+        "Heun_K1": 4.12,
+        "d_rk": -0.01,
+        "d_heun": 0.0
+      }
+    ],
+    "table4_rk_nonneg_count": 8,
+    "table4_rk_positive_count": 8,
+    "table4_heun_adds_positives": 0,
+    "table4_ppl_preserved": true,
+    "recipe": "3-stage RK at mid 4 layers; block-mode dense, layer-mode MoE; no per-cell tuning",
+    "window_30b": "[22,24] committed in advance from the depth-fraction rule (App K)"
+  },
+  "fig4_ksweep": {
+    "base_loss": 6.659727096557617,
+    "naive": [
+      {
+        "K": 1,
+        "loss": 6.659727096557617
+      },
+      {
+        "K": 2,
+        "loss": 11.962018966674805
+      },
+      {
+        "K": 3,
+        "loss": 26.772899627685547
+      },
+      {
+        "K": 4,
+        "loss": 72.4492416381836
+      },
+      {
+        "K": 6,
+        "loss": 196.04051208496094
+      },
+      {
+        "K": 8,
+        "loss": 1041.5535888671875
+      },
+      {
+        "K": 12,
+        "loss": 21979.8671875
+      },
+      {
+        "K": 16,
+        "loss": 572302.1875
+      },
+      {
+        "K": 24,
+        "loss": 327825536.0
+      }
+    ],
+    "uniform": [
+      {
+        "K": 1,
+        "loss": 6.659727096557617
+      },
+      {
+        "K": 2,
+        "loss": 7.700290679931641
+      },
+      {
+        "K": 3,
+        "loss": 9.0066499710083
+      },
+      {
+        "K": 4,
+        "loss": 10.576148986816406
+      },
+      {
+        "K": 6,
+        "loss": 14.338025093078613
+      },
+      {
+        "K": 8,
+        "loss": 17.718355178833008
+      },
+      {
+        "K": 12,
+        "loss": 27.77808952331543
+      },
+      {
+        "K": 16,
+        "loss": 34.7182502746582
+      },
+      {
+        "K": 24,
+        "loss": 50.28972244262695
+      }
+    ],
+    "ours": [
+      {
+        "K": 1,
+        "loss": 6.659727096557617
+      },
+      {
+        "K": 2,
+        "loss": 6.124762058258057
+      },
+      {
+        "K": 3,
+        "loss": 5.879786491394043
+      },
+      {
+        "K": 4,
+        "loss": 5.82425594329834
+      },
+      {
+        "K": 6,
+        "loss": 5.7914581298828125
+      },
+      {
+        "K": 8,
+        "loss": 5.9293212890625
+      },
+      {
+        "K": 12,
+        "loss": 6.100499153137207
+      },
+      {
+        "K": 16,
+        "loss": 6.1815595626831055
+      },
+      {
+        "K": 24,
+        "loss": 6.223319053649902
+      }
+    ],
+    "naive_worsens_with_K": true,
+    "uniform_worse_than_naive_by_K24": false,
+    "ours_best_at_every_K": true,
+    "published": {
+      "ours_range": "stable for K in 1..24",
+      "uniform": "fails to scale after K>=6",
+      "naive_K6_pct": 37.89,
+      "naive_K6_delta_pp": -17.71,
+      "naive_pct_by_K": {
+        "1": 55.6,
+        "2": 51.0,
+        "4": 46.0,
+        "6": 37.89
+      }
+    }
+  },
+  "fig5_plot": 1.0,
+  "fig5": {
+    "cells": [
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "bench": "GPQA-Main",
+        "baseline": 29.91,
+        "ours": 31.03,
+        "delta_pp": 1.12,
+        "axis": [
+          27,
+          30,
+          33
+        ],
+        "naive_K4": null
+      },
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "bench": "MMLU-Pro",
+        "baseline": 31.64,
+        "ours": 32.36,
+        "delta_pp": 0.72,
+        "axis": [
+          27.8,
+          30,
+          33
+        ],
+        "naive_K4": null
+      },
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "bench": "MMLU",
+        "baseline": 59.66,
+        "ours": 60.39,
+        "delta_pp": 0.73,
+        "axis": [
+          55,
+          58,
+          61
+        ],
+        "naive_K4": null
+      },
+      {
+        "model": "Moonlight-16B-A3B-Inst",
+        "bench": "ARC-C",
+        "baseline": 62.2,
+        "ours": 62.71,
+        "delta_pp": 0.51,
+        "axis": [
+          58.0,
+          60.5,
+          63.0
+        ],
+        "naive_K4": null
+      },
+      {
+        "model": "Moonlight-16B-A3B-Inst",
+        "bench": "MMLU(1500)",
+        "baseline": 67.86,
+        "ours": 68.6,
+        "delta_pp": 0.74,
+        "axis": [
+          63.5,
+          66,
+          69
+        ],
+        "naive_K4": null
+      },
+      {
+        "model": "Moonlight-16B-A3B-Inst",
+        "bench": "CSQA",
+        "baseline": 78.62,
+        "ours": 79.11,
+        "delta_pp": 0.49,
+        "axis": [
+          74.5,
+          76.5,
+          78.0
+        ],
+        "naive_K4": null
+      }
+    ],
+    "all_ours_positive": true,
+    "naive_note": "naive K=4 bars are plotted in the paper but carry no numeric label in the text layer",
+    "claim": "naive loop collapses on every cell; ours stays within the trained regime"
+  },
+  "table6_percell": {
+    "rows": [
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "MMLU-Pro 5sh CoT",
+        "baseline": 57.14,
+        "loop": 59.79,
+        "delta_pp": 2.64,
+        "config": "[15-18] block K=3 Euler first full",
+        "delta_recomputed": 2.65
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "GPQA-Main 0sh",
+        "baseline": 33.71,
+        "loop": 35.71,
+        "delta_pp": 2.01,
+        "config": "[15-18] block K=3 Euler first full",
+        "delta_recomputed": 2.0
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "SciQ 0sh",
+        "baseline": 93.3,
+        "loop": 95.1,
+        "delta_pp": 1.8,
+        "config": "[15-18] block K=3 Euler first full",
+        "delta_recomputed": 1.8
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "MMLU 0sh",
+        "baseline": 68.15,
+        "loop": 69.45,
+        "delta_pp": 1.3,
+        "config": "[15-18] block K=3 Euler first full",
+        "delta_recomputed": 1.3
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "CommonsenseQA 7sh",
+        "baseline": 78.87,
+        "loop": 79.93,
+        "delta_pp": 1.06,
+        "config": "[15-18] block K=3 Euler first full",
+        "delta_recomputed": 1.06
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "MedMCQA 0sh",
+        "baseline": 53.4,
+        "loop": 54.13,
+        "delta_pp": 0.73,
+        "config": "[11-14] block K=3 Euler first full",
+        "delta_recomputed": 0.73
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "ARC-Challenge 25sh",
+        "baseline": 62.54,
+        "loop": 63.14,
+        "delta_pp": 0.6,
+        "config": "[15-18] block K=3 damped Euler a=0.5 halt t=0.05 first full",
+        "delta_recomputed": 0.6
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "C-Eval 5sh",
+        "baseline": 72.21,
+        "loop": 72.73,
+        "delta_pp": 0.52,
+        "config": "[15-18] block K=3 Euler first full",
+        "delta_recomputed": 0.52
+      },
+      {
+        "model": "Qwen3-4B-Instruct",
+        "bench": "OpenBookQA 0sh",
+        "baseline": 40.2,
+        "loop": 40.6,
+        "delta_pp": 0.4,
+        "config": "[11-14] block K=3 Euler first full",
+        "delta_recomputed": 0.4
+      },
+      {
+        "model": "Qwen3-4B-Base",
+        "bench": "MMLU 5sh",
+        "baseline": 73.27,
+        "loop": 73.61,
+        "delta_pp": 0.34,
+        "config": "[15-18] block K=3 Euler first -",
+        "delta_recomputed": 0.34
+      },
+      {
+        "model": "Qwen3-4B-Base",
+        "bench": "16-task macro",
+        "baseline": 63.98,
+        "loop": 65.03,
+        "delta_pp": 1.05,
+        "config": "[15-18] block K=3 Euler first -",
+        "delta_recomputed": 1.05
+      },
+      {
+        "model": "Qwen3-1.7B-Base",
+        "bench": "MMLU 5sh",
+        "baseline": 62.68,
+        "loop": 63.01,
+        "delta_pp": 0.34,
+        "config": "[12-15] block K=2 damped Euler last -",
+        "delta_recomputed": 0.33
+      },
+      {
+        "model": "Qwen3-1.7B-Base",
+        "bench": "16-task macro",
+        "baseline": 55.6,
+        "loop": 56.11,
+        "delta_pp": 0.51,
+        "config": "[12-15] block K=2 damped Euler last -",
+        "delta_recomputed": 0.51
+      },
+      {
+        "model": "Qwen3-0.6B-Base",
+        "bench": "16-task macro",
+        "baseline": 47.87,
+        "loop": 48.43,
+        "delta_pp": 0.56,
+        "config": "[12-15] layer K=2 heavy-ball a=0.5 b=0.5 last -",
+        "delta_recomputed": 0.56
+      },
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "bench": "MMLU-Pro 5sh CoT",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 0.71,
+        "config": "[12-15] block K=2 Euler first full"
+      },
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "bench": "GPQA-Main 0sh",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 0.67,
+        "config": "[12-15] block K=2 Euler first full"
+      },
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "bench": "MMLU 5sh",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 0.72,
+        "config": "[16-19] layer K=2 Euler last bypass"
+      },
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "bench": "OpenBookQA 0sh",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 0.4,
+        "config": "[20-23] block K=3 Euler last bypass"
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "ARC-Challenge 25sh",
+        "baseline": 48.29,
+        "loop": 50.59,
+        "delta_pp": 2.3,
+        "config": "[13-16] block K=3 Euler first full",
+        "delta_recomputed": 2.3
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "CommonsenseQA 7sh",
+        "baseline": 79.61,
+        "loop": 81.33,
+        "delta_pp": 1.72,
+        "config": "[10-13] block K=2 Euler first full",
+        "delta_recomputed": 1.72
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "OpenBookQA 0sh",
+        "baseline": 31.6,
+        "loop": 33.2,
+        "delta_pp": 1.6,
+        "config": "[14-17] block K=3 Euler first full",
+        "delta_recomputed": 1.6
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "bench": "SciQ 0sh",
+        "baseline": 94.8,
+        "loop": 95.1,
+        "delta_pp": 0.3,
+        "config": "[14-17] block K=3 Euler first full",
+        "delta_recomputed": 0.3
+      },
+      {
+        "model": "DeepSeek-V2-Lite",
+        "bench": "ARC-Challenge 25sh",
+        "baseline": 57.94,
+        "loop": 58.79,
+        "delta_pp": 0.85,
+        "config": "[13-16] layer K=2 Euler first bypass",
+        "delta_recomputed": 0.85
+      },
+      {
+        "model": "DeepSeek-V2-Lite",
+        "bench": "OpenBookQA 0sh",
+        "baseline": 35.8,
+        "loop": 36.6,
+        "delta_pp": 0.8,
+        "config": "[13-16] block K=2 Euler first bypass",
+        "delta_recomputed": 0.8
+      },
+      {
+        "model": "DeepSeek-V2-Lite",
+        "bench": "MMLU (1500)",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 0.56,
+        "config": "[10-13] block K=3 Euler first bypass"
+      },
+      {
+        "model": "DeepSeek-V2-Lite",
+        "bench": "CommonsenseQA 7sh",
+        "baseline": 75.43,
+        "loop": 75.92,
+        "delta_pp": 0.49,
+        "config": "[11-14] block K=2 Euler first bypass",
+        "delta_recomputed": 0.49
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "OpenBookQA 0sh",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 1.2,
+        "config": "[8-11] block K=3 Euler first bypass"
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "GPQA-Main 0sh",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 0.89,
+        "config": "[15-18] layer K=2 Euler first bypass"
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "ARC-Challenge 25sh",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 0.51,
+        "config": "[11-14] layer K=2 Euler first bypass"
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "bench": "CommonsenseQA 7sh",
+        "baseline": null,
+        "loop": null,
+        "delta_pp": 0.49,
+        "config": "[11-14] layer K=2 Euler first bypass"
+      },
+      {
+        "model": "Qwen3-30B-A3B-Inst",
+        "bench": "CommonsenseQA 7sh",
+        "baseline": 78.71,
+        "loop": 79.85,
+        "delta_pp": 1.14,
+        "config": "[22-24] block K=2 Euler first bypass",
+        "delta_recomputed": 1.14
+      }
+    ],
+    "n_rows": 31,
+    "deltas_recomputed_ok": true,
+    "deltas_missing_baseline": 9,
+    "mode_counts": {
+      "block": 25,
+      "layer": 6
+    },
+    "cache_counts": {
+      "first": 26,
+      "last": 5
+    },
+    "K_counts": {
+      "K2": 14,
+      "K3": 17
+    },
+    "moe_layer_mode_rows": 4,
+    "window_center_median": 14.5,
+    "note": "rows with baseline None are reported as delta-only in the paper"
+  },
+  "table7": {
+    "table7a_width": {
+      "n=1": 0.18,
+      "n=3": 0.21,
+      "n=4": 0.55,
+      "n=6": -0.82,
+      "n=12": -0.63,
+      "n=28": "catastrophic"
+    },
+    "table7a_best": "n=4",
+    "table7a_cliff": true,
+    "table7b_K_strategy": {
+      "naive loop K=2": 0.51,
+      "naive loop K=4 (0.6B)": -10.21,
+      "damped Euler K=2 a=0.5": 0.55,
+      "damped Euler K=3 a~1/3 (4B)": 1.05,
+      "higher-order/accel.": "see Table 8"
+    },
+    "table7b_best_here": "K=3 damped Euler a~1/3 (4B)",
+    "table7c_cache": {
+      "first": {
+        "aggregate": ">=0",
+        "gsm8k": ">=0",
+        "mmlu_pro": ">=0",
+        "mbpp": ">=0"
+      },
+      "last": {
+        "aggregate": ">=0",
+        "gsm8k": ">=0",
+        "mmlu_pro": ">=0",
+        "mbpp": "+0.60 over first"
+      },
+      "none": {
+        "aggregate": "catastrophic",
+        "gsm8k": -58.91,
+        "mmlu_pro": -8.86
+      }
+    },
+    "cache_none_catastrophe": {
+      "gsm8k_delta_pp": -58.91,
+      "mmlu_pro_delta_pp": -8.86
+    },
+    "naive_K4_catastrophe_0.6b": {
+      "delta_pp": -10.21,
+      "lambada_ppl": "~13 -> 1054.12"
+    },
+    "window_width_rule": "n=4 mid-window; n>=6 falls off a cliff, n=28 collapses",
+    "appG_extra": "cache=none uniformly catastrophic on decode; norm_stab catastrophic at K>=3"
+  },
+  "tables89": {
+    "table8": [
+      {
+        "method": "damped Euler (a=0.5, h=1/2)",
+        "block_delta": 0.0,
+        "layer_delta": 0.0,
+        "is_reference": true
+      },
+      {
+        "method": "midpoint (RK2)",
+        "block_delta": -0.85,
+        "layer_delta": -1.96,
+        "is_reference": false
+      },
+      {
+        "method": "Heun (RK2)",
+        "block_delta": -0.92,
+        "layer_delta": -1.9,
+        "is_reference": false
+      },
+      {
+        "method": "RK4",
+        "block_delta": -0.65,
+        "layer_delta": -2.34,
+        "is_reference": false
+      },
+      {
+        "method": "heavy-ball (a=0.5, b=0.3)",
+        "block_delta": -0.12,
+        "layer_delta": -0.06,
+        "is_reference": false
+      },
+      {
+        "method": "Anderson (K=4, m=2, b=0.5)",
+        "block_delta": -0.96,
+        "layer_delta": null,
+        "is_reference": false
+      },
+      {
+        "method": "Aitken d2 (safeguarded)",
+        "block_delta": -7.0,
+        "layer_delta": null,
+        "is_reference": false
+      },
+      {
+        "method": "Anderson worst (K=8, m=3, b=1.0)",
+        "block_delta": -18.06,
+        "layer_delta": -19.56,
+        "is_reference": false
+      }
+    ],
+    "table8_none_beat_reference": true,
+    "table8_layer_worse_than_block": true,
+    "table9_n_rows": 24,
+    "table9_reference": 56.113,
+    "table9_deltas_recomputed_ok": true,
+    "table9_max_abs_delta_err": 0.0010000000000012221,
+    "table9_sorted_desc": true,
+    "table9_best_delta": -0.028,
+    "table9_worst_delta": -18.056,
+    "table9_none_positive": true,
+    "anderson_worsens_with_K": [
+      -0.115,
+      -0.96,
+      -1.391,
+      -11.192,
+      -18.056
+    ],
+    "conclusion": "the looped block is not a contraction; fixed-point acceleration is the wrong tool"
+  },
+  "tables1011": {
+    "table10": [
+      {
+        "strategy": "norm_stab",
+        "K": 2,
+        "hp": "a=0.5",
+        "score": 56.059,
+        "delta": -0.055
+      },
+      {
+        "strategy": "poly_blend",
+        "K": 2,
+        "hp": "w=[0.4,0.2,0.4]",
+        "score": 55.974,
+        "delta": -0.139
+      },
+      {
+        "strategy": "poly_blend",
+        "K": 2,
+        "hp": "w=[0.1,0.4,0.5]",
+        "score": 55.884,
+        "delta": -0.229
+      },
+      {
+        "strategy": "poly_blend",
+        "K": 2,
+        "hp": "w=[0.2,0.3,0.5]",
+        "score": 55.753,
+        "delta": -0.36
+      },
+      {
+        "strategy": "poly_blend",
+        "K": 2,
+        "hp": "w=[0.0,0.5,0.5]",
+        "score": 55.599,
+        "delta": -0.514
+      },
+      {
+        "strategy": "poly_blend",
+        "K": 2,
+        "hp": "w=[0.25,0.25,0.5]",
+        "score": 55.371,
+        "delta": -0.742
+      },
+      {
+        "strategy": "poly_blend",
+        "K": 2,
+        "hp": "w=[0.5,0.0,0.5]",
+        "score": 55.107,
+        "delta": -1.006
+      },
+      {
+        "strategy": "norm_stab",
+        "K": 2,
+        "hp": "a=0.7",
+        "score": 55.009,
+        "delta": -1.105
+      },
+      {
+        "strategy": "poly_blend",
+        "K": 3,
+        "hp": "w=[0.2,0.2,0.2,0.4]",
+        "score": 54.818,
+        "delta": -1.295
+      },
+      {
+        "strategy": "poly_blend",
+        "K": 3,
+        "hp": "w=[0.1,0.2,0.3,0.4]",
+        "score": 54.681,
+        "delta": -1.433
+      },
+      {
+        "strategy": "norm_stab",
+        "K": 3,
+        "hp": "a=0.5",
+        "score": 53.27,
+        "delta": -2.844
+      },
+      {
+        "strategy": "norm_stab",
+        "K": 2,
+        "hp": "a=1.0",
+        "score": 52.302,
+        "delta": -3.811
+      },
+      {
+        "strategy": "norm_stab",
+        "K": 6,
+        "hp": "a=0.3",
+        "score": 49.56,
+        "delta": -6.554
+      },
+      {
+        "strategy": "norm_stab",
+        "K": 3,
+        "hp": "a=0.7",
+        "score": 49.338,
+        "delta": -6.776
+      },
+      {
+        "strategy": "norm_stab",
+        "K": 4,
+        "hp": "a=0.5",
+        "score": 49.067,
+        "delta": -7.046
+      },
+      {
+        "strategy": "norm_stab",
+        "K": 3,
+        "hp": "a=1.0",
+        "score": 43.101,
+        "delta": -13.013
+      }
+    ],
+    "table10_reference": 56.113,
+    "table10_baseline_no_loop": 55.598,
+    "table10_deltas_ok": true,
+    "table10_max_err": 0.001000000000000334,
+    "table10_none_positive": true,
+    "table10_normstab_catastrophic_ge_K3": true,
+    "table11": [
+      {
+        "recipe": "heavy-ball a=0.5 b=0.3",
+        "K": 2,
+        "score": 56.292,
+        "delta": -0.056
+      },
+      {
+        "recipe": "poly_blend w=[0.25,0.5,0.25]",
+        "K": 2,
+        "score": 56.181,
+        "delta": -0.167
+      },
+      {
+        "recipe": "damped Euler a=0.3",
+        "K": 3,
+        "score": 55.278,
+        "delta": -1.069
+      },
+      {
+        "recipe": "Euler",
+        "K": 4,
+        "score": 55.24,
+        "delta": -1.107
+      },
+      {
+        "recipe": "damped Euler a=0.7",
+        "K": 2,
+        "score": 55.196,
+        "delta": -1.151
+      },
+      {
+        "recipe": "Euler",
+        "K": 6,
+        "score": 54.998,
+        "delta": -1.35
+      },
+      {
+        "recipe": "Heun",
+        "K": 2,
+        "score": 54.445,
+        "delta": -1.902
+      },
+      {
+        "recipe": "midpoint",
+        "K": 2,
+        "score": 54.385,
+        "delta": -1.962
+      },
+      {
+        "recipe": "RK4",
+        "K": 1,
+        "score": 54.242,
+        "delta": -2.105
+      },
+      {
+        "recipe": "midpoint",
+        "K": 1,
+        "score": 54.178,
+        "delta": -2.169
+      },
+      {
+        "recipe": "norm_stab a=0.5",
+        "K": 2,
+        "score": 54.098,
+        "delta": -2.249
+      },
+      {
+        "recipe": "Heun",
+        "K": 1,
+        "score": 54.06,
+        "delta": -2.287
+      },
+      {
+        "recipe": "RK4",
+        "K": 2,
+        "score": 54.005,
+        "delta": -2.342
+      },
+      {
+        "recipe": "heavy-ball a=0.5 b=0.3",
+        "K": 3,
+        "score": 51.83,
+        "delta": -4.517
+      },
+      {
+        "recipe": "Anderson m=2 b=1.0",
+        "K": 3,
+        "score": 44.035,
+        "delta": -12.312
+      },
+      {
+        "recipe": "Anderson m=2 b=1.0",
+        "K": 4,
+        "score": 36.785,
+        "delta": -19.562
+      }
+    ],
+    "table11_reference": 56.347,
+    "table11_deltas_ok": true,
+    "table11_max_err": 0.001000000000000112,
+    "table11_none_positive": true,
+    "table11_anderson_worse_than_block": true,
+    "baseline_quote_discrepancy": {
+      "table10_no_loop": 55.598,
+      "table9_reference": 56.113,
+      "note": "the no-loop baseline (55.598) and the K=2 damped-Euler reference (56.113) differ; both are quoted in App E"
+    },
+    "table12_resource": {
+      "Qwen3-0.6B": "~2 GB / ~1 h",
+      "Qwen3-1.7B": "~4 GB / ~2 h",
+      "Qwen3-4B": "~8 GB / ~3 h",
+      "Llama-3.2": "~3-7 GB / ~2 h",
+      "Qwen1.5-MoE-A2.7B": "~30 GB / ~4 h",
+      "DeepSeek-V2-Lite": "~32 GB / ~5 h",
+      "Moonlight-16B-A3B": "~32 GB / ~8 h (decode=full 21 h)",
+      "Qwen3-30B-A3B": "~60 GB / ~10 h"
+    }
+  },
+  "block_vs_layer": {
+    "window_width": 3,
+    "K": 2,
+    "single_layer_window_identical": 0.0,
+    "wide_window_rel_gap": 0.4408154785633087,
+    "wide_window_equals": false,
+    "block_mode_recomputed_churn": 0.3056,
+    "layer_mode_hypothetical_churn": 0.1667,
+    "layer_mode_applied_churn": 0.0,
+    "layer_mode_pins_routing": true,
+    "block_mode_thrashes": true,
+    "paper_claim": "block-mode routes to a different subset each iteration on MoE; layer-mode computes the gate once and applies the same mixture K times",
+    "dense_claim": "for dense models the two yield broadly similar quality (not equality)",
+    "reading": "layer_mode_hypothetical_churn > 0 is the routing noise layer-mode avoids by pinning; block_mode_recomputed_churn is the largest of the three"
+  },
+  "table15_wallclock": {
+    "setup": "Qwen3-4B-Instruct, GSM8K@200, K=3 Euler at [15-18]",
+    "rows": [
+      {
+        "mode": "no loop (baseline)",
+        "seconds": 194,
+        "overhead_pct_claimed": null,
+        "overhead_pct_recomputed": 0.0
+      },
+      {
+        "mode": "bypass",
+        "seconds": 191,
+        "overhead_pct_claimed": -1.5,
+        "overhead_pct_recomputed": -1.5
+      },
+      {
+        "mode": "first_n, N=16",
+        "seconds": 192,
+        "overhead_pct_claimed": -1.0,
+        "overhead_pct_recomputed": -1.0
+      },
+      {
+        "mode": "first_n, N=64",
+        "seconds": 203,
+        "overhead_pct_claimed": 4.6,
+        "overhead_pct_recomputed": 4.6
+      },
+      {
+        "mode": "full",
+        "seconds": 236,
+        "overhead_pct_claimed": 21.6,
+        "overhead_pct_recomputed": 21.6
+      }
+    ],
+    "overheads_recomputed_ok": true,
+    "max_overhead_pct": 21.6,
+    "decode_modes": {
+      "bypass": "loop only during prefill (default for loglikelihood evals)",
+      "full": "loop every decode step (default for generation results)",
+      "first_n": "loop the first n generated tokens"
+    },
+    "claims": {
+      "bypass": "no wall-clock cost; -1.5% is run-to-run noise from a leaner KV-write path",
+      "first_n": "-1.0% at N=16 up to +4.6% at N=64",
+      "full": "~22% slowdown for K=3 on a 4/36 layer window",
+      "cost_model": "1 + (K-1) * (b-a+1)/N extra layer passes in the loop region"
+    }
+  },
+  "tables1619": {
+    "table16": [
+      {
+        "config": "Euler K=2",
+        "delta_pp": 0.89
+      },
+      {
+        "config": "Euler K=4",
+        "delta_pp": 0.73
+      },
+      {
+        "config": "Heun K=1",
+        "delta_pp": 0.15
+      }
+    ],
+    "table16_all_positive": true,
+    "table17_rows": [
+      {
+        "bench": "ARC-Easy",
+        "baseline": 79.04,
+        "euler_K2": 79.38,
+        "d_euler": 0.34,
+        "heun_K1": 79.08,
+        "d_heun": 0.04
+      },
+      {
+        "bench": "HellaSwag",
+        "baseline": 77.74,
+        "euler_K2": 77.93,
+        "d_euler": 0.19,
+        "heun_K1": 77.78,
+        "d_heun": 0.04
+      },
+      {
+        "bench": "SciQ",
+        "baseline": 94.8,
+        "euler_K2": 95.0,
+        "d_euler": 0.2,
+        "heun_K1": 94.9,
+        "d_heun": 0.1
+      },
+      {
+        "bench": "CommonsenseQA",
+        "baseline": 78.71,
+        "euler_K2": 79.85,
+        "d_euler": 1.14,
+        "heun_K1": 79.61,
+        "d_heun": 0.9
+      },
+      {
+        "bench": "TruthfulQA-MC1",
+        "baseline": 34.15,
+        "euler_K2": 34.64,
+        "d_euler": 0.49,
+        "heun_K1": 34.27,
+        "d_heun": 0.12
+      },
+      {
+        "bench": "MMLU (em)",
+        "baseline": 81.75,
+        "euler_K2": 81.75,
+        "d_euler": 0.0,
+        "heun_K1": 82.28,
+        "d_heun": 0.53
+      },
+      {
+        "bench": "MMLU (flex)",
+        "baseline": 66.67,
+        "euler_K2": 67.46,
+        "d_euler": 0.79,
+        "heun_K1": 66.67,
+        "d_heun": 0.0
+      },
+      {
+        "bench": "GPQA-Main",
+        "baseline": 37.28,
+        "euler_K2": 37.5,
+        "d_euler": 0.22,
+        "heun_K1": 37.72,
+        "d_heun": 0.44
+      },
+      {
+        "bench": "GPQA-Diamond",
+        "baseline": 36.36,
+        "euler_K2": 34.85,
+        "d_euler": -1.51,
+        "heun_K1": 36.87,
+        "d_heun": 0.51
+      },
+      {
+        "bench": "SuperGPQA",
+        "baseline": 31.0,
+        "euler_K2": 31.7,
+        "d_euler": 0.7,
+        "heun_K1": 31.05,
+        "d_heun": 0.05
+      },
+      {
+        "bench": "LAMBADA acc",
+        "baseline": 64.8,
+        "euler_K2": 64.78,
+        "d_euler": -0.02,
+        "heun_K1": 64.93,
+        "d_heun": 0.13
+      }
+    ],
+    "table17_nonneg_frac": 1.0,
+    "table17_claim": "11 of 12 tabulated cells non-negative under the better of {K=2 Euler, K=1 Heun}",
+    "table17_heun_adds": [
+      "MMLU (em)",
+      "GPQA-Diamond",
+      "LAMBADA acc"
+    ],
+    "table18": [
+      {
+        "model": "Qwen3-0.6B-Base",
+        "config": "layer K=2 heavy-ball b=0.5 [12-15]",
+        "screen_16task": 0.561,
+        "heldout_mmlu5sh": 0.128
+      },
+      {
+        "model": "Qwen3-0.6B-Base",
+        "config": "layer K=2 heavy-ball b=0.3 [12-15]",
+        "screen_16task": 0.442,
+        "heldout_mmlu5sh": 0.214
+      },
+      {
+        "model": "Qwen3-0.6B-Base",
+        "config": "layer K=2 poly-blend [0.25,0.5,0.25] [12-15]",
+        "screen_16task": 0.236,
+        "heldout_mmlu5sh": null
+      },
+      {
+        "model": "Qwen3-1.7B-Base",
+        "config": "layer K=2 damped Euler [12-15]",
+        "screen_16task": 0.234,
+        "heldout_mmlu5sh": -0.477
+      },
+      {
+        "model": "Qwen3-1.7B-Base",
+        "config": "layer K=2 heavy-ball [12-15]",
+        "screen_16task": 0.178,
+        "heldout_mmlu5sh": null
+      },
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "config": "layer K=2 Euler [16-19]",
+        "screen_16task": null,
+        "heldout_mmlu5sh": 0.72
+      }
+    ],
+    "table18_overfit_excluded": [
+      [
+        "Qwen3-0.6B-Base [8-11]",
+        1.33,
+        -1.21
+      ],
+      [
+        "Qwen3-1.7B-Base [7-10]",
+        0.92,
+        -1.38
+      ]
+    ],
+    "table19": [
+      {
+        "model": "Qwen3-0.6B-Base",
+        "layers": 28,
+        "positive_n4_windows": ">=6 of 13",
+        "best": "[8-11] +1.33",
+        "worst_positive": "[11-14] +0.17"
+      },
+      {
+        "model": "Qwen3-1.7B-Base",
+        "layers": 28,
+        "positive_n4_windows": "9 of 17",
+        "best": "[7-10] +0.80",
+        "worst_positive": "[18-21] +0.02"
+      },
+      {
+        "model": "Qwen3-4B-Base",
+        "layers": 36,
+        "positive_n4_windows": "13 of 16",
+        "best": "[15-18] +0.84",
+        "worst_positive": "[18-21] +0.07"
+      }
+    ],
+    "table19_breadth_4b": "13 of 16 windows spanning depth fractions 0.19-0.83 are simultaneously positive",
+    "perplexity": {
+      "Qwen3-4B-Base [17-19] K=2 Euler": [
+        4.25,
+        4.19
+      ],
+      "Qwen3-4B-Instruct [17-19] K=2 Euler": [
+        7.3,
+        7.01
+      ],
+      "Qwen3-30B-A3B-Instruct [22-24] K=2 Euler": [
+        4.12,
+        4.11
+      ]
+    },
+    "perplexity_preserved_or_improved": true,
+    "search_protocol": {
+      "space": "window center in [0.40N, 0.70N] x {n=3,4,6} x {2,3} x {NAIVE, EMA, EULER} x {FIRST, LAST}",
+      "pairs_visited": 720,
+      "gpu_hours": "~20000 H100 HBM3-80GB",
+      "variance": "<=0.02 pp on >=10k-example benchmarks; <=0.5 pp on <=1k-example ones",
+      "neutral_band_pp": 0.3
+    }
+  },
+  "table20_cache": {
+    "table20": [
+      {
+        "cell": "MMLU-Pro 5-shot CoT",
+        "first": 2.64,
+        "last": 1.0,
+        "none": -8.86
+      },
+      {
+        "cell": "MBPP 3-shot pass@1",
+        "first": 0.2,
+        "last": 0.8,
+        "none": -23.4
+      }
+    ],
+    "published": {
+      "cache_first_dominates": "long-prompt CoT (MMLU-Pro)",
+      "cache_last_dominates": "short structured generation (MBPP, +0.6 pp)",
+      "cache_none": "catastrophic on decode (App G.2, G.5)"
+    },
+    "eq19_stash_input": {
+      "last": "g(K)(x_a)",
+      "first": "x_a",
+      "none": "no write"
+    },
+    "live_net_kv": {
+      "first": {
+        "len_after": [
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6
+        ],
+        "delta_loop_region": 4,
+        "window_writes": 4,
+        "writes_before_stash": 12
+      },
+      "last": {
+        "len_after": [
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6,
+          6
+        ],
+        "delta_loop_region": 4,
+        "window_writes": 4,
+        "writes_before_stash": 12
+      },
+      "none": {
+        "len_after": [
+          6,
+          6,
+          6,
+          6,
+          5,
+          5,
+          5,
+          5
+        ],
+        "delta_loop_region": 0,
+        "window_writes": 0,
+        "writes_before_stash": 12
+      }
+    },
+    "net_kv_equals_W_for_first_last": true,
+    "net_kv_zero_for_none": true,
+    "body_writes_discarded": true,
+    "invariant": "net cache delta of the whole procedure is exactly b-a+1 entries regardless of K",
+    "mechanism": "DynamicCache.update() always appends; snapshot/crop is the cheapest restore (App C.2)"
+  },
+  "depth_fraction": {
+    "architectures": [
+      {
+        "model": "Llama-3.2-1B-Inst",
+        "N": 16,
+        "candidate_center_fracs": [
+          0.3438
+        ],
+        "largest_delta_frac": 0.3438,
+        "largest_delta": 1.79,
+        "largest_delta_in_band": false,
+        "any_candidate_in_band": false,
+        "all_candidates_in_band": false
+      },
+      {
+        "model": "Qwen1.5-MoE-A2.7B",
+        "N": 24,
+        "candidate_center_fracs": [
+          0.6042,
+          0.4792,
+          0.6458
+        ],
+        "largest_delta_frac": 0.6042,
+        "largest_delta": 2.3,
+        "largest_delta_in_band": false,
+        "any_candidate_in_band": true,
+        "all_candidates_in_band": false
+      },
+      {
+        "model": "DeepSeek-V2-Lite",
+        "N": 27,
+        "candidate_center_fracs": [
+          0.537,
+          0.4259,
+          0.463
+        ],
+        "largest_delta_frac": 0.537,
+        "largest_delta": 0.85,
+        "largest_delta_in_band": true,
+        "any_candidate_in_band": true,
+        "all_candidates_in_band": false
+      },
+      {
+        "model": "Moonlight-16B-A3B",
+        "N": 27,
+        "candidate_center_fracs": [
+          0.3519,
+          0.6111,
+          0.463
+        ],
+        "largest_delta_frac": 0.3519,
+        "largest_delta": 1.2,
+        "largest_delta_in_band": false,
+        "any_candidate_in_band": true,
+        "all_candidates_in_band": false
+      },
+      {
+        "model": "Llama-3.2-3B-Inst",
+        "N": 28,
+        "candidate_center_fracs": [
+          0.4821,
+          0.625,
+          0.7679
+        ],
+        "largest_delta_frac": 0.4821,
+        "largest_delta": 0.72,
+        "largest_delta_in_band": true,
+        "any_candidate_in_band": true,
+        "all_candidates_in_band": false
+      },
+      {
+        "model": "Qwen3-0.6B-Base",
+        "N": 28,
+        "candidate_center_fracs": [
+          0.4821
+        ],
+        "largest_delta_frac": 0.4821,
+        "largest_delta": 0.56,
+        "largest_delta_in_band": true,
+        "any_candidate_in_band": true,
+        "all_candidates_in_band": true
+      },
+      {
+        "model": "Qwen3-1.7B-Base",
+        "N": 28,
+        "candidate_center_fracs": [
+          0.4821
+        ],
+        "largest_delta_frac": 0.4821,
+        "largest_delta": 0.51,
+        "largest_delta_in_band": true,
+        "any_candidate_in_band": true,
+        "all_candidates_in_band": true
+      },
+      {
+        "model": "Qwen3-4B",
+        "N": 36,
+        "candidate_center_fracs": [
+          0.4583,
+          0.5
+        ],
+        "largest_delta_frac": 0.4583,
+        "largest_delta": 1.05,
+        "largest_delta_in_band": true,
+        "any_candidate_in_band": true,
+        "all_candidates_in_band": true
+      },
+      {
+        "model": "Qwen3-30B-A3B",
+        "N": 48,
+        "candidate_center_fracs": [
+          0.4792
+        ],
+        "largest_delta_frac": 0.4792,
+        "largest_delta": 1.14,
+        "largest_delta_in_band": true,
+        "any_candidate_in_band": true,
+        "all_candidates_in_band": true
+      }
+    ],
+    "band": [
+      0.45,
+      0.6
+    ],
+    "in_band_by_largest_delta": 6,
+    "in_band_any_candidate": 8,
+    "in_band_all_candidates": 4,
+    "of": 9,
+    "claim_7_of_9_reproduced": false,
+    "selection_rule_ambiguity": {
+      "paper": "Fig 6 claims 7 of 9 optimal window centers fall in 0.45-0.60, naming only Llama-3.2-1B (earlier) and Qwen1.5-MoE (later) as outliers",
+      "by_largest_delta": "6 of 9",
+      "any_candidate": "8 of 9",
+      "explanation": "Fig 6 plots one best window per checkpoint while Table 6 lists several winning windows per checkpoint. Under the largest-delta rule Moonlight-16B-A3B is placed by its OBQA cell [8-11] (0.352, outside), so Moonlight becomes a third outlier and the count is 6 of 9; taking Moonlight's [11-14] cell (0.463) instead restores the paper's 7 of 9. The paper does not state which winning cell each Fig 6 marker uses.",
+      "moonlight_windows": {
+        "[8-11] OBQA +1.20": 0.352,
+        "[11-14] ARC-C +0.51 / CSQA +0.49": 0.463,
+        "[15-18] GPQA +0.89": 0.611
+      }
+    },
+    "outliers_largest_delta": [
+      "Llama-3.2-1B-Inst",
+      "Qwen1.5-MoE-A2.7B",
+      "Moonlight-16B-A3B"
+    ],
+    "window_width_rule": "the reported winning windows are n=3 or n=4 except Qwen1.5-MoE [10,13]",
+    "sub_1b_shift_earlier": {
+      "Llama-3.2-1B-Inst": [
+        0.25,
+        0.56
+      ],
+      "rule": "models >1.7B center in 0.43-0.71 (mode ~0.50); sub-1B in 0.25-0.56",
+      "tension": "Sec 3.2 calls sub-1B earlier while Fig 6 places Qwen3-0.6B inside the band; only Llama-3.2-1B is the named sub-1B outlier"
+    },
+    "table21_patch_surface": [
+      {
+        "family": "Qwen3 dense",
+        "model_type": "qwen3",
+        "patch": "Qwen3Model.forward",
+        "notes": "standard MHA, 1 layer-stack loop"
+      },
+      {
+        "family": "Qwen3-MoE",
+        "model_type": "qwen3_moe",
+        "patch": "Qwen3MoeModel.forward",
+        "notes": "layer-mode default; routing pinned per layer"
+      },
+      {
+        "family": "Qwen1.5-MoE",
+        "model_type": "qwen2_moe",
+        "patch": "Qwen2MoeModel.forward",
+        "notes": "24 layers; sparse experts"
+      },
+      {
+        "family": "Llama-3.2",
+        "model_type": "llama",
+        "patch": "LlamaModel.forward",
+        "notes": "distilled; sub-3B sees the boundary"
+      },
+      {
+        "family": "DeepSeek-V2-Lite",
+        "model_type": "deepseek_v2",
+        "patch": "remote-code DeepseekV2Model",
+        "notes": "MLA + MoE; needs cache shim"
+      },
+      {
+        "family": "Moonlight-16B-A3B",
+        "model_type": "deepseek_v3",
+        "patch": "remote-code DeepseekV3Model",
+        "notes": "MLA + MoE; needs cache shim"
+      }
+    ],
+    "implementation_notes": [
+      "transformers 4.46, lm-eval-harness 0.4.11, bfloat16, SDPA",
+      "monkey patch on the top-level decoder class; reversible",
+      "MoE layer-mode iterator: _run_one_layer_decode (App O)",
+      "DynamicCache shim re-adds seen_tokens/get_max_length/get_usable_length for MLA remote code",
+      "KV cache writes are the only side effect; no auxiliary state beyond a Theta(W) buffer"
+    ]
+  },
+  "repo_status": "no-official-code-audited",
+  "repo_audit": {
+    "official_code": "none verifiable",
+    "paper_pdf_links": 1,
+    "paper_pdf_link_target": "arxiv.org/abs/2605.23872v1",
+    "arxiv_abs_code_link": null,
+    "author_homepage_code_link": null,
+    "claimed_upstream_slug": "github.com/L-z-Chen/Training-Free-Looped-Transformer",
+    "claimed_upstream_api_status": "404 Not Found",
+    "claimed_upstream_wayback": "no snapshot",
+    "first_author_account": "L-z-Chen (54 public repos, no looped-transformer repo)",
+    "third_party_reimplementations": [
+      {
+        "repo": "JegZheng/tflt-dev",
+        "stars": 0,
+        "forks": 0,
+        "issues": 0,
+        "prs": 0,
+        "commits": 2,
+        "license": "none",
+        "created": "2026-05-31",
+        "pushed": "2026-05-31",
+        "cites_upstream": true,
+        "symbols": [
+          "LoopStrategy (15 literals)",
+          "anchored_euler",
+          "iterate_map",
+          "block_anchored",
+          "cache_strategy",
+          "decode_mode",
+          "anchor_beta"
+        ],
+        "note": "uses K sub-steps in anchored_euler (matches Eq 16); default upstream recipe K=6, beta=0.5, cache=first"
+      },
+      {
+        "repo": "singularity119/Training-Free-Looped-Transformers-Reproduction",
+        "stars": 0,
+        "forks": 0,
+        "issues": 1,
+        "prs": 0,
+        "commits": 16,
+        "license": "none",
+        "created": "2026-06-30",
+        "pushed": "2026-10-05",
+        "default_branch": "reproduction-main",
+        "cites_upstream": true
+      },
+      {
+        "repo": "Navi-AI-Lab/loopgraft",
+        "stars": 1,
+        "forks": 0,
+        "issues": 0,
+        "prs": 0,
+        "commits": 2,
+        "license": "Apache-2.0",
+        "created": "2026-07-03",
+        "pushed": "2026-07-10",
+        "cites_upstream": true,
+        "symbols": [
+          "GraftConfig",
+          "graft",
+          "ungraft",
+          "verify_fidelity",
+          "sliding_only_window"
+        ],
+        "divergence": "uses per-pass replay KV caches instead of the paper's snapshot/restore + single stash pass"
+      },
+      {
+        "repo": "EdoardoPona/looped-laguna",
+        "stars": 0,
+        "forks": 0,
+        "issues": 0,
+        "prs": 0,
+        "commits": 40,
+        "license": "none",
+        "created": "2026-05-29",
+        "pushed": "2026-05-30",
+        "cites_upstream": true,
+        "note": "applies damped RK looping to a fine-grained MoE (Laguna-XS.2); reports positive on 5 of 6 knowledge benchmarks"
+      }
+    ],
+    "verdict": "paper-only derivation; third-party repos used as non-authoritative symbol cross-checks only",
+    "paper_side_discrepancies_found": [
+      "Algorithm 3 as printed performs K-1 sub-steps while Eq (16) requires K (confirmed numerically)",
+      "Table 2c caption says layer K=2 while its column header says layer K=3",
+      "the 16-task no-loop baseline is quoted as 55.54 (Table 2a), 55.60 (Table 6) and 55.598 (Table 10)",
+      "Table 1 lists K forward passes for Aitken d2, but the stated per-step update needs two g evaluations unless reused",
+      "Table 6 lists Qwen1.5-MoE rows in block-mode although Sec 3.1 prescribes layer-mode for MoE"
+    ],
+    "adaptations_made": "text-faithful; no repo code was ported (no official code exists)"
+  }
+}

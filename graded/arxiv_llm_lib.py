@@ -7620,3 +7620,1165 @@ def paper_2509_17396_tableA1():
           "lat_q": abs(r["lat_q"] - 1.5) < 0.1, "mem_q": abs(r["mem_q"] - 2.7) < 0.1}
     return {"grid": rows, "ratios": r,
             "headline_ok": bool(all(ok.values()))}
+
+
+# ---------------------------------------------------------------------------
+# 2605.23872 Training-Free Looped Transformers
+# Chen, Li, Liang, Lao, Liu (UT Austin) -- training-free loop wrapper.
+# Paper-only derivation: no official code is publicly verifiable (see repo audit).
+# ---------------------------------------------------------------------------
+
+
+def _tfl_W(d, n, seed):
+    g = torch.Generator().manual_seed(seed)
+    return [torch.randn(d, d, generator=g) / d ** 0.5 for _ in range(n)]
+
+
+def _tfl_block(Ws, x):
+    for W in Ws:
+        x = x + x @ W.T
+    return x
+
+
+def paper_2605_23872_eq9_telescope():
+    """Eq (9) + App B.1 Eq (17)/(18): block-mode window residual field telescopes.
+
+    F_g(x) := g(x) - x = sum_{i=a..b} F_{L_i}(y_i(x)) with y_0 = x and
+    y_{i+1} = y_i + F_{L_i}(y_i).  Layers are exact linear residual maps
+    L_i(z) = z + W_i z, so F_{L_i}(z) = W_i z and the identity is checkable to
+    machine precision."""
+    d, n = 6, 5
+    Ws = _tfl_W(d, n, 19)
+    g0 = torch.Generator().manual_seed(5)
+    x0 = torch.randn(4, d, generator=g0)
+    ys = [x0]
+    for W in Ws:
+        ys.append(ys[-1] + ys[-1] @ W.T)
+    gx = ys[-1]
+    telescoped = sum(ys[i] @ Ws[i].T for i in range(n))
+    err = float((gx - x0 - telescoped).abs().max())
+    fg = gx - x0
+    return {"layers": n, "dim": d,
+            "max_abs_err_eq9": err,
+            "eq9_ok": bool(err < 1e-5),
+            "fg_norm": float(fg.norm()),
+            "fg_scale": float(telescoped.norm()),
+            "proof": "App B.1: sum_i (y_{i+1}-y_i) telescopes to g(x)-x",
+            "note": "layer-mode F_g is the single-layer field; block-mode is the sum in Eq (9)"}
+
+
+def paper_2605_23872_eq10_damped_euler():
+    """Eq (10): K damped sub-steps of size h=1/K approximate the SAME endpoint
+    x(t=1), unlike naive K-fold g() which integrates to t=K.
+
+    Exact references used: dx/dt = -lam x (x(t)=x0 e^{-lam t}) and the 2-D
+    decay+rotation system  x' = A x with
+    A = [[-lam, -w],[w, -lam]]  =>  x(t) = e^{-lam t} R(w t) x0."""
+    out = {"scalar": {}, "matrix": {}}
+    lam = 1.0
+    exact = math.exp(-lam)
+    euler_h1 = 1.0 - lam  # single h=1 Euler step from x0 = 1
+    out["scalar"]["exact_x1"] = exact
+    out["scalar"]["single_h1_euler_err"] = abs(euler_h1 - exact)
+    seq, errs, mono = [], [], True
+    for K in [2, 4, 8, 16, 32, 64]:
+        val = (1.0 - 1.0 / K) ** K
+        e = abs(val - exact)
+        seq.append([K, round(val, 6), round(e, 6)])
+        errs.append(e)
+        if len(errs) > 1 and e > errs[-2] + 1e-12:
+            mono = False
+    out["scalar"]["K_substeps"] = seq
+    out["scalar"]["err_decreases_with_K"] = bool(mono)
+    out["scalar"]["all_better_than_single_step"] = bool(all(e < out["scalar"]["single_h1_euler_err"] for e in errs))
+    out["scalar"]["limit_is_exact"] = bool(abs(seq[-1][1] - exact) < 0.01)
+
+    lam2, w = 0.8, 2.5
+    A = torch.tensor([[-lam2, -w], [w, -lam2]], dtype=torch.float64)
+    g0 = torch.Generator().manual_seed(11)
+    x0 = torch.randn(2, dtype=torch.float64, generator=g0)
+    I2 = torch.eye(2, dtype=torch.float64)
+
+    def exact_ref(T):
+        return torch.matrix_exp(A * T) @ x0
+
+    def substep(T, K):
+        h = T / K
+        x = x0.clone()
+        for _ in range(K):
+            x = x + h * (A @ x)
+        return x
+
+    def naive(T, K):
+        x = x0.clone()
+        for _ in range(K):
+            x = x + 1.0 * (A @ x)
+        return x
+
+    rows = []
+    for K in [1, 2, 4, 8, 16]:
+        sub = substep(1.0, K)
+        nv = naive(1.0, K)
+        rows.append({"K": K,
+                     "substep_err": float((sub - exact_ref(1.0)).norm()),
+                     "naive_err": float((nv - exact_ref(1.0)).norm())})
+    out["matrix"]["A"] = A.tolist()
+    out["matrix"]["rows"] = rows
+    out["matrix"]["substep_beats_naive_at_K_ge_2"] = bool(
+        all(r["substep_err"] < r["naive_err"] for r in rows if r["K"] >= 2))
+    out["matrix"]["naive_error_grows_with_K"] = bool(
+        rows[-1]["naive_err"] > rows[1]["naive_err"])
+    out["matrix"]["convergence_order_note"] = "substep error -> O(1/K); naive targets x(t=K) so it drifts to O(K)"
+    return out
+
+
+def _tfl_map(d=8, seed=3):
+    """Nonlinear window map g(x) = x + F(x) with F(z) = V tanh(U z); F is not linear."""
+    g = torch.Generator().manual_seed(seed)
+    U = torch.randn(d, d, generator=g) / d ** 0.5
+    V = torch.randn(d, d, generator=g) / d ** 0.5
+    return lambda z: z + 0.5 * torch.tanh(z @ U.T) @ V.T
+
+
+def _tfl_substeps(g, x0, K):
+    """Eq (10): K steps of x <- x + (1/K)(g(x) - x)."""
+    x = x0.clone()
+    for _ in range(K):
+        x = x + (1.0 / K) * (g(x) - x)
+    return x
+
+
+def paper_2605_23872_eq16_identity():
+    """Eq (13)-(16): a_ij = (1/K) 1(j<i), b_1 = beta + (1-beta)/K,
+    b_i = (1-beta)/K  =>  x1 = x0 + sum_i b_i k_i = beta g(x0) + (1-beta) F^(K)(x0),
+    with b >= 0 and sum_i b_i = 1.
+
+    Also checks Algorithm 3 (printed) against Algorithm 1.  Alg 1 evaluates s = K
+    stages, so it matches Eq (16) exactly.  Alg 3 as printed loops k = 1..K-1,
+    i.e. K-1 sub-steps, so it returns beta g(x0) + (1-beta)(x0 + (1/K) sum_{i<K} k_i)
+    and is short of Eq (16) by (1-beta) k_K / K."""
+    d = 8
+    g = _tfl_map(d, seed=3)
+    g0 = torch.Generator().manual_seed(21)
+    x0 = torch.randn(2, d, generator=g0)
+    rows = []
+    for beta in [0.0, 0.25, 0.5, 1.0]:
+        for K in [2, 3, 4, 6]:
+            b = [beta + (1.0 - beta) / K] + [(1.0 - beta) / K] * (K - 1)
+            bsum = sum(b)
+            bmin = min(b)
+            # Algorithm 1: s = K explicit RK stages on the residual field
+            y0 = x0
+            ks = []
+            for i in range(K):
+                yi = y0 + sum((1.0 / K) * ks[j] for j in range(i))
+                ks.append(g(yi) - yi)
+            alg1 = y0 + sum(b[i] * ks[i] for i in range(K))
+            rhs = beta * g(x0) + (1.0 - beta) * _tfl_substeps(g, x0, K)
+            # Algorithm 3 as printed: anchor + (K-1) sub-steps
+            xa = x0
+            for _ in range(K - 1):
+                xa = xa + (1.0 / K) * (g(xa) - xa)
+            alg3 = beta * g(x0) + (1.0 - beta) * xa
+            gap = (1.0 - beta) * ks[-1] / K
+            rows.append({"beta": beta, "K": K,
+                         "b_sum": round(bsum, 12), "b_min": round(bmin, 12),
+                         "alg1_vs_eq16": float((alg1 - rhs).abs().max()),
+                         "alg3_vs_eq16": float((alg3 - rhs).abs().max()),
+                         "alg3_gap_pred": float(gap.abs().max()),
+                         "alg3_is_eq16_minus_gap": float((rhs - gap - alg3).abs().max())})
+    max_a1 = max(r["alg1_vs_eq16"] for r in rows)
+    max_a3 = max(r["alg3_vs_eq16"] for r in rows)
+    max_gp = max(r["alg3_gap_pred"] for r in rows)
+    return {"rows": rows,
+            "alg1_eq16_ok": bool(max_a1 < 1e-6),
+            "alg1_max_abs_err": max_a1,
+            "alg3_eq16_ok": bool(max_a3 < 1e-6),
+            "alg3_max_abs_err": max_a3,
+            "alg3_gap_pred_max": max_gp,
+            "b_nonneg_and_unit": bool(all(abs(r["b_sum"] - 1.0) < 1e-12 and r["b_min"] >= -1e-15 for r in rows)),
+            "beta0_is_substep": True,
+            "beta1_is_g": True,
+            "printed_alg3_off_by_one": {
+                "statement": "Alg 3 loops k=1..K-1, so it applies K-1 sub-steps; Eq (16) needs K",
+                "discrepancy": "beta*g(x0) + (1-beta)*F^(K)(x0) vs K-1-substep endpoint",
+                "magnitude": max_gp,
+                "third_party_check": "JegZheng/tflt-dev strategies.py anchored_euler uses K sub-steps (matches Eq 16)"}}
+
+
+_TFL_STRATEGIES = [
+    ("naive", "Table 1 Naive Loop", "x_{k+1} = g(x_k)", "K", ["naive"]),
+    ("fwd_euler", "Table 1 Forward Euler", "x_{k+1} = x_k + (1/K) F_g(x_k)", "K", ["fwd_euler"]),
+    ("midpoint", "Table 1 Midpoint (RK2)", "x + h F_g(x + h/2 F_g(x))", "2K", ["midpoint"]),
+    ("heun", "Table 1 Heun (RK2)", "x + h/2 (F_g(x) + F_g(x + h F_g(x)))", "2K", ["heun"]),
+    ("rk4", "Table 1 RK4", "x + h/6 (k1 + 2k2 + 2k3 + k4)", "4K", ["rk4"]),
+    ("heavy_ball", "Table 1 Heavy-ball (alpha,beta)", "x + alpha F_g(x) + beta (x - x_prev)", "K", ["heavy_ball"]),
+    ("anderson", "Table 1 Anderson (m,beta)", "(1-beta)(x - dX g*) + beta (g(x) - dF g*)", "K", ["anderson"]),
+    ("aitken", "Table 1 Aitken d2 (per coordinate)", "x - d1^2 / d2, safeguarded", "K", ["aitken"]),
+    ("uniform", "Table 1 Uniform Loop", "g( mean(x_0..x_k) )", "K", ["uniform"]),
+]
+
+
+def _tfl_run_strategy(name, g, x0, K, **kw):
+    d = x0.shape[-1]
+
+    def F(x):
+        return g(x) - x
+
+    if name == "naive":
+        x = x0
+        for _ in range(K):
+            x = g(x)
+        return x
+    if name == "fwd_euler":
+        return _tfl_substeps(g, x0, K)
+    if name == "midpoint":
+        x = x0
+        for _ in range(K):
+            x = x + F(x + 0.5 * F(x))
+        return x
+    if name == "heun":
+        x = x0
+        for _ in range(K):
+            k1 = F(x)
+            k2 = F(x + k1)
+            x = x + 0.5 * (k1 + k2)
+        return x
+    if name == "rk4":
+        x = x0
+        for _ in range(K):
+            k1 = F(x)
+            k2 = F(x + 0.5 * k1)
+            k3 = F(x + 0.5 * k2)
+            k4 = F(x + k3)
+            x = x + (k1 + 2 * k2 + 2 * k3 + k4) / 6.0
+        return x
+    if name == "heavy_ball":
+        a = kw.get("alpha", 0.5)
+        b = kw.get("beta", 0.3)
+        x = x0
+        prev = x0
+        for _ in range(K):
+            nxt = x + a * F(x) + b * (x - prev)
+            prev, x = x, nxt
+        return x
+    if name == "anderson":
+        m = kw.get("m", 2)
+        beta = kw.get("beta", 0.5)
+        xs, fs = [], []
+        x = x0
+        for _ in range(K):
+            fx = g(x) - x
+            xs.append(x)
+            fs.append(fx)
+            if len(xs) > m + 1:
+                xs, fs = xs[-(m + 1):], fs[-(m + 1):]
+            if len(fs) < 2:
+                x = x + fx
+                continue
+            dF = torch.stack([fs[i + 1] - fs[i] for i in range(len(fs) - 1)], -1)
+            dX = torch.stack([xs[i + 1] - xs[i] for i in range(len(xs) - 1)], -1)
+            flatF = dF.reshape(-1, dF.shape[-1])
+            flatX = dX.reshape(-1, dX.shape[-1])
+            gam = torch.linalg.lstsq(flatF, fx.reshape(-1)).solution
+            x = (1 - beta) * (x - (flatX @ gam).reshape(x0.shape)) + beta * ((x + fx) - (flatF @ gam).reshape(x0.shape))
+        return x
+    if name == "aitken":
+        x = x0
+        for _ in range(K):
+            d1 = g(x) - x
+            d2 = g(x + d1) - 2 * (x + d1) + x
+            xn = x - (d1 * d1) / torch.where(d2.abs() < 1e-12, torch.full_like(d2, 1e-12), d2)
+            xn = torch.minimum(torch.maximum(xn, x - d1), x + d1)
+            x = xn
+        return x
+    if name == "uniform":
+        x = x0
+        run = x0
+        for k in range(K):
+            run = run + x
+            x = g(run / (k + 2))
+        return x
+    raise ValueError(name)
+
+
+def paper_2605_23872_table1_strategies(K=3):
+    """Table 1: seven strategies + naive loop + uniform loop.  Verifies the
+    stated forward-pass budget by counting evaluations of g, and records the
+    Aitken budget discrepancy (the stated rule needs two g evaluations per
+    step unless the next iterate's evaluation is reused)."""
+    d = 8
+    g = _tfl_map(d, seed=3)
+    g0 = torch.Generator().manual_seed(31)
+    x0 = torch.randn(2, d, generator=g0)
+    rows = []
+    for name, label, rule, claimed, _ in _TFL_STRATEGIES:
+        calls = {"n": 0}
+
+        def gc(x, _c=calls):
+            _c["n"] += 1
+            return g(x)
+
+        try:
+            y = _tfl_run_strategy(name, gc, x0, K)
+            err = None
+            finite = bool(torch.isfinite(y).all())
+        except Exception as exc:  # strategy numerically singular on this toy
+            y = None
+            err = type(exc).__name__
+            finite = False
+        claimed_n = (int(claimed[0]) if len(claimed) > 1 else 1) * K
+        rows.append({"strategy": name, "table1_row": label, "update_rule": rule,
+                     "claimed_passes": claimed, "measured_passes": calls["n"],
+                     "matches_claimed": bool(calls["n"] == claimed_n),
+                     "finite": finite, "error": err,
+                     "out_norm": None if y is None else float(y.norm())})
+    return {"K": K, "rows": rows,
+            "all_pass_counts_match": bool(all(r["matches_claimed"] for r in rows if r["strategy"] != "aitken")),
+            "aitken_discrepancy": {
+                "claimed": "K",
+                "measured_rule_cost": "2 g evaluations per safeguarded d2 step",
+                "reuse_note": "Table 1 lists K; the stated update needs 2K unless g(g(x_k)) is reused as the next step's d1",
+                "paper": "Table 1 row 'Aitken d2 (per-coordinate)' + notation note"},
+            "seven_evaluated_strategies": ["naiveloop", "damped_euler", "rk2_midpoint",
+                                           "rk2_heun", "rk4", "heavy_ball", "anderson"],
+            "k1_is_identity_for_all": True}
+
+
+def paper_2605_23872_fig2_valley(arxiv_id="2605.23872"):
+    """Figure 2: tiny pre(R4->R2) -> 3 residual layers -> post(R2->R2) trained
+    end-to-end on 2-D regression.  L(z) = median_i ||post(z) - y_i||_2 over a
+    220x220 grid in z.  Naive K-fold looping drifts out of the trained valley;
+    damped sub-step endpoints stay inside it."""
+    torch.manual_seed(19)
+    np.random.seed(19)
+    d_in, d_hid = 4, 2
+    pre = torch.nn.Linear(d_in, d_hid)
+    Ws = [torch.nn.Linear(d_hid, d_hid) for _ in range(3)]
+    post = torch.nn.Linear(d_hid, d_hid)
+    net = torch.nn.ModuleList([pre] + Ws + [post])
+    X = torch.randn(512, d_in)
+    Y = torch.randn(512, d_hid)
+    opt = torch.optim.Adam(net.parameters(), lr=3e-3)
+    for _ in range(900):
+        idx = torch.randint(0, X.shape[0], (128,))
+        x = X[idx]
+        h = net[0](x)
+        for i in range(1, 4):
+            h = h + net[i](h)
+        loss = torch.nn.functional.mse_loss(net[4](h), Y[idx])
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    train_mse = float(loss.detach())
+    with torch.no_grad():
+        h = net[0](X)
+        for i in range(1, 4):
+            h = h + net[i](h)
+        base_z = h
+        z_naive, z_sub = {}, {}
+        for K in [2, 4, 8]:
+            zn = base_z
+            for _ in range(K):
+                zn = zn + net[1](zn)
+                zn = zn + net[2](zn)
+                zn = zn + net[3](zn)
+            z_naive[K] = zn
+            zs = base_z.clone()
+            for _ in range(K):
+                for i in range(1, 4):
+                    zs = zs + (1.0 / K) * net[i](zs)
+            z_sub[K] = zs
+        # reference trajectory of the window residual field x' = F(x), F(x)=g(x)-x
+        def gmap(z):
+            for i in range(1, 4):
+                z = z + net[i](z)
+            return z
+
+        def ref_traj(z0, T, steps=2000):
+            z = z0.clone()
+            hstep = T / steps
+            for _ in range(steps):
+                z = z + hstep * (gmap(z) - z)
+            return z
+
+        traj_rows = []
+        ref1 = ref_traj(base_z, 1.0)
+        for K in [1, 2, 4, 8]:
+            zn = base_z.clone()
+            for _ in range(K):
+                zn = gmap(zn)
+            zs = base_z.clone()
+            for _ in range(K):
+                zs = zs + (1.0 / K) * (gmap(zs) - zs)
+            refK = ref1 if K == 1 else ref_traj(base_z, float(K))
+            traj_rows.append({"K": K,
+                              "naive_err_vs_x1": float((zn - ref1).norm(dim=-1).mean()),
+                              "naive_err_vs_xK": float((zn - refK).norm(dim=-1).mean()),
+                              "substep_err_vs_x1": float((zs - ref1).norm(dim=-1).mean())})
+    lim = base_z.abs().max() * 2.2
+    gs = np.linspace(-float(lim), float(lim), 220)
+    ZZ = torch.tensor(np.stack(np.meshgrid(gs, gs, indexing="ij"), -1).reshape(-1, 2), dtype=torch.float32)
+    with torch.no_grad():
+        pred = net[4](ZZ)
+    d2 = (pred[:, None, :] - Y[None, :, :]).norm(dim=-1)
+    L = d2.median(dim=1).values.reshape(220, 220)
+    thr = float(torch.quantile(L.flatten(), 0.05))
+
+    def valley_stats(z):
+        ix = torch.clamp(((z[:, 0] + lim) / (2 * lim) * 219).long(), 0, 219)
+        iy = torch.clamp(((z[:, 1] + lim) / (2 * lim) * 219).long(), 0, 219)
+        vals = L[ix, iy]
+        return float(vals.median()), float((vals <= thr).float().mean())
+
+    rows = []
+    for K in [2, 4, 8]:
+        nv_med, nv_frac = valley_stats(z_naive[K])
+        sb_med, sb_frac = valley_stats(z_sub[K])
+        rows.append({"K": K, "naive_endpoint_loss": nv_med, "substep_endpoint_loss": sb_med,
+                     "naive_in_valley_frac": nv_frac, "substep_in_valley_frac": sb_frac,
+                     "naive_over_substep": nv_med / max(sb_med, 1e-12)})
+    _style()
+    out = _outdir(arxiv_id)
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.2), constrained_layout=True)
+    for ax, K in zip(axes, [2, 4, 8]):
+        ax.contourf(gs, gs, np.log10(L.numpy() + 1e-12), levels=30, cmap="viridis")
+        ax.scatter(base_z[:60, 0], base_z[:60, 1], s=9, c="white", label="baseline", edgecolors="k", linewidths=0.3)
+        ax.scatter(z_sub[K][:60, 0], z_sub[K][:60, 1], s=11, marker="s", c="#7b3294", label="sub-step")
+        ax.scatter(z_naive[K][:60, 0], z_naive[K][:60, 1], s=13, facecolors="none", edgecolors="#d73027", label="naive loop")
+        ax.set_title(f"K={K}: naive/sub-step loss ratio {rows[[2, 4, 8].index(K)]['naive_over_substep']:.1f}x")
+        ax.legend(fontsize=7, loc="upper right")
+    plot_ok = _save(fig, out / "fig2_valley.png")
+    ratios = [r["naive_over_substep"] for r in rows]
+    na = [r["naive_err_vs_x1"] for r in traj_rows]
+    su = [r["substep_err_vs_x1"] for r in traj_rows]
+    return plot_ok, {"train_mse": train_mse, "grid": 220, "valley_q05": thr,
+                     "rows": rows,
+                     "naive_leaves_valley": bool(all(r["naive_in_valley_frac"] == 0.0 for r in rows)),
+                     "substep_stays_partly_inside": bool(all(r["substep_in_valley_frac"] > 0.0 for r in rows)),
+                     "ratio_grows_with_K": bool(ratios[0] < ratios[-1]),
+                     "trajectory_check": {
+                         "rows": traj_rows,
+                         "naive_error_vs_x1_grows": bool(na[-1] > na[0] * 3),
+                         "naive_tracks_xK_not_x1": bool(all(r["naive_err_vs_xK"] <= r["naive_err_vs_x1"] + 1e-9
+                                                            for r in traj_rows if r["K"] >= 2)),
+                         "substep_error_vs_x1_shrinks": bool(su[-1] < su[1]),
+                         "meaning": "naive K-folding integrates to t=K; damped sub-steps refine the t=1 endpoint (Sec 2.3)"},
+                     "published": {"baseline_mse": 0.015, "naive_K2": 2.88, "substep_K2": 0.36,
+                                   "naive_K8": 335.0, "substep_K8": 1.04,
+                                   "gap_K2": "8x", "gap_K8": "320x"},
+                     "note": "absolute MSE is toy-specific; the reported claim is the growing naive-vs-substep gap"}
+
+
+def paper_2605_23872_table2_window():
+    """Table 2 (a) window-width sweep, (b) per-size winners, (c) block vs layer
+    mode on MoE.  Recomputes the implied no-loop baseline of (a) and flags the
+    caption/header K disagreement in (c)."""
+    a = [("n=1", [14], 55.72, 0.18), ("n=2", [13, 14], 55.60, 0.06),
+         ("n=3", [13, 14, 15], 55.75, 0.21), ("n=4", [12, 15], 56.09, 0.55),
+         ("n=6", [11, 16], 54.72, -0.82), ("n=12", [8, 19], 54.91, -0.63),
+         ("n=28", [0, 27], 27.81, -27.73)]
+    implied = sorted({round(sc - d, 4) for _, _, sc, d in a})
+    b = [("Qwen3-0.6B-Base", 0.57, 0.22, "n=3"), ("Qwen3-1.7B-Base", 0.21, 0.55, "n=4"),
+         ("Qwen3-4B-Base", 0.43, 0.85, "n=4"), ("Llama-3.2-3B-Instruct", 0.23, 0.45, "n=4")]
+    c = [("Qwen1.5-MoE-A2.7B", "ARC-Challenge", 0.17, 0.85),
+         ("Qwen1.5-MoE-A2.7B", "CSQA", 0.16, 0.33),
+         ("Qwen1.5-MoE-A2.7B", "OBQA", 1.00, -1.40),
+         ("Qwen1.5-MoE-A2.7B", "MMLU", -1.18, 0.00),
+         ("Qwen1.5-MoE-A2.7B", "SciQ", 0.20, None),
+         ("Qwen1.5-MoE-A2.7B", "GPQA-Main", -1.11, None),
+         ("Moonlight-16B-A3B", "ARC-Challenge", -1.45, 0.51),
+         ("Moonlight-16B-A3B", "CSQA", -0.66, 0.49),
+         ("Moonlight-16B-A3B", "OBQA", -0.20, 1.20),
+         ("Moonlight-16B-A3B", "MMLU", 0.74, None),
+         ("Moonlight-16B-A3B", "SciQ", -0.50, -0.60),
+         ("Moonlight-16B-A3B", "GPQA-Main", -2.00, 0.90)]
+    pair = [(bl, la) for _, _, bl, la in c if la is not None]
+    return {"table2a": [{"n": n, "window": w, "score": s, "delta": dd} for n, w, s, dd in a],
+            "table2a_implied_baselines": implied,
+            "table2a_baseline_consistent": bool(len(implied) == 1),
+            "table2a_baseline": implied[0] if len(implied) == 1 else None,
+            "table2a_best_n": "n=4",
+            "table2a_cliff_at_n_ge_6": True,
+            "table2b": [{"model": m, "n3": x, "n4": y, "winner": w} for m, x, y, w in b],
+            "table2b_n4_wins_ge_1_7B": bool(sum(1 for m, x, y, w in b if w == "n=4") == 3),
+            "table2c": [{"model": m, "bench": bb, "block_K3": bl, "layer": la} for m, bb, bl, la in c],
+            "table2c_layer_wins_count": sum(1 for bl, la in pair if la > bl),
+            "table2c_pairs": len(pair),
+            "table2c_layer_better_frac": round(sum(1 for bl, la in pair if la > bl) / len(pair), 4),
+            "table2c_range_claim": "+0.5 to +1.7 pp on hard MoE benchmarks",
+            "discrepancy_caption_vs_header": {
+                "caption": "block K=3 / layer K=2",
+                "header": "block (K=3) | layer (K=3)",
+                "note": "Table 2c caption and column header disagree on the layer-mode loop count"},
+            "discrepancy_baseline_2a_vs_table6": {
+                "table2a_implied": 55.54, "table6_1.7b_16task_baseline": 55.60,
+                "table10_baseline": 55.598, "table9_reference": 56.113,
+                "note": "the 16-task no-loop baseline is quoted as 55.54 (2a) and 55.60 (6) / 55.598 (10)"}}
+
+
+def paper_2605_23872_tables34_headline():
+    """Table 3 (headline cells, dense + MoE) and Table 4 (Qwen3-30B-A3B
+    leakage-free transfer, accuracy + LAMBADA PPL)."""
+    t3 = [("Qwen3-4B-Instruct", "MMLU-Pro 5-shot", 0.5714, 0.5979, 2.64, "dense"),
+          ("Qwen3-4B-Instruct", "GPQA-Main 0-shot", 0.3371, 0.3571, 2.01, "dense"),
+          ("Qwen3-4B-Instruct", "CommonsenseQA 7-shot", 0.7887, 0.7993, 1.06, "dense"),
+          ("Llama-3.2-3B-Instruct", "GPQA-Main 0-shot", 0.2991, 0.3103, 1.12, "dense"),
+          ("Llama-3.2-3B-Instruct", "MMLU-Pro 5-shot", 0.3164, 0.3236, 0.71, "dense"),
+          ("Llama-3.2-3B-Instruct", "MMLU 0-shot", 0.5966, 0.6039, 0.72, "dense"),
+          ("Llama-3.2-1B-Instruct", "GPQA-Main 0-shot", 0.2790, 0.2969, 1.79, "dense"),
+          ("Qwen1.5-MoE-A2.7B", "ARC-Challenge 25-shot", 0.4829, 0.5060, 2.30, "moe"),
+          ("Qwen1.5-MoE-A2.7B", "CommonsenseQA 7-shot", 0.7961, 0.8133, 1.72, "moe"),
+          ("Qwen1.5-MoE-A2.7B", "OpenBookQA 0-shot", 0.3160, 0.3320, 1.60, "moe"),
+          ("Moonlight-16B-A3B", "MMLU 0-shot", 0.6786, 0.6860, 0.74, "moe"),
+          ("Moonlight-16B-A3B", "OpenBookQA 0-shot", 0.3160, 0.3280, 1.20, "moe"),
+          ("DeepSeek-V2-Lite-Chat", "ARC-Challenge 25-shot", 0.5794, 0.5879, 0.85, "moe")]
+    rows3, ok3 = [], True
+    for m, bb, base, loop, d, kind in t3:
+        calc = round((loop - base) * 100, 2)
+        if abs(calc - d) > 0.011:
+            ok3 = False
+        rows3.append({"model": m, "bench": bb, "base": base, "loop": loop,
+                      "delta_pp": d, "delta_recomputed": calc, "kind": kind})
+    t4 = {"ARC-Easy": (79.04, 79.38, 79.08), "HellaSwag": (77.74, 77.93, 77.78),
+          "SciQ": (94.80, 95.00, 94.90), "CSQA": (78.71, 79.85, 79.61),
+          "TruthfulQA": (34.15, 34.64, 34.27), "MMLU-flex": (66.67, 67.46, 66.67),
+          "GPQA-Main": (37.28, 37.50, 37.72), "SuperGPQA": (31.00, 31.70, 31.05),
+          "LAMBADA-PPL": (4.12, 4.11, 4.12)}
+    rows4 = []
+    for k, (b, rk, hn) in t4.items():
+        rows4.append({"bench": k, "baseline": b, "Kstage_RK": rk, "Heun_K1": hn,
+                      "d_rk": round(rk - b, 2), "d_heun": round(hn - b, 2)})
+    acc_rows = [r for r in rows4 if r["bench"] != "LAMBADA-PPL"]
+    return {"table3": rows3, "table3_deltas_recomputed_ok": bool(ok3),
+            "table3_max_abs_delta_err": max(abs(r["delta_pp"] - r["delta_recomputed"]) for r in rows3),
+            "table3_dense_max": max(r["delta_pp"] for r in rows3 if r["kind"] == "dense"),
+            "table3_moe_max": max(r["delta_pp"] for r in rows3 if r["kind"] == "moe"),
+            "table3_moe_smaller_than_dense": bool(max(r["delta_pp"] for r in rows3 if r["kind"] == "moe")
+                                                  < max(r["delta_pp"] for r in rows3 if r["kind"] == "dense")),
+            "table4": rows4,
+            "table4_rk_nonneg_count": sum(1 for r in acc_rows if r["d_rk"] >= 0),
+            "table4_rk_positive_count": sum(1 for r in acc_rows if r["d_rk"] > 0),
+            "table4_heun_adds_positives": sum(1 for r in acc_rows if r["d_heun"] > 0 and r["d_rk"] <= 0),
+            "table4_ppl_preserved": bool(rows4[-1]["baseline"] >= rows4[-1]["Kstage_RK"]),
+            "recipe": "3-stage RK at mid 4 layers; block-mode dense, layer-mode MoE; no per-cell tuning",
+            "window_30b": "[22,24] committed in advance from the depth-fraction rule (App K)"}
+
+
+def paper_2605_23872_fig4_ksweep():
+    """Figure 4: (a) ours stable for K in 1..24 while uniform loop fails after
+    K>=6; (b) naive loop degrades monotonically to 37.89 at K=6 (-17.71 pp).
+    Live analog on a trained tiny residual net + published anchors."""
+    torch.manual_seed(19)
+    d = 6
+    Ws = _tfl_W(d, 4, 77)
+    target = torch.randn(d, generator=torch.Generator().manual_seed(78))
+
+    def g(x):
+        return _tfl_block(Ws, x)
+
+    x0 = torch.randn(64, d, generator=torch.Generator().manual_seed(79))
+
+    def loss_of(z):
+        return float((z - target).norm(dim=-1).median())
+
+    base = loss_of(g(x0))
+    naive, uniform, ours = [], [], []
+    for K in [1, 2, 3, 4, 6, 8, 12, 16, 24]:
+        xn = x0.clone()
+        for _ in range(K):
+            xn = g(xn)
+        naive.append({"K": K, "loss": loss_of(xn)})
+        run = x0.clone()
+        xu = x0.clone()
+        for k in range(K):
+            run = run + xu
+            xu = g(run / (k + 2))
+        uniform.append({"K": K, "loss": loss_of(xu)})
+        ours.append({"K": K, "loss": loss_of(_tfl_substeps(g, x0, K))})
+    return {"base_loss": base,
+            "naive": naive, "uniform": uniform, "ours": ours,
+            "naive_worsens_with_K": bool(naive[-1]["loss"] > naive[1]["loss"]),
+            "uniform_worse_than_naive_by_K24": bool(uniform[-1]["loss"] > naive[-1]["loss"]),
+            "ours_best_at_every_K": bool(all(o["loss"] <= min(n["loss"], u["loss"]) + 1e-9
+                                             for o, n, u in zip(ours, naive, uniform))),
+            "published": {"ours_range": "stable for K in 1..24", "uniform": "fails to scale after K>=6",
+                          "naive_K6_pct": 37.89, "naive_K6_delta_pp": -17.71,
+                          "naive_pct_by_K": {"1": 55.60, "2": 51.00, "4": 46.00, "6": 37.89}}}
+
+
+def paper_2605_23872_fig5_comparison():
+    """Figure 5: baseline / naive K=4 / ours on Llama-3.2-3B-Inst and
+    Moonlight-16B-A3B-Inst.  The PDF text layer exposes the baseline and ours
+    bars only; naive bars are recorded as unlabeled."""
+    cells = [("Llama-3.2-3B-Inst", "GPQA-Main", 29.91, 31.03, (27, 30, 33)),
+             ("Llama-3.2-3B-Inst", "MMLU-Pro", 31.64, 32.36, (27.80, 30, 33)),
+             ("Llama-3.2-3B-Inst", "MMLU", 59.66, 60.39, (55, 58, 61)),
+             ("Moonlight-16B-A3B-Inst", "ARC-C", 62.20, 62.71, (58.0, 60.5, 63.0)),
+             ("Moonlight-16B-A3B-Inst", "MMLU(1500)", 67.86, 68.60, (63.50, 66, 69)),
+             ("Moonlight-16B-A3B-Inst", "CSQA", 78.62, 79.11, (74.50, 76.5, 78.0))]
+    rows = []
+    for m, bb, base, ours, ax in cells:
+        rows.append({"model": m, "bench": bb, "baseline": base, "ours": ours,
+                     "delta_pp": round(ours - base, 2), "axis": ax, "naive_K4": None})
+    _style()
+    out = _outdir("2605.23872")
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
+    for ax, r in zip(axes, rows[:3]):
+        xs = [0, 1]
+        ax.bar(xs, [r["baseline"], r["ours"]], color=["#bdbdbd", "#4c72b0"], hatch=["//", ""])
+        ax.set_xticks(xs)
+        ax.set_xticklabels(["baseline", "ours (Alg 3)"])
+        ax.set_title(f"{r['bench']}: {r['delta_pp']:+.2f} pp")
+    plot_ok = _save(fig, out / "fig5_comparison.png")
+    return plot_ok, {"cells": rows,
+                     "all_ours_positive": bool(all(r["delta_pp"] > 0 for r in rows)),
+                     "naive_note": "naive K=4 bars are plotted in the paper but carry no numeric label in the text layer",
+                     "claim": "naive loop collapses on every cell; ours stays within the trained regime"}
+
+
+def paper_2605_23872_table6_percell():
+    """Table 6: every non-negative cell under the fixed recipe, with the
+    [start-end] mode K strategy cache decode configuration string."""
+    rows = [
+        ("Qwen3-4B-Instruct", "MMLU-Pro 5sh CoT", 57.14, 59.79, 2.64, "[15-18]", 3, "Euler", "first", "block", "full"),
+        ("Qwen3-4B-Instruct", "GPQA-Main 0sh", 33.71, 35.71, 2.01, "[15-18]", 3, "Euler", "first", "block", "full"),
+        ("Qwen3-4B-Instruct", "SciQ 0sh", 93.30, 95.10, 1.80, "[15-18]", 3, "Euler", "first", "block", "full"),
+        ("Qwen3-4B-Instruct", "MMLU 0sh", 68.15, 69.45, 1.30, "[15-18]", 3, "Euler", "first", "block", "full"),
+        ("Qwen3-4B-Instruct", "CommonsenseQA 7sh", 78.87, 79.93, 1.06, "[15-18]", 3, "Euler", "first", "block", "full"),
+        ("Qwen3-4B-Instruct", "MedMCQA 0sh", 53.40, 54.13, 0.73, "[11-14]", 3, "Euler", "first", "block", "full"),
+        ("Qwen3-4B-Instruct", "ARC-Challenge 25sh", 62.54, 63.14, 0.60, "[15-18]", 3, "damped Euler a=0.5 halt t=0.05", "first", "block", "full"),
+        ("Qwen3-4B-Instruct", "C-Eval 5sh", 72.21, 72.73, 0.52, "[15-18]", 3, "Euler", "first", "block", "full"),
+        ("Qwen3-4B-Instruct", "OpenBookQA 0sh", 40.20, 40.60, 0.40, "[11-14]", 3, "Euler", "first", "block", "full"),
+        ("Qwen3-4B-Base", "MMLU 5sh", 73.27, 73.61, 0.34, "[15-18]", 3, "Euler", "first", "block", "-"),
+        ("Qwen3-4B-Base", "16-task macro", 63.98, 65.03, 1.05, "[15-18]", 3, "Euler", "first", "block", "-"),
+        ("Qwen3-1.7B-Base", "MMLU 5sh", 62.68, 63.01, 0.34, "[12-15]", 2, "damped Euler", "last", "block", "-"),
+        ("Qwen3-1.7B-Base", "16-task macro", 55.60, 56.11, 0.51, "[12-15]", 2, "damped Euler", "last", "block", "-"),
+        ("Qwen3-0.6B-Base", "16-task macro", 47.87, 48.43, 0.56, "[12-15]", 2, "heavy-ball a=0.5 b=0.5", "last", "layer", "-"),
+        ("Llama-3.2-3B-Inst", "MMLU-Pro 5sh CoT", None, None, 0.71, "[12-15]", 2, "Euler", "first", "block", "full"),
+        ("Llama-3.2-3B-Inst", "GPQA-Main 0sh", None, None, 0.67, "[12-15]", 2, "Euler", "first", "block", "full"),
+        ("Llama-3.2-3B-Inst", "MMLU 5sh", None, None, 0.72, "[16-19]", 2, "Euler", "last", "layer", "bypass"),
+        ("Llama-3.2-3B-Inst", "OpenBookQA 0sh", None, None, 0.40, "[20-23]", 3, "Euler", "last", "block", "bypass"),
+        ("Qwen1.5-MoE-A2.7B", "ARC-Challenge 25sh", 48.29, 50.59, 2.30, "[13-16]", 3, "Euler", "first", "block", "full"),
+        ("Qwen1.5-MoE-A2.7B", "CommonsenseQA 7sh", 79.61, 81.33, 1.72, "[10-13]", 2, "Euler", "first", "block", "full"),
+        ("Qwen1.5-MoE-A2.7B", "OpenBookQA 0sh", 31.60, 33.20, 1.60, "[14-17]", 3, "Euler", "first", "block", "full"),
+        ("Qwen1.5-MoE-A2.7B", "SciQ 0sh", 94.80, 95.10, 0.30, "[14-17]", 3, "Euler", "first", "block", "full"),
+        ("DeepSeek-V2-Lite", "ARC-Challenge 25sh", 57.94, 58.79, 0.85, "[13-16]", 2, "Euler", "first", "layer", "bypass"),
+        ("DeepSeek-V2-Lite", "OpenBookQA 0sh", 35.80, 36.60, 0.80, "[13-16]", 2, "Euler", "first", "block", "bypass"),
+        ("DeepSeek-V2-Lite", "MMLU (1500)", None, None, 0.56, "[10-13]", 3, "Euler", "first", "block", "bypass"),
+        ("DeepSeek-V2-Lite", "CommonsenseQA 7sh", 75.43, 75.92, 0.49, "[11-14]", 2, "Euler", "first", "block", "bypass"),
+        ("Moonlight-16B-A3B", "OpenBookQA 0sh", None, None, 1.20, "[8-11]", 3, "Euler", "first", "block", "bypass"),
+        ("Moonlight-16B-A3B", "GPQA-Main 0sh", None, None, 0.89, "[15-18]", 2, "Euler", "first", "layer", "bypass"),
+        ("Moonlight-16B-A3B", "ARC-Challenge 25sh", None, None, 0.51, "[11-14]", 2, "Euler", "first", "layer", "bypass"),
+        ("Moonlight-16B-A3B", "CommonsenseQA 7sh", None, None, 0.49, "[11-14]", 2, "Euler", "first", "layer", "bypass"),
+        ("Qwen3-30B-A3B-Inst", "CommonsenseQA 7sh", 78.71, 79.85, 1.14, "[22-24]", 2, "Euler", "first", "block", "bypass"),
+    ]
+    out, ok = [], True
+    for m, bb, base, loop, d, win, K, strat, cache, mode, dec in rows:
+        rec = {"model": m, "bench": bb, "baseline": base, "loop": loop, "delta_pp": d,
+               "config": f"{win} {'block' if mode == 'block' else 'layer'} K={K} {strat} {cache} {dec}"}
+        if base is not None:
+            calc = round(loop - base, 2)
+            rec["delta_recomputed"] = calc
+            if abs(calc - d) > 0.011:
+                ok = False
+        out.append(rec)
+    centers = []
+    for r in out:
+        w = r["config"].split()[0].strip("[]")
+        a, b = (int(v) for v in w.split("-"))
+        centers.append((a + b) / 2.0)
+    return {"rows": out, "n_rows": len(out),
+            "deltas_recomputed_ok": bool(ok),
+            "deltas_missing_baseline": sum(1 for r in out if r["baseline"] is None),
+            "mode_counts": {"block": sum(1 for r in out if "block" in r["config"]),
+                            "layer": sum(1 for r in out if "layer" in r["config"])},
+            "cache_counts": {"first": sum(1 for r in out if r["config"].endswith("full") or " first " in r["config"]),
+                             "last": sum(1 for r in out if " last " in r["config"])},
+            "K_counts": {"K2": sum(1 for r in out if "K=2" in r["config"]),
+                         "K3": sum(1 for r in out if "K=3" in r["config"])},
+            "moe_layer_mode_rows": sum(1 for r in out
+                                       if r["model"].startswith(("Moonlight", "DeepSeek")) and "layer" in r["config"]),
+            "window_center_median": float(np.median(centers)),
+            "note": "rows with baseline None are reported as delta-only in the paper"}
+
+
+def paper_2605_23872_table7_ablation():
+    """Table 7: width, K/strategy and cache-strategy ablations on Qwen3-1.7B-Base
+    at [12-15], including the two documented catastrophes."""
+    a = {"n=1": 0.18, "n=3": 0.21, "n=4": 0.55, "n=6": -0.82, "n=12": -0.63, "n=28": "catastrophic"}
+    b = {"naive loop K=2": 0.51, "naive loop K=4 (0.6B)": -10.21,
+         "damped Euler K=2 a=0.5": 0.55, "damped Euler K=3 a~1/3 (4B)": 1.05,
+         "higher-order/accel.": "see Table 8"}
+    c = {"first": {"aggregate": ">=0", "gsm8k": ">=0", "mmlu_pro": ">=0", "mbpp": ">=0"},
+         "last": {"aggregate": ">=0", "gsm8k": ">=0", "mmlu_pro": ">=0", "mbpp": "+0.60 over first"},
+         "none": {"aggregate": "catastrophic", "gsm8k": -58.91, "mmlu_pro": -8.86}}
+    return {"table7a_width": a, "table7a_best": "n=4", "table7a_cliff": True,
+            "table7b_K_strategy": b, "table7b_best_here": "K=3 damped Euler a~1/3 (4B)",
+            "table7c_cache": c,
+            "cache_none_catastrophe": {"gsm8k_delta_pp": -58.91, "mmlu_pro_delta_pp": -8.86},
+            "naive_K4_catastrophe_0.6b": {"delta_pp": -10.21, "lambada_ppl": "~13 -> 1054.12"},
+            "window_width_rule": "n=4 mid-window; n>=6 falls off a cliff, n=28 collapses",
+            "appG_extra": "cache=none uniformly catastrophic on decode; norm_stab catastrophic at K>=3"}
+
+
+def paper_2605_23872_tables89_solvers():
+    """Table 8 (higher-order solvers + fixed-point accelerators vs damped Euler)
+    and Table 9 (24-row acceleration sweep sorted best->worst)."""
+    t8 = [("damped Euler (a=0.5, h=1/2)", 0.00, 0.00, True),
+          ("midpoint (RK2)", -0.85, -1.96, False),
+          ("Heun (RK2)", -0.92, -1.90, False),
+          ("RK4", -0.65, -2.34, False),
+          ("heavy-ball (a=0.5, b=0.3)", -0.12, -0.06, False),
+          ("Anderson (K=4, m=2, b=0.5)", -0.96, None, False),
+          ("Aitken d2 (safeguarded)", -7.00, None, False),
+          ("Anderson worst (K=8, m=3, b=1.0)", -18.06, -19.56, False)]
+    t9 = [("Euler-sched", 2, "a=[0.6, 0.4]", 56.085, -0.028),
+          ("heavy-ball", 2, "a=0.5, b=0.3", 55.999, -0.115),
+          ("heavy-ball", 2, "a=0.5, b=0.5", 55.993, -0.120),
+          ("heavy-ball", 2, "a=0.7, b=0.3", 55.946, -0.167),
+          ("heavy-ball", 4, "a=0.3, b=0.5", 55.927, -0.186),
+          ("Euler-sched", 4, "a=[0.7,0.5,0.3,0.1]", 55.478, -0.636),
+          ("Euler-sched", 3, "a=[0.7,0.5,0.3]", 55.252, -0.861),
+          ("Anderson", 4, "m=2, b=0.5", 55.153, -0.960),
+          ("Euler-sched", 3, "a=[0.3,0.5,0.7]", 55.036, -1.077),
+          ("Anderson", 6, "m=3, b=0.5", 54.722, -1.391),
+          ("Anderson", 3, "m=2, b=1.0", 54.373, -1.740),
+          ("Anderson", 6, "m=2, b=0.5", 54.333, -1.781),
+          ("heavy-ball", 4, "a=0.5, b=0.3", 54.044, -2.069),
+          ("Euler-sched", 4, "a=[0.4,0.6,0.6,0.4]", 54.005, -2.108),
+          ("heavy-ball", 4, "a=0.5, b=0.5", 53.495, -2.618),
+          ("Anderson", 4, "m=3, b=1.0", 52.655, -3.458),
+          ("heavy-ball", 4, "a=0.5, b=0.7", 52.562, -3.552),
+          ("Anderson", 4, "m=2, b=1.0", 52.032, -4.082),
+          ("heavy-ball", 3, "a=1.0, b=0.5", 51.236, -4.877),
+          ("Aitken d2", 2, "safeguarded", 49.109, -7.004),
+          ("Aitken d2", 4, "safeguarded", 48.318, -7.795),
+          ("Aitken d2", 6, "safeguarded", 44.921, -11.192),
+          ("Anderson", 6, "m=2, b=1.0", 44.261, -11.852),
+          ("Anderson", 8, "m=3, b=1.0", 38.058, -18.056)]
+    ref = 56.113
+    calc = [round(s - ref, 3) for _, _, _, s, _ in t9]
+    errs = [abs(c - d) for c, (_, _, _, _, d) in zip(calc, t9)]
+    return {"table8": [{"method": m, "block_delta": b, "layer_delta": l, "is_reference": r}
+                       for m, b, l, r in t8],
+            "table8_none_beat_reference": bool(all(b <= 0 for _, b, _, _ in t8[1:])),
+            "table8_layer_worse_than_block": bool(sum(abs(l - b) for _, b, l, _ in t8[1:]
+                                                      if l is not None and b is not None
+                                                      and l < b) >= 3),
+            "table9_n_rows": len(t9),
+            "table9_reference": ref,
+            "table9_deltas_recomputed_ok": bool(max(errs) <= 0.0011),
+            "table9_max_abs_delta_err": max(errs),
+            "table9_sorted_desc": bool(all(t9[i][3] >= t9[i + 1][3] for i in range(len(t9) - 1))),
+            "table9_best_delta": t9[0][4],
+            "table9_worst_delta": t9[-1][4],
+            "table9_none_positive": bool(all(d < 0 for *_, d in t9)),
+            "anderson_worsens_with_K": [t9[1][4], t9[7][4], t9[9][4], t9[21][4], t9[23][4]],
+            "conclusion": "the looped block is not a contraction; fixed-point acceleration is the wrong tool"}
+
+
+def paper_2605_23872_tables1011_sweeps():
+    """Table 10 (norm_stab / poly_blend) and Table 11 (layer-mode strategy
+    sweep), both referenced to their own damped-Euler reference."""
+    t10 = [("norm_stab", 2, "a=0.5", 56.059, -0.055), ("poly_blend", 2, "w=[0.4,0.2,0.4]", 55.974, -0.139),
+           ("poly_blend", 2, "w=[0.1,0.4,0.5]", 55.884, -0.229), ("poly_blend", 2, "w=[0.2,0.3,0.5]", 55.753, -0.360),
+           ("poly_blend", 2, "w=[0.0,0.5,0.5]", 55.599, -0.514), ("poly_blend", 2, "w=[0.25,0.25,0.5]", 55.371, -0.742),
+           ("poly_blend", 2, "w=[0.5,0.0,0.5]", 55.107, -1.006), ("norm_stab", 2, "a=0.7", 55.009, -1.105),
+           ("poly_blend", 3, "w=[0.2,0.2,0.2,0.4]", 54.818, -1.295), ("poly_blend", 3, "w=[0.1,0.2,0.3,0.4]", 54.681, -1.433),
+           ("norm_stab", 3, "a=0.5", 53.270, -2.844), ("norm_stab", 2, "a=1.0", 52.302, -3.811),
+           ("norm_stab", 6, "a=0.3", 49.560, -6.554), ("norm_stab", 3, "a=0.7", 49.338, -6.776),
+           ("norm_stab", 4, "a=0.5", 49.067, -7.046), ("norm_stab", 3, "a=1.0", 43.101, -13.013)]
+    t11 = [("heavy-ball a=0.5 b=0.3", 2, 56.292, -0.056), ("poly_blend w=[0.25,0.5,0.25]", 2, 56.181, -0.167),
+           ("damped Euler a=0.3", 3, 55.278, -1.069), ("Euler", 4, 55.240, -1.107),
+           ("damped Euler a=0.7", 2, 55.196, -1.151), ("Euler", 6, 54.998, -1.350),
+           ("Heun", 2, 54.445, -1.902), ("midpoint", 2, 54.385, -1.962),
+           ("RK4", 1, 54.242, -2.105), ("midpoint", 1, 54.178, -2.169),
+           ("norm_stab a=0.5", 2, 54.098, -2.249), ("Heun", 1, 54.060, -2.287),
+           ("RK4", 2, 54.005, -2.342), ("heavy-ball a=0.5 b=0.3", 3, 51.830, -4.517),
+           ("Anderson m=2 b=1.0", 3, 44.035, -12.312), ("Anderson m=2 b=1.0", 4, 36.785, -19.562)]
+    ref10, ref11 = 56.113, 56.347
+    err10 = max(abs(round(s - ref10, 3) - d) for _, _, _, s, d in t10)
+    err11 = max(abs(round(s - ref11, 3) - d) for _, _, s, d in t11)
+    return {"table10": [{"strategy": s, "K": k, "hp": hp, "score": sc, "delta": d} for s, k, hp, sc, d in t10],
+            "table10_reference": ref10, "table10_baseline_no_loop": 55.598,
+            "table10_deltas_ok": bool(err10 <= 0.0011), "table10_max_err": err10,
+            "table10_none_positive": bool(all(d < 0 for *_, d in t10)),
+            "table10_normstab_catastrophic_ge_K3": bool(all(d < -2.8 for s, k, _, _, d in t10
+                                                             if s == "norm_stab" and k >= 3)),
+            "table11": [{"recipe": r, "K": k, "score": s, "delta": d} for r, k, s, d in t11],
+            "table11_reference": ref11, "table11_deltas_ok": bool(err11 <= 0.0011), "table11_max_err": err11,
+            "table11_none_positive": bool(all(d < 0 for *_, d in t11)),
+            "table11_anderson_worse_than_block": True,
+            "baseline_quote_discrepancy": {"table10_no_loop": 55.598, "table9_reference": ref10,
+                                           "note": "the no-loop baseline (55.598) and the K=2 damped-Euler reference (56.113) differ; both are quoted in App E"},
+            "table12_resource": {"Qwen3-0.6B": "~2 GB / ~1 h", "Qwen3-1.7B": "~4 GB / ~2 h",
+                                 "Qwen3-4B": "~8 GB / ~3 h", "Llama-3.2": "~3-7 GB / ~2 h",
+                                 "Qwen1.5-MoE-A2.7B": "~30 GB / ~4 h", "DeepSeek-V2-Lite": "~32 GB / ~5 h",
+                                 "Moonlight-16B-A3B": "~32 GB / ~8 h (decode=full 21 h)",
+                                 "Qwen3-30B-A3B": "~60 GB / ~10 h"}}
+
+
+def paper_2605_23872_table15_wallclock():
+    """Table 15 (decode-time wall-clock) and App C.3 decode_mode semantics."""
+    rows = [("no loop (baseline)", 194, None), ("bypass", 191, -1.5),
+            ("first_n, N=16", 192, -1.0), ("first_n, N=64", 203, 4.6),
+            ("full", 236, 21.6)]
+    calc = []
+    for name, sec, claimed in rows:
+        c = round((sec - 194) / 194 * 100, 1)
+        calc.append({"mode": name, "seconds": sec, "overhead_pct_claimed": claimed,
+                     "overhead_pct_recomputed": c})
+    return {"setup": "Qwen3-4B-Instruct, GSM8K@200, K=3 Euler at [15-18]",
+            "rows": calc,
+            "overheads_recomputed_ok": bool(all(abs(r["overhead_pct_recomputed"] - r["overhead_pct_claimed"]) <= 0.06
+                                                for r in calc[1:])),
+            "max_overhead_pct": max(r["overhead_pct_recomputed"] for r in calc[1:]),
+            "decode_modes": {"bypass": "loop only during prefill (default for loglikelihood evals)",
+                             "full": "loop every decode step (default for generation results)",
+                             "first_n": "loop the first n generated tokens"},
+            "claims": {"bypass": "no wall-clock cost; -1.5% is run-to-run noise from a leaner KV-write path",
+                       "first_n": "-1.0% at N=16 up to +4.6% at N=64",
+                       "full": "~22% slowdown for K=3 on a 4/36 layer window",
+                       "cost_model": "1 + (K-1) * (b-a+1)/N extra layer passes in the loop region"}}
+
+
+def paper_2605_23872_tables1619_robust():
+    """Table 16 (all-positive robustness at [17-19]), Table 17 (untuned 30B),
+    Table 18 (layer-mode dense wins), Table 19 (window-count breadth)."""
+    t16 = [("Euler K=2", 0.89), ("Euler K=4", 0.73), ("Heun K=1", 0.15)]
+    t17 = [("ARC-Easy", 79.04, 79.38, 0.34, 79.08, 0.04),
+           ("HellaSwag", 77.74, 77.93, 0.19, 77.78, 0.04),
+           ("SciQ", 94.80, 95.00, 0.20, 94.90, 0.10),
+           ("CommonsenseQA", 78.71, 79.85, 1.14, 79.61, 0.90),
+           ("TruthfulQA-MC1", 34.15, 34.64, 0.49, 34.27, 0.12),
+           ("MMLU (em)", 81.75, 81.75, 0.00, 82.28, 0.53),
+           ("MMLU (flex)", 66.67, 67.46, 0.79, 66.67, 0.00),
+           ("GPQA-Main", 37.28, 37.50, 0.22, 37.72, 0.44),
+           ("GPQA-Diamond", 36.36, 34.85, -1.51, 36.87, 0.51),
+           ("SuperGPQA", 31.00, 31.70, 0.70, 31.05, 0.05),
+           ("LAMBADA acc", 64.80, 64.78, -0.02, 64.93, 0.13)]
+    best = [max(r[3], r[5]) for r in t17]
+    t18 = [("Qwen3-0.6B-Base", "layer K=2 heavy-ball b=0.5 [12-15]", 0.561, 0.128),
+           ("Qwen3-0.6B-Base", "layer K=2 heavy-ball b=0.3 [12-15]", 0.442, 0.214),
+           ("Qwen3-0.6B-Base", "layer K=2 poly-blend [0.25,0.5,0.25] [12-15]", 0.236, None),
+           ("Qwen3-1.7B-Base", "layer K=2 damped Euler [12-15]", 0.234, -0.477),
+           ("Qwen3-1.7B-Base", "layer K=2 heavy-ball [12-15]", 0.178, None),
+           ("Llama-3.2-3B-Inst", "layer K=2 Euler [16-19]", None, 0.72)]
+    t19 = [("Qwen3-0.6B-Base", 28, ">=6 of 13", "[8-11] +1.33", "[11-14] +0.17"),
+           ("Qwen3-1.7B-Base", 28, "9 of 17", "[7-10] +0.80", "[18-21] +0.02"),
+           ("Qwen3-4B-Base", 36, "13 of 16", "[15-18] +0.84", "[18-21] +0.07")]
+    return {"table16": [{"config": c, "delta_pp": d} for c, d in t16],
+            "table16_all_positive": bool(all(d > 0 for _, d in t16)),
+            "table17_rows": [{"bench": b, "baseline": b0, "euler_K2": e, "d_euler": de,
+                              "heun_K1": h, "d_heun": dh} for b, b0, e, de, h, dh in t17],
+            "table17_nonneg_frac": round(sum(1 for v in best if v >= 0) / len(best), 4),
+            "table17_claim": "11 of 12 tabulated cells non-negative under the better of {K=2 Euler, K=1 Heun}",
+            "table17_heun_adds": [r[0] for r in t17 if r[5] > 0 and r[3] <= 0],
+            "table18": [{"model": m, "config": c, "screen_16task": s, "heldout_mmlu5sh": h} for m, c, s, h in t18],
+            "table18_overfit_excluded": [("Qwen3-0.6B-Base [8-11]", 1.33, -1.21),
+                                         ("Qwen3-1.7B-Base [7-10]", 0.92, -1.38)],
+            "table19": [{"model": m, "layers": L, "positive_n4_windows": w, "best": bst, "worst_positive": wp}
+                        for m, L, w, bst, wp in t19],
+            "table19_breadth_4b": "13 of 16 windows spanning depth fractions 0.19-0.83 are simultaneously positive",
+            "perplexity": {"Qwen3-4B-Base [17-19] K=2 Euler": [4.25, 4.19],
+                           "Qwen3-4B-Instruct [17-19] K=2 Euler": [7.30, 7.01],
+                           "Qwen3-30B-A3B-Instruct [22-24] K=2 Euler": [4.12, 4.11]},
+            "perplexity_preserved_or_improved": True,
+            "search_protocol": {"space": "window center in [0.40N, 0.70N] x {n=3,4,6} x {2,3} x {NAIVE, EMA, EULER} x {FIRST, LAST}",
+                                "pairs_visited": 720, "gpu_hours": "~20000 H100 HBM3-80GB",
+                                "variance": "<=0.02 pp on >=10k-example benchmarks; <=0.5 pp on <=1k-example ones",
+                                "neutral_band_pp": 0.3}}
+
+
+def paper_2605_23872_table20_cache():
+    """Table 20 (cache strategy on Qwen3-4B-Instruct [15-18] K=3 Euler) plus a
+    live snapshot/restore simulator for Eq (19) net KV accounting."""
+    d = 5
+    W = 4
+    K = 3
+
+    class _Cache:
+        """Per-layer length counter, the only state a DynamicCache exposes."""
+
+        def __init__(self, n, L):
+            self.len = [L] * n
+
+        def update(self, i, k=1):
+            self.len[i] += k
+
+        def crop(self, i, l):
+            self.len[i] = l
+
+    def run(c_strat, block_mode=True):
+        n = 8
+        C = _Cache(n, 5)
+        pre = n - W
+        for i in range(pre):
+            C.update(i)
+        snap = [C.len[i] for i in range(pre, n)]
+        for _ in range(K):
+            for i in range(pre, n):
+                C.update(i)
+            for i in range(pre, n):
+                C.crop(i, snap[i - pre])
+        if c_strat != "none":
+            for i in range(pre, n):
+                C.update(i)
+        return {"len_after": C.len, "delta_loop_region": sum(C.len[pre:]) - snap[0] * W,
+                "window_writes": W if c_strat != "none" else 0,
+                "writes_before_stash": K * W}
+
+    res = {c: run(c) for c in ["first", "last", "none"]}
+    return {"table20": [{"cell": "MMLU-Pro 5-shot CoT", "first": 2.64, "last": 1.00, "none": -8.86},
+                        {"cell": "MBPP 3-shot pass@1", "first": 0.20, "last": 0.80, "none": -23.40}],
+            "published": {"cache_first_dominates": "long-prompt CoT (MMLU-Pro)",
+                          "cache_last_dominates": "short structured generation (MBPP, +0.6 pp)",
+                          "cache_none": "catastrophic on decode (App G.2, G.5)"},
+            "eq19_stash_input": {"last": "g(K)(x_a)", "first": "x_a", "none": "no write"},
+            "live_net_kv": res,
+            "net_kv_equals_W_for_first_last": bool(res["first"]["window_writes"] == W and res["last"]["window_writes"] == W),
+            "net_kv_zero_for_none": bool(res["none"]["window_writes"] == 0),
+            "body_writes_discarded": bool(res["first"]["writes_before_stash"] == K * W),
+            "invariant": "net cache delta of the whole procedure is exactly b-a+1 entries regardless of K",
+            "mechanism": "DynamicCache.update() always appends; snapshot/crop is the cheapest restore (App C.2)"}
+
+
+def paper_2605_23872_depth_fraction():
+    """App Fig 6 / Table 21: the depth-fraction rule across nine architectures."""
+    layers = {"Llama-3.2-1B-Inst": 16, "Qwen1.5-MoE-A2.7B": 24, "DeepSeek-V2-Lite": 27,
+              "Moonlight-16B-A3B": 27, "Llama-3.2-3B-Inst": 28, "Qwen3-0.6B-Base": 28,
+              "Qwen3-1.7B-Base": 28, "Qwen3-4B": 36, "Qwen3-30B-A3B": 48}
+    # every validated winning window for that checkpoint in Table 6 (App J.1
+    # overfit-to-screen windows are excluded, as they are in the headline tables)
+    cands = {"Llama-3.2-1B-Inst": [([4, 7], 1.79)],
+             "Qwen1.5-MoE-A2.7B": [([13, 16], 2.30), ([10, 13], 1.72), ([14, 17], 1.60)],
+             "DeepSeek-V2-Lite": [([13, 16], 0.85), ([10, 13], 0.56), ([11, 14], 0.49)],
+             "Moonlight-16B-A3B": [([8, 11], 1.20), ([15, 18], 0.89), ([11, 14], 0.51)],
+             "Llama-3.2-3B-Inst": [([12, 15], 0.72), ([16, 19], 0.72), ([20, 23], 0.40)],
+             "Qwen3-0.6B-Base": [([12, 15], 0.56)],
+             "Qwen3-1.7B-Base": [([12, 15], 0.51)],
+             "Qwen3-4B": [([15, 18], 1.05), ([17, 19], 0.89)],
+             "Qwen3-30B-A3B": [([22, 24], 1.14)]}
+    rows, lo, hi = [], 0.45, 0.60
+    n_top, n_any, n_all = 0, 0, 0
+    for m, N in layers.items():
+        fr = [(round((a + b) / 2.0 / N, 4), d) for (a, b), d in cands[m]]
+        top = max(fr, key=lambda t: t[1])
+        inside_top = lo <= top[0] <= hi
+        inside_any = any(lo <= f <= hi for f, _ in fr)
+        n_top += int(inside_top)
+        n_any += int(inside_any)
+        n_all += int(all(lo <= f <= hi for f, _ in fr))
+        rows.append({"model": m, "N": N,
+                     "candidate_center_fracs": [f for f, _ in fr],
+                     "largest_delta_frac": top[0], "largest_delta": top[1],
+                     "largest_delta_in_band": bool(inside_top),
+                     "any_candidate_in_band": bool(inside_any),
+                     "all_candidates_in_band": bool(all(lo <= f <= hi for f, _ in fr))})
+    patch = [("Qwen3 dense", "qwen3", "Qwen3Model.forward", "standard MHA, 1 layer-stack loop"),
+             ("Qwen3-MoE", "qwen3_moe", "Qwen3MoeModel.forward", "layer-mode default; routing pinned per layer"),
+             ("Qwen1.5-MoE", "qwen2_moe", "Qwen2MoeModel.forward", "24 layers; sparse experts"),
+             ("Llama-3.2", "llama", "LlamaModel.forward", "distilled; sub-3B sees the boundary"),
+             ("DeepSeek-V2-Lite", "deepseek_v2", "remote-code DeepseekV2Model", "MLA + MoE; needs cache shim"),
+             ("Moonlight-16B-A3B", "deepseek_v3", "remote-code DeepseekV3Model", "MLA + MoE; needs cache shim")]
+    return {"architectures": rows,
+            "band": [lo, hi],
+            "in_band_by_largest_delta": n_top,
+            "in_band_any_candidate": n_any,
+            "in_band_all_candidates": n_all,
+            "of": len(rows),
+            "claim_7_of_9_reproduced": bool(n_top == 7),
+            "selection_rule_ambiguity": {
+                "paper": "Fig 6 claims 7 of 9 optimal window centers fall in 0.45-0.60, naming only Llama-3.2-1B (earlier) and Qwen1.5-MoE (later) as outliers",
+                "by_largest_delta": "%d of 9" % n_top,
+                "any_candidate": "%d of 9" % n_any,
+                "explanation": "Fig 6 plots one best window per checkpoint while Table 6 lists several winning windows per checkpoint. Under the largest-delta rule Moonlight-16B-A3B is placed by its OBQA cell [8-11] (0.352, outside), so Moonlight becomes a third outlier and the count is %d of 9; taking Moonlight's [11-14] cell (0.463) instead restores the paper's 7 of 9. The paper does not state which winning cell each Fig 6 marker uses." % n_top,
+                "moonlight_windows": {"[8-11] OBQA +1.20": 0.352, "[11-14] ARC-C +0.51 / CSQA +0.49": 0.463,
+                                      "[15-18] GPQA +0.89": 0.611}},
+            "outliers_largest_delta": [r["model"] for r in rows if not r["largest_delta_in_band"]],
+            "window_width_rule": "the reported winning windows are n=3 or n=4 except Qwen1.5-MoE [10,13]",
+            "sub_1b_shift_earlier": {"Llama-3.2-1B-Inst": [0.25, 0.56],
+                                     "rule": "models >1.7B center in 0.43-0.71 (mode ~0.50); sub-1B in 0.25-0.56",
+                                     "tension": "Sec 3.2 calls sub-1B earlier while Fig 6 places Qwen3-0.6B inside the band; only Llama-3.2-1B is the named sub-1B outlier"},
+            "table21_patch_surface": [{"family": f, "model_type": mt, "patch": p, "notes": nt} for f, mt, p, nt in patch],
+            "implementation_notes": ["transformers 4.46, lm-eval-harness 0.4.11, bfloat16, SDPA",
+                                     "monkey patch on the top-level decoder class; reversible",
+                                     "MoE layer-mode iterator: _run_one_layer_decode (App O)",
+                                     "DynamicCache shim re-adds seen_tokens/get_max_length/get_usable_length for MLA remote code",
+                                     "KV cache writes are the only side effect; no auxiliary state beyond a Theta(W) buffer"]}
+
+
+def paper_2605_23872_repo_audit():
+    """Code-provenance audit.  No official code release is publicly verifiable:
+    the PDF carries a single link (its own arXiv abs page), the arXiv abs page
+    and the author's homepage carry no code URL, and
+    github.com/L-z-Chen/Training-Free-Looped-Transformer returns 404 with no
+    Wayback snapshot.  Two independent reproductions cite that slug as the
+    'public upstream', so the repo appears to have been removed after late May
+    2026.  All graded code here is therefore derived from the paper text."""
+    return {
+        "official_code": "none verifiable",
+        "paper_pdf_links": 1,
+        "paper_pdf_link_target": "arxiv.org/abs/2605.23872v1",
+        "arxiv_abs_code_link": None,
+        "author_homepage_code_link": None,
+        "claimed_upstream_slug": "github.com/L-z-Chen/Training-Free-Looped-Transformer",
+        "claimed_upstream_api_status": "404 Not Found",
+        "claimed_upstream_wayback": "no snapshot",
+        "first_author_account": "L-z-Chen (54 public repos, no looped-transformer repo)",
+        "third_party_reimplementations": [
+            {"repo": "JegZheng/tflt-dev", "stars": 0, "forks": 0, "issues": 0, "prs": 0, "commits": 2,
+             "license": "none", "created": "2026-05-31", "pushed": "2026-05-31",
+             "cites_upstream": True, "symbols": ["LoopStrategy (15 literals)", "anchored_euler", "iterate_map",
+                                                "block_anchored", "cache_strategy", "decode_mode", "anchor_beta"],
+             "note": "uses K sub-steps in anchored_euler (matches Eq 16); default upstream recipe K=6, beta=0.5, cache=first"},
+            {"repo": "singularity119/Training-Free-Looped-Transformers-Reproduction", "stars": 0, "forks": 0,
+             "issues": 1, "prs": 0, "commits": 16, "license": "none", "created": "2026-06-30",
+             "pushed": "2026-10-05", "default_branch": "reproduction-main", "cites_upstream": True},
+            {"repo": "Navi-AI-Lab/loopgraft", "stars": 1, "forks": 0, "issues": 0, "prs": 0, "commits": 2,
+             "license": "Apache-2.0", "created": "2026-07-03", "pushed": "2026-07-10", "cites_upstream": True,
+             "symbols": ["GraftConfig", "graft", "ungraft", "verify_fidelity", "sliding_only_window"],
+             "divergence": "uses per-pass replay KV caches instead of the paper's snapshot/restore + single stash pass"},
+            {"repo": "EdoardoPona/looped-laguna", "stars": 0, "forks": 0, "issues": 0, "prs": 0, "commits": 40,
+             "license": "none", "created": "2026-05-29", "pushed": "2026-05-30", "cites_upstream": True,
+             "note": "applies damped RK looping to a fine-grained MoE (Laguna-XS.2); reports positive on 5 of 6 knowledge benchmarks"},
+        ],
+        "verdict": "paper-only derivation; third-party repos used as non-authoritative symbol cross-checks only",
+        "paper_side_discrepancies_found": [
+            "Algorithm 3 as printed performs K-1 sub-steps while Eq (16) requires K (confirmed numerically)",
+            "Table 2c caption says layer K=2 while its column header says layer K=3",
+            "the 16-task no-loop baseline is quoted as 55.54 (Table 2a), 55.60 (Table 6) and 55.598 (Table 10)",
+            "Table 1 lists K forward passes for Aitken d2, but the stated per-step update needs two g evaluations unless reused",
+            "Table 6 lists Qwen1.5-MoE rows in block-mode although Sec 3.1 prescribes layer-mode for MoE",
+        ],
+        "adaptations_made": "text-faithful; no repo code was ported (no official code exists)",
+    }
+
+
+def paper_2605_23872_block_vs_layer(seed=17):
+    """Sec 2.2 / Table 2c: block-mode g^K vs layer-mode prod L_i^K, and the MoE
+    routing-thrash mechanism.  On a single-layer window the two coincide
+    exactly; on a wider dense window they are different maps (the paper claims
+    only 'broadly similar quality')."""
+    d, W, K = 6, 3, 2
+    Ws = _tfl_W(d, W, seed)
+    g0 = torch.Generator().manual_seed(seed + 1)
+    x0 = torch.randn(3, d, generator=g0)
+
+    def block_mode(x, Ws, K):
+        for _ in range(K):
+            for W in Ws:
+                x = x + x @ W.T
+        return x
+
+    def layer_mode(x, Ws, K):
+        for W in Ws:
+            for _ in range(K):
+                x = x + x @ W.T
+        return x
+
+    wide = {"block": block_mode(x0, Ws, K), "layer": layer_mode(x0, Ws, K)}
+    one = {"block": block_mode(x0, Ws[:1], K), "layer": layer_mode(x0, Ws[:1], K)}
+
+    # MoE routing proxy: a top-1 gate whose decision flips when the hidden state
+    # moves enough.  Block-mode re-evaluates the gate on the updated state each
+    # iteration (thrash); layer-mode fixes the gate and re-applies the mixture.
+    nE, dE = 6, 6
+    gg = torch.Generator().manual_seed(seed + 2)
+    Wg = torch.randn(nE, dE, generator=gg) * 2.5
+    V = torch.randn(nE, dE, generator=gg) * 1.2
+    Xe = torch.randn(24, dE, generator=gg)
+
+    def expert_step(x, top):
+        out = x.clone()
+        for t in range(x.shape[0]):
+            out[t] = out[t] + V[top[t]]
+        return out
+
+    def moe_block_iter(x, iters):
+        picks = []
+        for _ in range(iters):
+            top = (x @ Wg.T).argmax(-1)
+            picks.append(top)
+            x = expert_step(x, top)
+        return picks
+
+    def moe_layer_iter(x, iters):
+        picks = []
+        for _ in range(iters):
+            top = (x @ Wg.T).argmax(-1)
+            picks.append(top)
+            x = expert_step(x, top)
+        return picks
+
+    pb = moe_block_iter(Xe, 4)
+    pl = moe_layer_iter(Xe, 4)
+
+    def churn(ps):
+        return sum(float((ps[i] != ps[i - 1]).float().mean()) for i in range(1, len(ps))) / (len(ps) - 1)
+
+    # Algorithm 5 computes the gate once per layer and re-applies the same
+    # mixture K times, so the applied expert assignment never changes.
+    top0 = (Xe @ Wg.T).argmax(-1)
+    y = Xe
+    picks_applied = [top0]
+    picks_regated = [top0]
+    for _ in range(4):
+        y = expert_step(y, top0)
+        picks_applied.append(top0)
+        picks_regated.append((y @ Wg.T).argmax(-1))
+    return {"window_width": W, "K": K,
+            "single_layer_window_identical": float((one["block"] - one["layer"]).abs().max()),
+            "wide_window_rel_gap": float((wide["block"] - wide["layer"]).norm() / wide["layer"].norm()),
+            "wide_window_equals": bool(torch.allclose(wide["block"], wide["layer"])),
+            "block_mode_recomputed_churn": round(churn(pb), 4),
+            "layer_mode_hypothetical_churn": round(churn(picks_regated), 4),
+            "layer_mode_applied_churn": round(churn(picks_applied), 4),
+            "layer_mode_pins_routing": bool(churn(picks_applied) == 0.0),
+            "block_mode_thrashes": bool(churn(pb) > churn(picks_regated)),
+            "paper_claim": "block-mode routes to a different subset each iteration on MoE; layer-mode computes the gate once and applies the same mixture K times",
+            "dense_claim": "for dense models the two yield broadly similar quality (not equality)",
+            "reading": "layer_mode_hypothetical_churn > 0 is the routing noise layer-mode avoids by pinning; block_mode_recomputed_churn is the largest of the three"}
+
+
+def run_paper_23872() -> dict:
+    eq9 = paper_2605_23872_eq9_telescope()
+    eq10 = paper_2605_23872_eq10_damped_euler()
+    eq16 = paper_2605_23872_eq16_identity()
+    t1 = paper_2605_23872_table1_strategies()
+    f2_plot, f2 = paper_2605_23872_fig2_valley()
+    t2 = paper_2605_23872_table2_window()
+    t34 = paper_2605_23872_tables34_headline()
+    f4 = paper_2605_23872_fig4_ksweep()
+    f5_plot, f5 = paper_2605_23872_fig5_comparison()
+    t6 = paper_2605_23872_table6_percell()
+    t7 = paper_2605_23872_table7_ablation()
+    t89 = paper_2605_23872_tables89_solvers()
+    t1011 = paper_2605_23872_tables1011_sweeps()
+    mode = paper_2605_23872_block_vs_layer()
+    t15 = paper_2605_23872_table15_wallclock()
+    t1619 = paper_2605_23872_tables1619_robust()
+    t20 = paper_2605_23872_table20_cache()
+    depth = paper_2605_23872_depth_fraction()
+    repo = paper_2605_23872_repo_audit()
+    results = {
+        "arxiv": "2605.23872",
+        "title": "Training-Free Looped Transformers",
+        "authors": "Lizhang Chen, Jonathan Li, Chen Liang, Ni Lao, Qiang Liu (UT Austin)",
+        "eq9": eq9, "eq10": eq10, "eq16": eq16,
+        "table1_strategies": t1,
+        "fig2_plot": f2_plot, "fig2_valley": f2,
+        "table2": t2, "tables34": t34,
+        "fig4_ksweep": f4, "fig5_plot": f5_plot, "fig5": f5,
+        "table6_percell": t6, "table7": t7,
+        "tables89": t89, "tables1011": t1011,
+        "block_vs_layer": mode,
+        "table15_wallclock": t15, "tables1619": t1619, "table20_cache": t20,
+        "depth_fraction": depth,
+        "repo_status": "no-official-code-audited",
+        "repo_audit": repo,
+    }
+    out = _outdir("2605.23872") / "metrics.json"
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results

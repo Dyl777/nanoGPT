@@ -1,0 +1,139 @@
+@PL::Python
+@Task::Arxiv_2605_23872_TrainingFreeLooped
+@Modulu::TrainingFreeLooped
+
+@Technique::TrainingFreeLooped::[reproduce]
+
+@Comment::[Paper: Training-Free Looped Transformers (Chen, Li, Liang, Lao, Liu 2026, arXiv:2605.23872v1, UT Austin). Inference-time wrapper that loops a contiguous mid-stack window [a,b] of a frozen checkpoint K times; pre-norm block = one forward Euler step on x' = F_g(x), so looping refines the SAME t=1 endpoint instead of integrating to t=K (Eq.6-10). Damped sub-steps, front-loaded RK tableau (Eq.13-16, Alg.1-3), block-mode vs layer-mode (Sec 2.2, Alg.4/5), snapshot/restore + stash KV protocol (Alg.4/5, Eq.19). Graded scope: main text + full appendix - Eq.9/10/16, App B.1/B.2 proofs, Table 1 strategy family, Fig.2/4/5, Tables 2/3/4/6/7/8/9/10/11/12/15/16/17/18/19/20/21, App Fig.6 depth rule, wall-clock + decode modes, block-vs-layer + MoE routing proxy, repo audit. Repo note: NO verifiable official code (paper PDF links only its own arXiv page; github.com/L-z-Chen/Training-Free-Looped-Transformer is 404 with no Wayback snapshot); derivation is paper-only, third-party repos used as non-authoritative cross-checks. Five paper-side discrepancies recorded.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_2605_23872_eq9_telescope,
+    paper_2605_23872_eq10_damped_euler,
+    paper_2605_23872_eq16_identity,
+    paper_2605_23872_table1_strategies,
+    paper_2605_23872_fig2_valley,
+    paper_2605_23872_table2_window,
+    paper_2605_23872_tables34_headline,
+    paper_2605_23872_fig4_ksweep,
+    paper_2605_23872_fig5_comparison,
+    paper_2605_23872_table6_percell,
+    paper_2605_23872_table7_ablation,
+    paper_2605_23872_tables89_solvers,
+    paper_2605_23872_tables1011_sweeps,
+    paper_2605_23872_block_vs_layer,
+    paper_2605_23872_table15_wallclock,
+    paper_2605_23872_tables1619_robust,
+    paper_2605_23872_table20_cache,
+    paper_2605_23872_depth_fraction,
+    paper_2605_23872_repo_audit,
+    run_paper_23872,
+)
+
+@Impl::TrainingFreeLooped::reproduce{
+_ = "reproduce loop-strategy/ODE identities + figures + benchmark tables + audit"
+@}
+
+@Graded::Eq9_Telescope{
+# Eq.9 / App B.1: window residual field telescopes to sum_i F_{L_i}(y_i(x)).
+eq9 = paper_2605_23872_eq9_telescope()
+@}::endpoints::[eq9=eq9]
+
+@Graded::Eq10_DampedEuler{
+# Eq.10: K damped sub-steps refine x(t=1); naive K-folding drifts to x(t=K).
+eq10 = paper_2605_23872_eq10_damped_euler()
+@}::endpoints::[eq10=eq10]
+
+@Graded::Eq16_Identity{
+# Eq.13-16 + App B.2: front-loaded RK weights; Alg.1 == Eq.(16); printed Alg.3 is K-1 sub-steps.
+eq16 = paper_2605_23872_eq16_identity()
+@}::endpoints::[eq16=eq16]
+
+@Graded::Table1_Strategies{
+# Table 1: nine strategies + forward-pass budgets (Aitken K vs 2K discrepancy).
+t1 = paper_2605_23872_table1_strategies()
+@}::endpoints::[t1=t1]
+
+@Graded::Fig2_Valley{
+# Fig.2: trained tiny residual net; naive leaves the valley, sub-steps stay; trajectory check.
+plot_ok, f2 = paper_2605_23872_fig2_valley()
+@}::endpoints::[plot_ok=plot_ok, f2=f2]
+
+@Graded::Table2_Window{
+# Table 2: width sweep (implied baseline 55.54), per-size winners, block-vs-layer on MoE.
+t2 = paper_2605_23872_table2_window()
+@}::endpoints::[t2=t2]
+
+@Graded::Tables34_Headline{
+# Table 3 dense/MoE headline cells + Table 4 Qwen3-30B-A3B leakage-free transfer.
+t34 = paper_2605_23872_tables34_headline()
+@}::endpoints::[t34=t34]
+
+@Graded::Fig4_KSweep{
+# Fig.4: ours stable to K=24, uniform fails after K>=6, naive degrades to -17.71 pp.
+f4 = paper_2605_23872_fig4_ksweep()
+@}::endpoints::[f4=f4]
+
+@Graded::Fig5_Comparison{
+# Fig.5: baseline vs ours on two backbones (naive bars unlabeled in the text layer).
+plot_ok, f5 = paper_2605_23872_fig5_comparison()
+@}::endpoints::[plot_ok=plot_ok, f5=f5]
+
+@Graded::Table6_Percell{
+# Table 6: 31 per-cell configurations; delta recomputation; mode/cache/K tallies.
+t6 = paper_2605_23872_table6_percell()
+@}::endpoints::[t6=t6]
+
+@Graded::Table7_Ablation{
+# Table 7: width, K/strategy, cache-strategy ablations + the two catastrophes.
+t7 = paper_2605_23872_table7_ablation()
+@}::endpoints::[t7=t7]
+
+@Graded::Tables89_Solvers{
+# Table 8 solver/accelerator deltas + Table 9 24-row sweep vs the 56.113 reference.
+t89 = paper_2605_23872_tables89_solvers()
+@}::endpoints::[t89=t89]
+
+@Graded::Tables1011_Sweeps{
+# Table 10 norm_stab/poly_blend + Table 11 layer-mode sweep; Table 12 resource footprint.
+t1011 = paper_2605_23872_tables1011_sweeps()
+@}::endpoints::[t1011=t1011]
+
+@Graded::BlockVsLayer{
+# Sec 2.2 / Alg 4-5: W=1 modes coincide; W>1 differ; layer-mode pins MoE routing.
+mode = paper_2605_23872_block_vs_layer()
+@}::endpoints::[mode=mode]
+
+@Graded::Table15_Wallclock{
+# Table 15 + App C.3: decode-mode overhead recomputation and semantics.
+t15 = paper_2605_23872_table15_wallclock()
+@}::endpoints::[t15=t15]
+
+@Graded::Tables1619_Robust{
+# Tables 16-19: all-positive robustness, untuned 30B sweep, dense layer-mode wins, window breadth.
+t1619 = paper_2605_23872_tables1619_robust()
+@}::endpoints::[t1619=t1619]
+
+@Graded::Table20_Cache{
+# Table 20 + Eq.19: cache first/last/none deltas and live net-KV accounting.
+t20 = paper_2605_23872_table20_cache()
+@}::endpoints::[t20=t20]
+
+@Graded::DepthFraction{
+# App Fig.6 / Table 21: depth-fraction rule across nine architectures; patch surfaces.
+depth = paper_2605_23872_depth_fraction()
+@}::endpoints::[depth=depth]
+
+@Graded::RepoAudit{
+# No verifiable official code; upstream slug 404; third-party cross-checks + discrepancies.
+repo = paper_2605_23872_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::TrainingFreeLoopedPaper::[Eq9_Telescope, Eq10_DampedEuler, Eq16_Identity, Table1_Strategies, Fig2_Valley, Table2_Window, Tables34_Headline, Fig4_KSweep, Fig5_Comparison, Table6_Percell, Table7_Ablation, Tables89_Solvers, Tables1011_Sweeps, BlockVsLayer, Table15_Wallclock, Tables1619_Robust, Table20_Cache, DepthFraction, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, eq9, eq10, eq16, t1, f2, t2, t34, f4, f5, t6, t7, t89, t1011, mode, t15, t1619, t20, depth, repo]
