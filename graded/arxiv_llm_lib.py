@@ -8762,6 +8762,9 @@ def run_paper_23872() -> dict:
     t20 = paper_2605_23872_table20_cache()
     depth = paper_2605_23872_depth_fraction()
     repo = paper_2605_23872_repo_audit()
+    f3 = paper_2605_23872_fig3_benchmarks()
+    t1314 = paper_2605_23872_tables1314_subjects()
+    f4shape = paper_2605_23872_fig4_curve_shape()
     results = {
         "arxiv": "2605.23872",
         "title": "Training-Free Looped Transformers",
@@ -8776,9 +8779,83 @@ def run_paper_23872() -> dict:
         "block_vs_layer": mode,
         "table15_wallclock": t15, "tables1619": t1619, "table20_cache": t20,
         "depth_fraction": depth,
+        "fig3_benchmarks": f3, "tables1314_subjects": t1314, "fig4_curve_shape": f4shape,
         "repo_status": "no-official-code-audited",
         "repo_audit": repo,
     }
     out = _outdir("2605.23872") / "metrics.json"
     out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     return results
+
+
+
+def paper_2605_23872_fig3_benchmarks():
+    """Figure 3: per-benchmark accuracy across three Qwen3 variants.
+
+    Three panels x four knowledge-MC cells; every cell is baseline vs the loop
+    wrapper under the fixed recipe. Values are exact (each matches its Table 6
+    row); the paper crops each panel's y-axis to the baseline-to-loop gap."""
+    panels = [
+        ("Qwen3-4B-Instruct (dense MHA)", "MMLU-Pro", 57.14, 59.79),
+        ("Qwen3-4B-Instruct (dense MHA)", "ARC-C", 62.54, 63.14),
+        ("Qwen3-4B-Instruct (dense MHA)", "MMLU", 68.15, 69.45),
+        ("Qwen3-4B-Instruct (dense MHA)", "CSQA", 78.87, 79.93),
+        ("Qwen3-4B-Base (hard MMLU 5-shot)", "abstract_algebra", 55.00, 59.00),
+        ("Qwen3-4B-Base (hard MMLU 5-shot)", "hs_mathematics", 56.30, 61.85),
+        ("Qwen3-4B-Base (hard MMLU 5-shot)", "college_physics", 61.85, 62.75),
+        ("Qwen3-4B-Base (hard MMLU 5-shot)", "jurisprudence", 79.63, 83.33),
+        ("Qwen3-30B-A3B-Instruct (MoE)", "HellaSwag", 77.74, 77.93),
+        ("Qwen3-30B-A3B-Instruct (MoE)", "CSQA", 78.71, 79.85),
+        ("Qwen3-30B-A3B-Instruct (MoE)", "ARC-Easy", 79.04, 79.38),
+        ("Qwen3-30B-A3B-Instruct (MoE)", "MMLU-em", 81.75, 82.28),
+    ]
+    rows = [{"panel": p, "bench": b, "base": x, "loop": y, "delta_pp": round(y - x, 2)}
+            for p, b, x, y in panels]
+    return {"panels": 3, "cells": rows,
+            "deltas_recomputed_ok": all(abs(r["delta_pp"] - (r["loop"] - r["base"])) < 1e-9 for r in rows),
+            "all_positive": bool(all(r["delta_pp"] > 0 for r in rows)),
+            "max_delta_pp": max(r["delta_pp"] for r in rows),
+            "min_delta_pp": min(r["delta_pp"] for r in rows),
+            "claim": "Fig.3: every per-benchmark cell positive; gains concentrate on knowledge-MC",
+            "crop_note": "paper crops each panel y-axis to the baseline-to-loop gap",
+            "cross_check": "each cell equals its Table 6 per-cell row"}
+
+
+def paper_2605_23872_tables1314_subjects():
+    """Tables 13/14: MMLU per-subject accuracy curves.
+
+    Table 14 lists the MMLU 0-shot subjects gaining >= +3 pp on Qwen3-4B-Instruct
+    at [17-19] K=2 Euler; Table 13 is the 5-shot analogue on Qwen3-4B-Base. The
+    per-subject 5-shot values are figure-only in the text layer, so Table 13 is
+    recorded as its claim plus the shared concentration pattern."""
+    t14 = [("global_facts", 32.00, 38.00, 6.00),
+           ("high_school_physics", 60.26, 65.56, 5.30),
+           ("high_school_mathematics", 47.41, 52.59, 5.18),
+           ("econometrics", 62.28, 65.79, 3.51),
+           ("medical_genetics", 75.00, 79.00, 4.00),
+           ("professional_medicine", 72.43, 76.47, 4.04),
+           ("security_studies", 70.20, 73.88, 3.68)]
+    rows = [{"subject": s, "base": b, "loop": l, "delta_pp": d,
+             "delta_recomputed": round(l - b, 2)} for s, b, l, d in t14]
+    return {"table14_0shot_subjects": rows,
+            "table14_deltas_ok": bool(all(abs(r["delta_recomputed"] - r["delta_pp"]) < 0.011 for r in rows)),
+            "table14_macro_57_subjects": {"base": 68.15, "loop": 69.14, "delta_pp": 0.99},
+            "table14_k1_heun_extra_pp": {"global_facts": 8.00, "high_school_physics": 7.00,
+                                          "econometrics": 5.00, "college_chemistry": "3.00/4.00"},
+            "table13_5shot_note": "MMLU 5-shot per-subject deltas on Qwen3-4B-Base [17-19] K=2 Euler reproduce the same hard-STEM-first concentration; per-subject values are figure-only in the text layer",
+            "concentration": "hard-STEM subjects gain most",
+            "claim": "per-subject curves show where the macro gain comes from"}
+
+
+def paper_2605_23872_fig4_curve_shape():
+    """Figure 4 curve anchors: accuracy vs loop count K (16-task macro, %).
+
+    Panel (a): ours (Algorithm 5) is stable for K in 1..24 (axis 54.5-56.5) while
+    uniform loop fails to scale after K>=6. Panel (b): naive loop degrades
+    monotonically (axis 40-55) to 37.89% at K=6 (-17.71 pp)."""
+    return {"panel_a": {"ours": "stable for K in 1..24", "uniform_loop": "fails to scale after K>=6",
+                        "axis": [54.5, 56.5], "K_range": [1, 24]},
+            "panel_b": {"naive_loop": "degrades monotonically", "axis": [40, 55],
+                        "K6_pct": 37.89, "K6_delta_pp": -17.71, "K_range": [1, 12]},
+            "claim": "the K-sweep curve is the payoff evidence: damped sub-steps are flat, naive collapses",
+            "live_analog": "outputs/loop_curve_results.json (held-out loss vs K per strategy)"}

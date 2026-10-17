@@ -30,6 +30,9 @@ from graded.arxiv_llm_lib import (
     paper_2605_23872_table20_cache,
     paper_2605_23872_depth_fraction,
     paper_2605_23872_repo_audit,
+    paper_2605_23872_fig3_benchmarks,
+    paper_2605_23872_tables1314_subjects,
+    paper_2605_23872_fig4_curve_shape,
     run_paper_23872,
 )
 
@@ -132,8 +135,29 @@ depth = paper_2605_23872_depth_fraction()
 repo = paper_2605_23872_repo_audit()
 @}::endpoints::[repo=repo]
 
-@GradedClass::TrainingFreeLoopedPaper::[Eq9_Telescope, Eq10_DampedEuler, Eq16_Identity, Table1_Strategies, Fig2_Valley, Table2_Window, Tables34_Headline, Fig4_KSweep, Fig5_Comparison, Table6_Percell, Table7_Ablation, Tables89_Solvers, Tables1011_Sweeps, BlockVsLayer, Table15_Wallclock, Tables1619_Robust, Table20_Cache, DepthFraction, RepoAudit]
+@Graded::Fig3_Benchmarks{
+# Fig.3: 12 per-benchmark accuracy cells across 3 Qwen3 variants; all positive.
+f3 = paper_2605_23872_fig3_benchmarks()
+@}::endpoints::[f3=f3]
+
+@Graded::Tables1314_Subjects{
+# Tables 13/14: MMLU per-subject curves; hard-STEM-first concentration.
+t1314 = paper_2605_23872_tables1314_subjects()
+@}::endpoints::[t1314=t1314]
+
+@Graded::Fig4_CurveShape{
+# Fig.4 curve anchors: ours stable to K=24, uniform fails after K>=6, naive collapses.
+f4shape = paper_2605_23872_fig4_curve_shape()
+@}::endpoints::[f4shape=f4shape]
+
+@Graded::CurvePipeline{
+# Curve pipeline: the K-sweep is the payoff evidence - rerun the held-out loss-vs-K
+# curve here so this graded task exercises the same curve the notebook pipeline plots.
+_curve = paper_2605_23872_fig4_ksweep()
+@}::endpoints::[curve=_curve]
+
+@GradedClass::TrainingFreeLoopedPaper::[Eq9_Telescope, Eq10_DampedEuler, Eq16_Identity, Table1_Strategies, Fig2_Valley, Table2_Window, Tables34_Headline, Fig4_KSweep, Fig5_Comparison, Table6_Percell, Table7_Ablation, Tables89_Solvers, Tables1011_Sweeps, BlockVsLayer, Table15_Wallclock, Tables1619_Robust, Table20_Cache, DepthFraction, RepoAudit, Fig3_Benchmarks, Tables1314_Subjects, Fig4_CurveShape, CurvePipeline]
 
 @Apply::AllOps
 @Run::shuffleAll
-@Save::All::endpoints[plot_ok, eq9, eq10, eq16, t1, f2, t2, t34, f4, f5, t6, t7, t89, t1011, mode, t15, t1619, t20, depth, repo]
+@Save::All::endpoints[plot_ok, eq9, eq10, eq16, t1, f2, t2, t34, f4, f5, t6, t7, t89, t1011, mode, t15, t1619, t20, depth, repo, f3, t1314, f4shape, curve]

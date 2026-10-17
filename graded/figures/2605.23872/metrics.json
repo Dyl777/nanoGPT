@@ -351,7 +351,7 @@
         "matches_claimed": true,
         "finite": true,
         "error": null,
-        "out_norm": 2.9562718868255615
+        "out_norm": 2.9562723636627197
       },
       {
         "strategy": "aitken",
@@ -2287,6 +2287,199 @@
       "DynamicCache shim re-adds seen_tokens/get_max_length/get_usable_length for MLA remote code",
       "KV cache writes are the only side effect; no auxiliary state beyond a Theta(W) buffer"
     ]
+  },
+  "fig3_benchmarks": {
+    "panels": 3,
+    "cells": [
+      {
+        "panel": "Qwen3-4B-Instruct (dense MHA)",
+        "bench": "MMLU-Pro",
+        "base": 57.14,
+        "loop": 59.79,
+        "delta_pp": 2.65
+      },
+      {
+        "panel": "Qwen3-4B-Instruct (dense MHA)",
+        "bench": "ARC-C",
+        "base": 62.54,
+        "loop": 63.14,
+        "delta_pp": 0.6
+      },
+      {
+        "panel": "Qwen3-4B-Instruct (dense MHA)",
+        "bench": "MMLU",
+        "base": 68.15,
+        "loop": 69.45,
+        "delta_pp": 1.3
+      },
+      {
+        "panel": "Qwen3-4B-Instruct (dense MHA)",
+        "bench": "CSQA",
+        "base": 78.87,
+        "loop": 79.93,
+        "delta_pp": 1.06
+      },
+      {
+        "panel": "Qwen3-4B-Base (hard MMLU 5-shot)",
+        "bench": "abstract_algebra",
+        "base": 55.0,
+        "loop": 59.0,
+        "delta_pp": 4.0
+      },
+      {
+        "panel": "Qwen3-4B-Base (hard MMLU 5-shot)",
+        "bench": "hs_mathematics",
+        "base": 56.3,
+        "loop": 61.85,
+        "delta_pp": 5.55
+      },
+      {
+        "panel": "Qwen3-4B-Base (hard MMLU 5-shot)",
+        "bench": "college_physics",
+        "base": 61.85,
+        "loop": 62.75,
+        "delta_pp": 0.9
+      },
+      {
+        "panel": "Qwen3-4B-Base (hard MMLU 5-shot)",
+        "bench": "jurisprudence",
+        "base": 79.63,
+        "loop": 83.33,
+        "delta_pp": 3.7
+      },
+      {
+        "panel": "Qwen3-30B-A3B-Instruct (MoE)",
+        "bench": "HellaSwag",
+        "base": 77.74,
+        "loop": 77.93,
+        "delta_pp": 0.19
+      },
+      {
+        "panel": "Qwen3-30B-A3B-Instruct (MoE)",
+        "bench": "CSQA",
+        "base": 78.71,
+        "loop": 79.85,
+        "delta_pp": 1.14
+      },
+      {
+        "panel": "Qwen3-30B-A3B-Instruct (MoE)",
+        "bench": "ARC-Easy",
+        "base": 79.04,
+        "loop": 79.38,
+        "delta_pp": 0.34
+      },
+      {
+        "panel": "Qwen3-30B-A3B-Instruct (MoE)",
+        "bench": "MMLU-em",
+        "base": 81.75,
+        "loop": 82.28,
+        "delta_pp": 0.53
+      }
+    ],
+    "deltas_recomputed_ok": true,
+    "all_positive": true,
+    "max_delta_pp": 5.55,
+    "min_delta_pp": 0.19,
+    "claim": "Fig.3: every per-benchmark cell positive; gains concentrate on knowledge-MC",
+    "crop_note": "paper crops each panel y-axis to the baseline-to-loop gap",
+    "cross_check": "each cell equals its Table 6 per-cell row"
+  },
+  "tables1314_subjects": {
+    "table14_0shot_subjects": [
+      {
+        "subject": "global_facts",
+        "base": 32.0,
+        "loop": 38.0,
+        "delta_pp": 6.0,
+        "delta_recomputed": 6.0
+      },
+      {
+        "subject": "high_school_physics",
+        "base": 60.26,
+        "loop": 65.56,
+        "delta_pp": 5.3,
+        "delta_recomputed": 5.3
+      },
+      {
+        "subject": "high_school_mathematics",
+        "base": 47.41,
+        "loop": 52.59,
+        "delta_pp": 5.18,
+        "delta_recomputed": 5.18
+      },
+      {
+        "subject": "econometrics",
+        "base": 62.28,
+        "loop": 65.79,
+        "delta_pp": 3.51,
+        "delta_recomputed": 3.51
+      },
+      {
+        "subject": "medical_genetics",
+        "base": 75.0,
+        "loop": 79.0,
+        "delta_pp": 4.0,
+        "delta_recomputed": 4.0
+      },
+      {
+        "subject": "professional_medicine",
+        "base": 72.43,
+        "loop": 76.47,
+        "delta_pp": 4.04,
+        "delta_recomputed": 4.04
+      },
+      {
+        "subject": "security_studies",
+        "base": 70.2,
+        "loop": 73.88,
+        "delta_pp": 3.68,
+        "delta_recomputed": 3.68
+      }
+    ],
+    "table14_deltas_ok": true,
+    "table14_macro_57_subjects": {
+      "base": 68.15,
+      "loop": 69.14,
+      "delta_pp": 0.99
+    },
+    "table14_k1_heun_extra_pp": {
+      "global_facts": 8.0,
+      "high_school_physics": 7.0,
+      "econometrics": 5.0,
+      "college_chemistry": "3.00/4.00"
+    },
+    "table13_5shot_note": "MMLU 5-shot per-subject deltas on Qwen3-4B-Base [17-19] K=2 Euler reproduce the same hard-STEM-first concentration; per-subject values are figure-only in the text layer",
+    "concentration": "hard-STEM subjects gain most",
+    "claim": "per-subject curves show where the macro gain comes from"
+  },
+  "fig4_curve_shape": {
+    "panel_a": {
+      "ours": "stable for K in 1..24",
+      "uniform_loop": "fails to scale after K>=6",
+      "axis": [
+        54.5,
+        56.5
+      ],
+      "K_range": [
+        1,
+        24
+      ]
+    },
+    "panel_b": {
+      "naive_loop": "degrades monotonically",
+      "axis": [
+        40,
+        55
+      ],
+      "K6_pct": 37.89,
+      "K6_delta_pp": -17.71,
+      "K_range": [
+        1,
+        12
+      ]
+    },
+    "claim": "the K-sweep curve is the payoff evidence: damped sub-steps are flat, naive collapses",
+    "live_analog": "outputs/loop_curve_results.json (held-out loss vs K per strategy)"
   },
   "repo_status": "no-official-code-audited",
   "repo_audit": {

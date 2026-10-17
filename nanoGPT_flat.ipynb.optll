@@ -4,10 +4,11 @@
 @Technique::Model::[matmul, addernetmatmul, geodesicflat]
 @Technique::State::[layernorm, regularisedbn]
 @Technique::Arch::[decoderonly, encoderdecoder]
+@Technique::PosEnc::[learned, sinusoidal]
 @Technique::Attn::[vanillaatten, mqa, gqa, mla, dsa, tokenformer, tpa, slidingwindow, linearatten, loglinearatten, locallinearatten, kimilinear]
-@Technique::Vocab::[char64, word1k, word10k, word20k, word40k, word50k]
-@Technique::Scale::[tiny64, small256, faithful512]
-@Technique::Context::[ctx64, ctx256, ctx512, ctx1024, ctx2048]
+@Technique::Vocab::[char64, word1k, word10k, word20k, word40k, word50k, gpt2bpe]
+@Technique::Scale::[tiny64, small256, faithful512, gpt2_124m]
+@Technique::Context::[ctx64, ctx256, ctx512, ctx1024, ctx2048, ctx8192, ctx16384, ctx32768, ctx65536, ctx131072, ctx262144, ctx524288, ctx896000]
 @Technique::Interface::[dense, bounded]
 @Technique::KVCacheEvict::[none, h2o, snapkv, nacl, infinipot, hashevict, morphkv, rocketkv, kvzip, adakv, spindlepyr, episodic]
 @Technique::KVCacheCompress::[none, kivi, kvquant, minicache, palu, spindlecodebook, keepkv, coupledquant]
@@ -36,7 +37,28 @@
         "import torch\n",
         "from torch import nn, optim\n",
         "from torch.nn import functional as F\n",
-        "from tqdm.notebook import tqdm\n"
+        "from tqdm.notebook import tqdm\n",
+        "import sys as _bsys, os as _bos\n",
+        "_bsys.path.insert(0, _bos.getcwd())\n",
+        "from bench_utils import (bench_report, bench_ids, bench_pairs_fn,\n",
+        "                        bench_tasks, bench_niah)\n",
+        "from nanogpt_pipeline import (\n",
+        "    compat_model, live_call, run_attention_pipeline, run_bert_pipeline,\n",
+        "    run_layermix_live, run_saber_live, run_convmem_live, run_grokking_live,\n",
+        "    run_rilm_live, run_ignorance_live,\n",
+        "    run_mmlu_live, run_gsm8k_live, run_mbpp_live, run_truthfulqa_live,\n",
+        "    run_halieval_live, run_faithdial_live, run_olympiad_live, run_ruler_live)\n",
+        "BENCH_RESULTS = []\n",
+        "\n",
+        "# Shared inputs: bench_utils. Live runners/curves/compat: nanogpt_pipeline\n",
+        "# (not graded/arxiv_llm_lib — that file only replots published PDF numbers).\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "**Data provenance & downloads.** The in-repo benchmark layer stays fully local: `bench_ids`/`bench_pairs_fn`/`bench_tasks`/`bench_niah` cut from the corpus loaded below (data/tiny_shakespeare.txt), grokking is synthetic modular arithmetic, and the KV/loop/LBI/parity studies run on the compiled model itself. One thing may fetch from the network by design: the `§28` external suites download their datasets (HF cache `data/external/hf`: MMLU, GSM8K, MBPP, TruthfulQA, HaluEval, FaithDial, OlympiadBench); with no network those suites fail **softly**: each returns `{\"error\": \"...\"}`, plotted as SKIP-with-reason - numbers are never faked in either direction. Suite provenance strings print dataset/split/n/seed/shots/the tokenizer that matches the compiled vocab, and every Scale probe states exactly what the weights are (**this notebook never loads external checkpoints** - the verified gpt2 mapping lives in nanogpt_pipeline.py only, for deferred ablation work)."
       ]
     },
     {
@@ -130,7 +152,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### AdderNet: Algorithm Overview (HWANG et al., CVPR 2020)",
+        "### AdderNet: Algorithm Overview (Chen et al., CVPR 2020)",
         "",
         "**Core idea**: Replace dot-product convolution with L1-distance.",
         "",
@@ -172,7 +194,7 @@
       "outputs": [],
       "source": [
         "\"\"\"AdderNet infrastructure: Toeplitz-convolution with L1-distance.\"\"\"\n",
-        "# Adapted from HWANG et al., CVPR 2020 (Copyright Huawei Technologies, BSD 3-Clause)\n",
+        "# Adapted from Chen et al., CVPR 2020 (Copyright Huawei Technologies, BSD 3-Clause)\n",
         "#\n",
         "# Paper requirements implemented below:\n",
         "#   Forward:  Eq.2  - L1-distance replaces dot product\n",
@@ -614,8 +636,8 @@
         "        self.v_up = QKVLinear(max(16, head_sz // 2), head_sz, bias=False)\n",
 }@}
 @Impl::Attn::tokenformer{
-        "        # Token-parameter tokens: parameters as keys/values (added pairs scale capacity)\n",
-        "        self.p_keys = nn.Parameter(torch.randn(64, head_sz) * 0.02)\n",
+        "        # Token-parameter tokens: p_keys (n', d_model), p_values (n', d_head) (Tseng et al. Eq.4)\n",
+        "        self.p_keys = nn.Parameter(torch.randn(64, emb_dim) * 0.02)\n",
         "        self.p_values = nn.Parameter(torch.randn(64, head_sz) * 0.02)\n",
 }@}
 @Impl::Attn::tpa{
@@ -629,6 +651,10 @@
         "        self.b_v = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(self.tpa_rank)])\n",
 }@}
         "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
+@Impl::Attn::slidingwindow{
+        "        # Sliding window (Beltagy et al. 2020): self-attention only within W previous positions\n",
+        "        self.window = 32\n",
+}@}
         "\n",
         "    def forward(self, x, kv=None):\n",
         "        B, T, C = x.shape\n",
@@ -654,11 +680,17 @@
 }@}
         "        if kv is not None:\n",
         "            k, v = kv\n",
-        "        wei = attn_scores(q, k) * (C ** -0.5)\n",
+        "        wei = attn_scores(q, k) * (self.head_sz ** -0.5)\n",
         "        wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
+@Impl::Attn::slidingwindow{
+        "        # restrict attention to the last W positions (Beltagy et al. Eq.2)\n",
+        "        idx_w = torch.arange(T, device=x.device)\n",
+        "        band = (idx_w.unsqueeze(1) - idx_w.unsqueeze(0) >= 0) & (idx_w.unsqueeze(1) - idx_w.unsqueeze(0) < self.window)\n",
+        "        wei = wei.masked_fill(~band, float(\"-inf\"))\n",
+}@}
 @Impl::Attn::dsa{
         "        idx = torch.arange(T, device=x.device)\n",
-        "        local = (idx.unsqueeze(0) - idx.unsqueeze(1) < 32)\n",
+        "        local = (idx.unsqueeze(1) - idx.unsqueeze(0) < 32)\n",
         "        strided = ((idx.unsqueeze(0) - idx.unsqueeze(1)) % 8 == 0)\n",
         "        wei = wei.masked_fill(~((self.tril[:T, :T] > 0) & (local | strided)), float(\"-inf\"))\n",
         "        k_top = min(32, T)\n",
@@ -668,12 +700,11 @@
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = attn_combine(wei, v)\n",
 @Impl::Attn::tokenformer{
-        "        # Token-parameter attention overrides the token-mixing output above\n",
+        "        # Token-parameter attention (Tseng et al. Eq.4): out = GeLU(L2norm(x) @ p_keys^T) @ p_values overrides v\n",
         "        p_k = self.p_keys.unsqueeze(0).expand(B, -1, -1)\n",
         "        p_v = self.p_values.unsqueeze(0).expand(B, -1, -1)\n",
-        "        tok_wei = attn_scores(q, p_k) * (C ** -0.5)\n",
-        "        tok_wei = F.softmax(tok_wei, dim=-1)\n",
-        "        out = attn_combine(tok_wei, p_v)\n",
+        "        theta = F.gelu(F.normalize(x, dim=-1) @ p_k.transpose(1, 2))\n",
+        "        out = theta @ p_v\n",
 }@}
         "        return out\n"
       ]
@@ -737,27 +768,23 @@
         "        q = self.query(x)\n",
         "        k = self.key(x)\n",
         "        v = self.value(x)\n",
-        "        qf = _t27.nn.functional.elu(q) + 1.0\n",
-        "        kf = _t27.nn.functional.elu(k) + 1.0\n",
         "        B, T, D = q.shape\n",
         "        buckets = []\n",
         "        outs = []\n",
         "        for t in range(T):\n",
-        "            kt = kf[:, t:t + 1, :]\n",
+        "            kt = k[:, t:t + 1, :]\n",
         "            vt = v[:, t:t + 1, :]\n",
-        "            buckets.append([1, kt.transpose(1, 2) @ vt, kt.transpose(1, 2)])\n",
+        "            buckets.append([1, kt.transpose(1, 2) @ vt])\n",
         "            while len(buckets) >= 2 and buckets[-1][0] == buckets[-2][0]:\n",
-        "                s2, S2, z2 = buckets.pop()\n",
-        "                s1, S1, z1 = buckets.pop()\n",
-        "                buckets.append([s1 + s2, S1 + S2, z1 + z2])\n",
-        "            qt = qf[:, t:t + 1, :]\n",
+        "                s2, S2 = buckets.pop()\n",
+        "                s1, S1 = buckets.pop()\n",
+        "                buckets.append([s1 + s2, S1 + S2])\n",
+        "            qt = q[:, t:t + 1, :]\n",
         "            num = 0\n",
-        "            den = 0\n",
-        "            for s, S, z in buckets:\n",
+        "            for s, S in buckets:\n",
         "                lam = 1.0 / int(s).bit_length()\n",
         "                num = num + lam * (qt @ S)\n",
-        "                den = den + lam * (qt @ z)\n",
-        "            outs.append(num / den.clamp_min(1e-6))\n",
+        "            outs.append(num)\n",
         "        return _t27.cat(outs, dim=1)\n"
       ]
     }
@@ -770,30 +797,59 @@
       "outputs": [],
       "source": [
         "import torch as _t27\n",
-        "\"\"\"Local-linear-attention Head (Zuo et al., arXiv:2510.01450; survey \u00a73.4/Table 5).\n",
+        "\"\"\"Local-linear-attention Head (Zuo et al., arXiv:2510.01450 Eq.6-8, 13-16).\n",
         "\n",
-        "Subclass of the existing Head: reuses projections; per query a centered\n",
-        "ridge regression is fit on the causal window (attention-as-regression: softmax\n",
-        "~= local constant, linear ~= global linear, LLA = local linear). Output is\n",
-        "q@A + mean(V_window); fixed window keeps per-step cost ~O(T)-scale per Table 5.\n",
-        "No equations are printed in the survey; the regression form is the paper's\n",
-        "named mechanism realized in the smallest faithful way (documented).\"\"\"\n",
+        "Subclass of the existing Head: reuses projections. Per query q_i, a\n",
+        "query-centered ridge regression (Eq.6) is fit on the CAUSAL history with\n",
+        "query-dependent kernel weights w_ij = exp(q_i.k_j / h), h = sqrt(d)\n",
+        "(softmax-analog bandwidth; fully causal range - the paper's sliding\n",
+        "windows are future work, its Sec.5). Implementation follows the matrix\n",
+        "form Eq.14-16 with the matrix-free CG solve of Eq.13 (small smoke scale,\n",
+        "dense-prototype intend): W = tril(exp(QK^T/h)); M = WK - brsum(W).Q (mu);\n",
+        "R = CGSolve(M, Q, K, lambda) (rho); delta = omega - rsum(M.R);\n",
+        "O = ((1 - relmm(R,Q,K)) / bcast(delta) . W) V with relmm = RK^T - brsum(R.Q).\n",
+        "Smoke cost: expected - heavier than softmax per head (no FLOP claim).\"\"\"\n",
         "class LocalLinearAttnHead(Head):\n",
-        "    def forward(self, x, window=16, ridge=1e-3):\n",
+        "    def _cgsolve(self, W, M, Q, K, lam, iters=12):\n",
+        "        \"\"\"Matrix-free CG on Sigma_i p (Eq.13), batched over (B, T).\"\"\"\n",
+        "        omega = W.sum(-1, keepdim=True)\n",
+        "        def Aop(p):\n",
+        "            Kp = p @ K.transpose(-2, -1)\n",
+        "            t1 = (W * Kp) @ K\n",
+        "            qp = (p * Q).sum(-1, keepdim=True)\n",
+        "            Mp = (M * p).sum(-1, keepdim=True)\n",
+            "            return (t1 - qp * M - Mp * Q\n",
+            "                    - (qp * omega) * Q + lam * p)\n",
+        "        x = _t27.zeros_like(M)\n",
+        "        r = M - Aop(x)\n",
+        "        p = r\n",
+        "        rs = (r * r).sum(-1, keepdim=True)\n",
+        "        for _ in range(iters):\n",
+        "            Ap = Aop(p)\n",
+        "            alpha = rs / (Ap * p).sum(-1, keepdim=True).clamp_min(1e-12)\n",
+        "            x = x + alpha * p\n",
+        "            r = r - alpha * Ap\n",
+        "            rs_new = (r * r).sum(-1, keepdim=True)\n",
+        "            p = r + (rs_new / rs.clamp_min(1e-12)) * p\n",
+        "            rs = rs_new\n",
+        "        return x\n",
+        "    def forward(self, x, ridge=1e-3):\n",
         "        q = self.query(x)\n",
         "        k = self.key(x)\n",
         "        v = self.value(x)\n",
         "        B, T, D = q.shape\n",
-        "        I = _t27.eye(D, device=x.device, dtype=x.dtype) * ridge\n",
-        "        outs = []\n",
-        "        for t in range(T):\n",
-        "            s0 = max(0, t - window + 1)\n",
-        "            Kn = k[:, s0:t + 1, :]\n",
-        "            Vn = v[:, s0:t + 1, :]\n",
-        "            Kc = Kn - Kn.mean(dim=1, keepdim=True)\n",
-        "            A = _t27.linalg.solve(Kc.transpose(1, 2) @ Kc + I, Kc.transpose(1, 2) @ Vn)\n",
-        "            outs.append(q[:, t:t + 1, :] @ A + Vn.mean(dim=1, keepdim=True))\n",
-        "        return _t27.cat(outs, dim=1)\n"
+        "        lam = ridge\n",
+        "        h = float(D) ** 0.5\n",
+        "        tril = self.tril[:T, :T]\n",
+        "        W = (q @ k.transpose(-2, -1) / h).masked_fill(tril == 0, float(\"-inf\"))\n",
+        "        W = W.exp() * tril\n",
+        "        omega = W.sum(-1, keepdim=True)\n",
+        "        M = W @ k - omega * q\n",
+        "        R = self._cgsolve(W, M, q, k, lam)\n",
+        "        delta = (omega - (M * R).sum(-1, keepdim=True)).clamp_min(1e-6)\n",
+        "        zk = R @ k.transpose(-2, -1) - (R * q).sum(-1, keepdim=True)\n",
+        "        S = (1.0 - zk) / delta * W\n",
+        "        return S @ v\n"
       ]
     }
     }@},
@@ -913,7 +969,7 @@
         "class MultiHead(nn.Module):\n",
         "    def __init__(self, n_heads, head_sz, emb_dim):\n",
         "        super().__init__()\n",
-        "        self.n_heads = n_heads\n",
+        "        self.n_heads, self.head_sz, self.emb_dim = n_heads, head_sz, emb_dim\n",
 @Impl::Attn::mqa{
         "        # MQA: n_heads queries share ONE key/value (Shazeer 2019)\n",
         "        self.queries = nn.ModuleList([QKVLinear(emb_dim, head_sz, bias=False) for _ in range(n_heads)])\n",
@@ -973,7 +1029,7 @@
         "        outs = []\n",
         "        for q_layer in self.queries:\n",
         "            q = q_layer(x)\n",
-        "            wei = attn_scores(q, k) * (C ** -0.5)\n",
+        "            wei = attn_scores(q, k) * (self.head_sz ** -0.5)\n",
         "            wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
         "            wei = F.softmax(wei, dim=-1)\n",
         "            outs.append(attn_combine(wei, v))\n",
@@ -987,7 +1043,7 @@
         "            q = q_layer(x)\n",
         "            k = ks[(i * self.n_kv_heads) // self.n_heads]\n",
         "            v = vs[(i * self.n_kv_heads) // self.n_heads]\n",
-        "            wei = attn_scores(q, k) * (C ** -0.5)\n",
+        "            wei = attn_scores(q, k) * (self.head_sz ** -0.5)\n",
         "            wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
         "            wei = F.softmax(wei, dim=-1)\n",
         "            outs.append(attn_combine(wei, v))\n",
@@ -1216,14 +1272,44 @@
         "        ])\n",
         "        self.ln_final = nn.LayerNorm(emb_dim)\n",
         "        self.lm_head = nn.Linear(emb_dim, vocab_sz)\n",
+@Impl::Interface::bounded{
+        "        # Native LBI interface chain (arXiv:2605.09204 Eq.4-5): same blocks underneath\n",
+        "        # dense selection omits every line in this block (base class stays byte-identical)\n",
+        "        self.region_size, self.iface_width = 2, 8\n",
+        "        self.region_groups = [list(range(k, min(k + self.region_size, n_layers))) for k in range(0, n_layers, self.region_size)]\n",
+        "        _K = len(self.region_groups)\n",
+        "        self.iface_encs = nn.ModuleList([nn.Linear(emb_dim, self.iface_width) for _ in range(_K)])\n",
+        "        self.iface_decs = nn.ModuleList([nn.Linear(self.iface_width, emb_dim) for _ in range(_K)])\n",
+        "        self.iface_lns = nn.ModuleList([nn.LayerNorm(self.iface_width) for _ in range(_K)])\n",
+        "        self.iface_alphas = nn.Parameter(torch.full((_K,), 0.5))\n",
+        "        self.iface_E0 = nn.Linear(emb_dim, self.iface_width)\n",
+        "        self.iface_Dterm = nn.Linear(self.iface_width, emb_dim)\n",
+        "        self._iface = {}\n",
+}@}
         "\n",
         "    def forward(self, x):\n",
         "        B, T = x.shape\n",
         "        pos = torch.arange(0, T, dtype=torch.long, device=x.device)\n",
         "        tok_emb = self.token_embedding(x)\n",
         "        pos_emb = self.position_embedding(pos)\n",
-        "        x = tok_emb + pos_emb\n",
-        "        x = self.blocks(x)\n",
+        "        xemb = tok_emb + pos_emb\n",
+@Impl::Interface::bounded{
+        "        # bounded interface pass (paper Eq.4-5); the SAME blocks, region-wired\n",
+        "        m = torch.tanh(self.iface_E0(xemb.mean(1)))\n",
+        "        ms = [m.detach()]\n",
+        "        for k, g in enumerate(self.region_groups):\n",
+        "            x = xemb + self.iface_decs[k](m).unsqueeze(1)\n",
+        "            for i in g:\n",
+        "                x = self.blocks[i](x)\n",
+        "            pooled = x.mean(1)\n",
+        "            m = self.iface_lns[k](m + self.iface_alphas[k] * self.iface_encs[k](pooled))\n",
+        "            ms.append(m.detach())\n",
+        "        x = x + self.iface_Dterm(m).unsqueeze(1)\n",
+        "        self._iface = {\"ms\": ms, \"xemb\": xemb.detach(), \"h_final\": x.detach()}\n",
+}@}
+@Impl::Interface::dense{
+        "        x = self.blocks(xemb)\n",
+}@}
         "        x = self.ln_final(x)\n",
         "        logits = self.lm_head(x)\n",
         "        return logits\n",
@@ -1259,14 +1345,44 @@
         "        ])\n",
         "        self.ln_final = nn.LayerNorm(emb_dim)\n",
         "        self.lm_head = AdderConvLinear(emb_dim, vocab_sz)\n",
+@Impl::Interface::bounded{
+        "        # Native LBI interface chain (arXiv:2605.09204 Eq.4-5): same blocks underneath\n",
+        "        # dense selection omits every line in this block (base class stays byte-identical)\n",
+        "        self.region_size, self.iface_width = 2, 8\n",
+        "        self.region_groups = [list(range(k, min(k + self.region_size, n_layers))) for k in range(0, n_layers, self.region_size)]\n",
+        "        _K = len(self.region_groups)\n",
+        "        self.iface_encs = nn.ModuleList([nn.Linear(emb_dim, self.iface_width) for _ in range(_K)])\n",
+        "        self.iface_decs = nn.ModuleList([nn.Linear(self.iface_width, emb_dim) for _ in range(_K)])\n",
+        "        self.iface_lns = nn.ModuleList([nn.LayerNorm(self.iface_width) for _ in range(_K)])\n",
+        "        self.iface_alphas = nn.Parameter(torch.full((_K,), 0.5))\n",
+        "        self.iface_E0 = nn.Linear(emb_dim, self.iface_width)\n",
+        "        self.iface_Dterm = nn.Linear(self.iface_width, emb_dim)\n",
+        "        self._iface = {}\n",
+}@}
         "\n",
         "    def forward(self, x):\n",
         "        B, T = x.shape\n",
         "        pos = torch.arange(0, T, dtype=torch.long, device=x.device)\n",
         "        tok_emb = self.token_embedding(x)\n",
         "        pos_emb = self.position_embedding(pos)\n",
-        "        x = tok_emb + pos_emb\n",
-        "        x = self.blocks(x)\n",
+        "        xemb = tok_emb + pos_emb\n",
+@Impl::Interface::bounded{
+        "        # bounded interface pass (paper Eq.4-5); the SAME blocks, region-wired\n",
+        "        m = torch.tanh(self.iface_E0(xemb.mean(1)))\n",
+        "        ms = [m.detach()]\n",
+        "        for k, g in enumerate(self.region_groups):\n",
+        "            x = xemb + self.iface_decs[k](m).unsqueeze(1)\n",
+        "            for i in g:\n",
+        "                x = self.blocks[i](x)\n",
+        "            pooled = x.mean(1)\n",
+        "            m = self.iface_lns[k](m + self.iface_alphas[k] * self.iface_encs[k](pooled))\n",
+        "            ms.append(m.detach())\n",
+        "        x = x + self.iface_Dterm(m).unsqueeze(1)\n",
+        "        self._iface = {\"ms\": ms, \"xemb\": xemb.detach(), \"h_final\": x.detach()}\n",
+}@}
+@Impl::Interface::dense{
+        "        x = self.blocks(xemb)\n",
+}@}
         "        x = self.ln_final(x)\n",
         "        logits = self.lm_head(x)\n",
         "        return logits\n",
@@ -1304,7 +1420,7 @@
         "        k = self.key(x)\n",
         "        q = self.query(x)\n",
         "        v = self.value(x)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
+        "        wei = q @ k.transpose(-2, -1) * self.head_sz ** -0.5\n",
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = wei @ v\n",
         "        return out\n",
@@ -1324,7 +1440,7 @@
         "        k = self.key(enc)\n",
         "        q = self.query(x)\n",
         "        v = self.value(enc)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
+        "        wei = q @ k.transpose(-2, -1) * self.head_sz ** -0.5\n",
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = wei @ v\n",
         "        return out\n",
@@ -1342,7 +1458,7 @@
         "        self.ln2 = nn.LayerNorm(emb_dim)\n",
         "\n",
         "    def forward(self, x):\n",
-        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
+        "        out = torch.cat([h(self.ln1(x)) for h in self.heads], dim=-1)\n",
         "        x = x + self.proj(out)\n",
         "        x = x + self.ffwd(self.ln2(x))\n",
         "        return x\n",
@@ -1391,7 +1507,7 @@
         "        k = self.key(x)\n",
         "        q = self.query(x)\n",
         "        v = self.value(x)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
+        "        wei = q @ k.transpose(-2, -1) * self.head_sz ** -0.5\n",
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = wei @ v\n",
         "        return out\n",
@@ -1411,7 +1527,7 @@
         "        k = self.key(enc)\n",
         "        q = self.query(x)\n",
         "        v = self.value(enc)\n",
-        "        wei = q @ k.transpose(-2, -1) * C ** -0.5\n",
+        "        wei = q @ k.transpose(-2, -1) * self.head_sz ** -0.5\n",
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = wei @ v\n",
         "        return out\n",
@@ -1429,7 +1545,7 @@
         "        self.ln2 = RegularisedBN(emb_dim)\n",
         "\n",
         "    def forward(self, x):\n",
-        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
+        "        out = torch.cat([h(self.ln1(x)) for h in self.heads], dim=-1)\n",
         "        x = x + self.proj(out)\n",
         "        x = x + self.ffwd(self.ln2(x))\n",
         "        return x\n",
@@ -1478,7 +1594,7 @@
         "        k = self.key(x)\n",
         "        q = self.query(x)\n",
         "        v = self.value(x)\n",
-        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * C ** -0.5\n",
+        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * self.head_sz ** -0.5\n",
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = -(wei.unsqueeze(-1) - v.unsqueeze(-2)).abs().sum(-2)\n",
         "        return out\n",
@@ -1498,7 +1614,7 @@
         "        k = self.key(enc)\n",
         "        q = self.query(x)\n",
         "        v = self.value(enc)\n",
-        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * C ** -0.5\n",
+        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * self.head_sz ** -0.5\n",
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = -(wei.unsqueeze(-1) - v.unsqueeze(-2)).abs().sum(-2)\n",
         "        return out\n",
@@ -1516,7 +1632,7 @@
         "        self.ln2 = nn.LayerNorm(emb_dim)\n",
         "\n",
         "    def forward(self, x):\n",
-        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
+        "        out = torch.cat([h(self.ln1(x)) for h in self.heads], dim=-1)\n",
         "        x = x + self.proj(out)\n",
         "        x = x + self.ffwd(self.ln2(x))\n",
         "        return x\n",
@@ -1565,7 +1681,7 @@
         "        k = self.key(x)\n",
         "        q = self.query(x)\n",
         "        v = self.value(x)\n",
-        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * C ** -0.5\n",
+        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * self.head_sz ** -0.5\n",
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = -(wei.unsqueeze(-1) - v.unsqueeze(-2)).abs().sum(-2)\n",
         "        return out\n",
@@ -1585,7 +1701,7 @@
         "        k = self.key(enc)\n",
         "        q = self.query(x)\n",
         "        v = self.value(enc)\n",
-        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * C ** -0.5\n",
+        "        wei = -(q.unsqueeze(-1) - k.unsqueeze(-2)).abs().sum(-1) * self.head_sz ** -0.5\n",
         "        wei = F.softmax(wei, dim=-1)\n",
         "        out = -(wei.unsqueeze(-1) - v.unsqueeze(-2)).abs().sum(-2)\n",
         "        return out\n",
@@ -1603,7 +1719,7 @@
         "        self.ln2 = RegularisedBN(emb_dim)\n",
         "\n",
         "    def forward(self, x):\n",
-        "        out = torch.cat([h(x) for h in self.heads], dim=-1)\n",
+        "        out = torch.cat([h(self.ln1(x)) for h in self.heads], dim=-1)\n",
         "        x = x + self.proj(out)\n",
         "        x = x + self.ffwd(self.ln2(x))\n",
         "        return x\n",
@@ -1648,9 +1764,9 @@
         "        self.encoder = nn.Sequential(*[\n",
         "            EncoderBlock(emb_dim, n_heads) for _ in range(n_layers)\n",
         "        ])\n",
-        "        self.decoder_blocks = [\n",
+        "        self.decoder_blocks = nn.ModuleList([\n",
         "            CrossBlock(emb_dim, n_heads) for _ in range(n_layers)\n",
-        "        ]\n",
+        "        ])\n",
         "        self.ln_final = nn.LayerNorm(emb_dim)\n",
         "        self.lm_head = nn.Linear(emb_dim, vocab_sz)\n",
         "\n",
@@ -1696,9 +1812,9 @@
         "        self.encoder = nn.Sequential(*[\n",
         "            EncoderBlock(emb_dim, n_heads) for _ in range(n_layers)\n",
         "        ])\n",
-        "        self.decoder_blocks = [\n",
+        "        self.decoder_blocks = nn.ModuleList([\n",
         "            CrossBlock(emb_dim, n_heads) for _ in range(n_layers)\n",
-        "        ]\n",
+        "        ])\n",
         "        self.ln_final = nn.LayerNorm(emb_dim)\n",
         "        self.lm_head = AdderConvLinear(emb_dim, vocab_sz)\n",
         "\n",
@@ -1753,6 +1869,16 @@
         "print(f\"\\n{n_params_tot / 1e6:.2f} M parameters\\n\")\n"
       ]
     }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Attach the compat stack (bench_utils + nanogpt_pipeline already loaded in the header).\"\"\"\n",
+        "compat_model(model)\n"
+      ]
+    },
     }@},
     @Impl::Arch::encoderdecoder{
     {
@@ -1765,6 +1891,16 @@
         "model = EncoderDecoderTransformer(vocab_sz, emb_dim, ctx_len, n_layers, n_heads)\n",
         "n_params_tot = sum(p.numel() for p in model.parameters())\n",
         "print(f\"\\n{n_params_tot / 1e6:.2f} M parameters\\n\")\n"
+      ]
+    }
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Attach the compat stack (bench_utils + nanogpt_pipeline already loaded in the header).\"\"\"\n",
+        "compat_model(model)\n"
       ]
     }
     }@},
@@ -1959,11 +2095,12 @@
         "\"\"\"hallucinated (y=1). This isolates representational geometry from \"\"\"\n",
         "\"\"\"generation-induced distribution shift (paper \\u00a75 Protocol). Hidden states are \"\"\"\n",
         "\"\"\"extracted at the LAST token position of each input sequence. \"\"\"\n",
-        "\"\"\"nanoGPT adaptation: this repo is char-level tiny-Shakespeare, so the loader tries \"\"\"\n",
-        "\"\"\"HuggingFace `datasets` first, then falls back to a synthetic Gaussian paired \"\"\"\n",
-        "\"\"\"corpus with a planted mean shift (same geometry the paper measures), tokenized \"\"\"\n",
-        "\"\"\"through the repo char vocabulary. No model logic is touched.\"\"\"\n",
-        "def build_paired_corpus(dataset=\"TQA\", n_pairs=500, seed=0, use_hf=True):\n",
+        "\"\"\"nanoGPT adaptation: this repo is char-level tiny-Shakespeare, so the load is \"\"\"\n",
+        "\"\"\"offline-safe by default (synthetic Gaussian paired corpus with a planted mean \"\"\"\n",
+        "\"\"\"shift, same geometry the paper measures, tokenized through the repo char \"\"\"\n",
+        "\"\"\"vocabulary); pass use_hf=True explicitly to try HuggingFace `datasets` first \"\"\"\n",
+        "\"\"\"(offline run still falls back to synthetic). No model logic is touched.\"\"\"\n",
+        "def build_paired_corpus(dataset=\"TQA\", n_pairs=500, seed=0, use_hf=False):\n",
         "    import random\n",
         "    rng = random.Random(seed)\n",
         "    if use_hf:\n",
@@ -1990,7 +2127,6 @@
         "                return pairs\n",
         "        except Exception as e:\n",
         "            print(f\"  HF load failed ({e}); using synthetic paired corpus.\")\n",
-        "    vocab_chars = sorted(set(text))\n",
         "    topics = [\"Romeo\", \"dreams\", \"love\", \"night\", \"sword\", \"crown\"]\n",
         "    pairs = []\n",
         "    for i in range(n_pairs):\n",
@@ -2031,9 +2167,11 @@
         "    model.eval()\n",
         "    feats = {}\n",
         "    hooks = []\n",
-        "    blocks = list(model.blocks) if hasattr(model, \"blocks\") else []\n",
+        "    from nanogpt_pipeline import decoder_stack as _dstk, compat_model as _cm\n",
+        "    _cm(model)\n",
+        "    blocks = list(_dstk(model))\n",
         "    if hasattr(model, \"encoder\"):\n",
-        "        blocks = list(model.encoder) + blocks\n",
+        "        blocks = list(model.encoder) + [b for b in blocks if b not in list(model.encoder)]\n",
         "    keep = set(layer_ids) if layer_ids is not None else None\n",
         "    for li, blk in enumerate(blocks):\n",
         "        if keep is not None and li not in keep:\n",
@@ -2135,7 +2273,6 @@
       ]
     },
     {
-    {
       "cell_type": "code",
       "execution_count": null,
       "metadata": {},
@@ -2153,7 +2290,6 @@
         "    return (Xte.double() @ w).float()\n"
       ]
     },
-    {
     {
       "cell_type": "code",
       "execution_count": null,
@@ -2371,6 +2507,26 @@
         "        Xn = (X - mu) / sd\n",
         "        probs.append(l2lr_fit_predict(Xn, y, Xn, C=C))\n",
         "    return sum(probs) / len(probs), sorted(layer_states), {}\n",
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### LayerMix live benchmark + AUROC curves\n",
+        "\n",
+        "Runs every probe head and aggregation rule on the frozen last-token states of **this** model (Tables 3/15/16 comparison, nanoGPT-scale). Definitions live in `nanogpt_pipeline.py`.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'layermix', run_layermix_live, ns=globals(),\n",
+        "    model=model, pairs_fn=lambda: bench_pairs_fn(globals())))\n"
       ]
     },
     {
@@ -2714,6 +2870,29 @@
       ]
     }
     }@},
+    @Impl::Vocab::gpt2bpe{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"GPT-2 BPE vocab (50257 merges, tiktoken). Same site as the char/word vocabs:\n",
+        "\"\"\"sets vocab_sz + encode/decode (+ empty int_to_token since ids are not\n",
+        "\"\"\"enumerable). The vocab the external suites (§28) need: tiktoken ids map the\n",
+        "\"\"\"50257-wide embedding table 1:1, so likelihood scoring and greedy decoding of\n",
+        "\"\"\"real MMLU/GSM8K/MBPP-style text works with the gpt2bpe Vocab selection.\"\"\"\n",
+        "import tiktoken as _tiktoken\n",
+        "_bpe = _tiktoken.get_encoding(\"gpt2\")\n",
+        "vocab_sz = _bpe.n_vocab\n",
+        "token_to_int = {}\n",
+        "int_to_token = {}\n",
+        "encode = lambda s: list(_bpe.encode(s, allowed_special=set()))\n",
+        "decode = lambda ids: _bpe.decode([int(i) for i in ids if 0 <= int(i) < vocab_sz])\n",
+        "print(f\"gpt2bpe {vocab_sz=}\")\n"
+      ]
+    }
+    }@},
     @Impl::Scale::tiny64{
     {
       "cell_type": "code",
@@ -2764,6 +2943,78 @@
       ]
     }
     }@},
+    @Impl::Scale::gpt2_124m{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Scale gpt2_124m (emb 768, 12 layers, 12 heads, ~124M). Same class, same \"\"\"\n",
+        "\"\"\"block layout - just the dims the external suites (\u00a728) ask for. Purely a \"\"\"\n",
+        "\"\"\"size parameterization: instantiated with the repo's own init and trained by \"\"\"\n",
+        "\"\"\"\u00a79 on the in-repo corpus, like every other scale. (The verified \"\"\"\n",
+        "\"\"\"openai-community/gpt2 tensor mapping lives in nanogpt_pipeline.py only, for \"\"\"\n",
+        "\"\"\"deferred ablation work - this notebook never loads external chains.)\"\"\"\n",
+        "class gpt2_faithful_Head(nn.Module):\n",
+        "    \"\"\"GPT-2 keeps biases on the q/k/v Linears (the repo Head is bias=False);\n",
+        "    late-binding this name gives this scale a faithful attention\n",
+        "    parameterization with identical attention math (checkpoint-agnostic).\"\"\"\n",
+        "\n",
+        "    def __init__(self, head_sz, emb_dim):\n",
+        "        super().__init__()\n",
+        "        self.head_sz, self.emb_dim = head_sz, emb_dim\n",
+        "        self.key = QKVLinear(emb_dim, head_sz)\n",
+        "        self.query = QKVLinear(emb_dim, head_sz)\n",
+        "        self.value = QKVLinear(emb_dim, head_sz)\n",
+        "        self.register_buffer(\"tril\", torch.tril(torch.ones(ctx_len, ctx_len)))\n",
+        "\n",
+        "    def forward(self, x, kv=None):\n",
+        "        B, T, C = x.shape\n",
+        "        q = self.query(x)\n",
+        "        k = self.key(x)\n",
+        "        v = self.value(x)\n",
+        "        if kv is not None:\n",
+        "            k, v = kv\n",
+        "        wei = attn_scores(q, k) * (self.head_sz ** -0.5)\n",
+        "        wei = wei.masked_fill(self.tril[:T, :T] == 0, float(\"-inf\"))\n",
+        "        wei = F.softmax(wei, dim=-1)\n",
+        "        return attn_combine(wei, v)\n",
+        "\n",
+        "Head = gpt2_faithful_Head\n",
+        "SCALE = {\"emb_dim\": 768, \"n_layers\": 12, \"n_heads\": 12}\n",
+        "model = NanoGPT(vocab_sz, SCALE[\"emb_dim\"], ctx_len, SCALE[\"n_layers\"], SCALE[\"n_heads\"]).to(device)\n",
+        "n_params_tot = sum(p.numel() for p in model.parameters())\n",
+        "print(f\"gpt2_124m {n_params_tot / 1e6:.2f} M parameters\")\n",
+        "_model_provenance = \"self-trained via \u00a79 for the selected path; no external checkpoint loaded\"\n",
+        "print(_model_provenance)\n"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"reseat_ctx: change a compiled model's context length at the parameterization\"\"\"\n",
+        "\"\"\"level - rebuilds the position table AND every causal-mask buffer that was \"\"\"\n",
+        "\"\"\"sized from ctx_len at instantiation (the repo Head, MultiHead variants and \"\"\"\n",
+        "\"\"\"gpt2_faithful_Head each register their own tril). Without it, a context \"\"\"\n",
+        "\"\"\"larger than the instantiated one breaks on masked_fill shape mismatch.\"\"\"\n",
+        "def reseat_ctx(model, new_len):\n",
+        "    dev = next(model.parameters()).device\n",
+        "    emb = model.token_embedding.weight.shape[1]\n",
+        "    model.position_embedding = torch.nn.Embedding(new_len, emb).to(dev)\n",
+        "    model.ctx_len = new_len\n",
+        "    rebuilt = 0\n",
+        "    for m in model.modules():\n",
+        "        if isinstance(getattr(m, \"tril\", None), torch.Tensor):\n",
+        "            m.tril = torch.tril(torch.ones(new_len, new_len, device=dev))\n",
+        "            rebuilt += 1\n",
+        "    print(f\"reseat_ctx {new_len}: position table + {rebuilt} causal mask(s)\")\n"
+      ]
+    },
     @Impl::Context::ctx64{
     {
       "cell_type": "code",
@@ -2789,8 +3040,7 @@
         "\"\"\"Context 256 (~40 words): short QA pairs fit whole. New position table, so this \"\"\"\n",
         "\"\"\"Impl re-seats position_embedding then requires retraining (no logic change).\"\"\"\n",
         "ctx_len = 256\n",
-        "model.position_embedding = torch.nn.Embedding(ctx_len, model.token_embedding.weight.shape[1]).to(device)\n",
-        "model.ctx_len = ctx_len\n",
+        "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx256 {ctx_len=}\")\n"
       ]
     }
@@ -2805,8 +3055,7 @@
         "\"\"\"Context 512 (full pairs with head+tail packing: keep question head, answer tail).\"\"\"\n",
         "\"\"\"Same re-seat + retrain recipe as ctx256. Use with word vocabs (char-512 is short).\"\"\"\n",
         "ctx_len = 512\n",
-        "model.position_embedding = torch.nn.Embedding(ctx_len, model.token_embedding.weight.shape[1]).to(device)\n",
-        "model.ctx_len = ctx_len\n",
+        "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx512 {ctx_len=}\")\n",
         "def pack_pair_ids(q_ids, a_ids, ctx_len):\n",
         "    keep_q = max(0, ctx_len - len(a_ids))\n",
@@ -2826,8 +3075,7 @@
         "\"\"\"B*H*T^2 floats per layer (~67M at B=8,H=8,T=1024) - shrink batch and/or compose \"\"\"\n",
         "\"\"\"with Attn::slidingwindow past this point. Pairs need no packing below ~150 words.\"\"\"\n",
         "ctx_len = 1024\n",
-        "model.position_embedding = torch.nn.Embedding(ctx_len, model.token_embedding.weight.shape[1]).to(device)\n",
-        "model.ctx_len = ctx_len\n",
+        "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx1024 {ctx_len=}\")\n"
       ]
     }
@@ -2844,12 +3092,274 @@
         "\"\"\"on CPU this is slow but functional for tiny configs. Beyond here: slidingwindow \"\"\"\n",
         "\"\"\"(Attn::) for single-pass, or the s15 hierarchy for true long context. Retrain required.\"\"\"\n",
         "ctx_len = 2048\n",
-        "model.position_embedding = torch.nn.Embedding(ctx_len, model.token_embedding.weight.shape[1]).to(device)\n",
-        "model.ctx_len = ctx_len\n",
+        "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx2048 {ctx_len=}\")\n"
       ]
     }
     }@},
+    @Impl::Context::ctx8192{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Context 8192: single-pass RULER-4k/8k lengths become first-class targets.\"\"\"\n",
+        "\"\"\"reseat_ctx rebuilds the position table (8192 x emb) and every causal mask. \"\"\"\n",
+        "\"\"\"COST: attention scores are B*H*67.1M floats per layer - batch 1 + accum, or \"\"\"\n",
+        "\"\"\"compose with Attn::slidingwindow / a KV policy for training. Retrain required.\"\"\"\n",
+        "ctx_len = 8192\n",
+        "reseat_ctx(model, ctx_len)\n",
+        "print(f\"ctx8192 {ctx_len=}\")\n"
+      ]
+    }
+    }@},
+    @Impl::Context::ctx16384{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Context 16384: 16k single-pass. Position table 16384 x emb; attention scores \"\"\"\n",
+        "\"\"\"B*H*268M per layer (3.2G at the 124m scale, batch 1). GPU territory; for \"\"\"\n",
+        "\"\"\"training prefer composition with slidingwindow / KV policies. Retrain required.\"\"\"\n",
+        "ctx_len = 16384\n",
+        "reseat_ctx(model, ctx_len)\n",
+        "print(f\"ctx16384 {ctx_len=}\")\n"
+      ]
+    }
+    }@},
+    @Impl::Context::ctx32768{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Context 32768: 32k single-pass (covers the mid RULER ladder 28k-class). \"\"\"\n",
+        "\"\"\"Position table 32768 x emb (~101MB fp32 at emb 768); attention scores \"\"\"\n",
+        "\"\"\"B*H*1.07G per layer (~12.9G at 124m, batch 1). Batch 1 mandatory; training \"\"\"\n",
+        "\"\"\"realistic only with slidingwindow/selective compositions. Retrain required.\"\"\"\n",
+        "ctx_len = 32768\n",
+        "reseat_ctx(model, ctx_len)\n",
+        "print(f\"ctx32768 {ctx_len=}\")\n"
+      ]
+    }
+    }@},
+    @Impl::Context::ctx65536{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Context 65536: 64k single-pass. Position table ~201MB fp32 at emb 768; \"\"\"\n",
+        "\"\"\"attention scores B*H*4.29G per layer (~51G at 124m, batch 1). Inference- \"\"\"\n",
+        "\"\"\"grade on a modern GPU; training goes through Attn::slidingwindow, KV caches \"\"\"\n",
+        "\"\"\"or the ConvMem recursion instead of dense single-pass. Retrain required.\"\"\"\n",
+        "ctx_len = 65536\n",
+        "reseat_ctx(model, ctx_len)\n",
+        "print(f\"ctx65536 {ctx_len=}\")\n"
+      ]
+    }
+    }@},
+    @Impl::Context::ctx131072{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Context 131072: 128k single-pass - the practical ceiling for dense attention. \"\"\"\n",
+        "\"\"\"Position table ~403MB fp32 at emb 768; scores B*H*17.2G per layer (~206G at \"\"\"\n",
+        "\"\"\"124m). Use for measurement (rulers, long-doc evals) and with composed \"\"\"\n",
+        "\"\"\"attn variants for training. Retrain required (corpus must be commensurate).\"\"\"\n",
+        "ctx_len = 131072\n",
+        "reseat_ctx(model, ctx_len)\n",
+        "print(f\"ctx131072 {ctx_len=}\")\n"
+      ]
+    }
+    }@},
+    @Impl::Context::ctx262144{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Context 262144: 256k single-pass. Position table ~805MB fp32 at emb 768; \"\"\"\n",
+        "\"\"\"scores B*H*68.7G per layer - dense full-attention forward is measurement- \"\"\"\n",
+        "\"\"\"grade only (one batch, one length); training runs via recursion/composition. \"\"\"\n",
+        "\"\"\"The tiny-emb scales keep this affordable (~67MB table at emb 64).\"\"\"\n",
+        "ctx_len = 262144\n",
+        "reseat_ctx(model, ctx_len)\n",
+        "print(f\"ctx262144 {ctx_len=}\")\n"
+      ]
+    }
+    }@},
+    @Impl::Context::ctx524288{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Context 524288: 512k single-pass. Position table ~1.6GB fp32 at emb 768 \"\"\"\n",
+        "\"\"\"(~134MB at emb 64); scores B*H*275G per layer. Exists so the length is a \"\"\"\n",
+        "\"\"\"first-class path parameter for the suites and for ConvMem-style runners; \"\"\"\n",
+        "\"\"\"dense full-attention training is not claimed here - compose for training.\"\"\"\n",
+        "ctx_len = 524288\n",
+        "reseat_ctx(model, ctx_len)\n",
+        "print(f\"ctx524288 {ctx_len=}\")\n"
+      ]
+    }
+    }@},
+    @Impl::Context::ctx896000{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Context 896000: 896k single-pass - covers the entire published long- \"\"\"\n",
+        "\"\"\"context ladder (4k..896k) as top length. Position table ~2.75GB fp32 at \"\"\"\n",
+        "\"\"\"emb 768 (~229MB at the tiny-emb scale); scores B*H*803G per layer if a \"\"\"\n",
+        "\"\"\"dense single-pass attn is selected, which is measurement-grade only - \"\"\"\n",
+        "\"\"\"training ranges go through the ConvMem/hmix recursion or sliding/selective.\"\"\"\n",
+        "ctx_len = 896000\n",
+        "reseat_ctx(model, ctx_len)\n",
+        "print(f\"ctx896000 {ctx_len=}\")\n"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ALWAYS-PRESENT PosEnc substrate (arXiv:1706.03762 Sec.3.5) | PosEnc swaps the position-encoding\n",
+        "# module on the compiled model; `learned` = nanoGPT's nn.Embedding, `sinusoidal` = the paper's FIXED\n",
+        "# sin/cos table (no learnable parameters). Selected value attaches via posenc_attach; the model's\n",
+        "# forward calls self.position_embedding(pos) unchanged, so both values are drop-in.\n",
+        "\n",
+        "def posenc_registry(attr=\"posenc_name\"):\n",
+        "    \"\"\"Whatever PosEnc Impl classes the compiled path selected, by attribute name.\"\"\"\n",
+        "    out = {}\n",
+        "    for v in list(globals().values()):\n",
+        "        if isinstance(v, type) and getattr(v, attr, None):\n",
+        "            out[getattr(v, attr)] = v\n",
+        "    return out\n",
+        "\n",
+        "\n",
+        "def posenc_attach(model, name, **hp):\n",
+        "    \"\"\"Swap model.position_embedding to the selected PosEnc value (drop-in module).\"\"\"\n",
+        "    cls = posenc_registry().get(name)\n",
+        "    if cls is None:\n",
+        "        raise ValueError(\"PosEnc value %r is not in the compiled path\" % name)\n",
+        "    d = model.token_embedding.embedding_dim\n",
+        "    model.position_embedding = cls(model.ctx_len, d, **hp)\n",
+        "    return model"
+      ]
+    },
+    @Impl::PosEnc::learned{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"PosEnc::learned - the repo default: a learned nn.Embedding table (trainable positions).\n",
+        "\n",
+        "nanoGPT ships learned position embeddings; this value keeps that behaviour explicit so the\n",
+        "paper-1 section can A/B it against the paper's fixed sinusoidal PE at the same weights.\n",
+        "\"\"\"\n",
+        "class LearnedPE(torch.nn.Embedding):\n",
+        "    posenc_name = \"learned\"\n",
+        "    paper_rule = \"nanoGPT default (learned); paper uses fixed sinusoidal (Sec.3.5)\"\n",
+        "    def __init__(self, ctx_len, emb_dim, **hp):\n",
+        "        super().__init__(ctx_len, emb_dim)"
+      ]
+    }
+    }@},
+    @Impl::PosEnc::sinusoidal{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"PosEnc::sinusoidal - the paper's FIXED sinusoidal PE (Sec.3.5).\n",
+        "\n",
+        "PE(pos, 2i)   = sin(pos / 10000^(2i/d_model))\n",
+        "PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))\n",
+        "\n",
+        "Fixed: registered as a non-persistent buffer, requires_grad=False, zero learnable parameters\n",
+        "(exactly the paper's \"fixed\" encoder). Drop-in for self.position_embedding(pos): returns [B,T,d].\n",
+        "\"\"\"\n",
+        "class SinusoidalPE(torch.nn.Module):\n",
+        "    posenc_name = \"sinusoidal\"\n",
+        "    paper_rule = \"Sec.3.5 fixed sinusoidal PE (no learned parameters)\"\n",
+        "    def __init__(self, ctx_len, emb_dim, **hp):\n",
+        "        import math as _math\n",
+        "        super().__init__()\n",
+        "        self.ctx_len = ctx_len\n",
+        "        self.emb_dim = emb_dim\n",
+        "        pe = torch.zeros(ctx_len, emb_dim)\n",
+        "        pos = torch.arange(0, ctx_len, dtype=torch.float).unsqueeze(1)\n",
+        "        two_i = torch.arange(0, emb_dim, 2, dtype=torch.float)\n",
+        "        div = torch.exp(-_math.log(10000.0) * two_i / emb_dim)\n",
+        "        pe[:, 0::2] = torch.sin(pos * div)\n",
+        "        pe[:, 1::2] = torch.cos(pos * div)\n",
+        "        self.register_buffer(\"pe\", pe, persistent=False)\n",
+        "    def forward(self, pos):\n",
+        "        idx = pos if pos.dim() > 1 else pos.view(1, -1)\n",
+        "        return self.pe.to(idx.device)[idx]"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Paper 1 live pipeline — Attention Is All You Need (arXiv:1706.03762)\n",
+        "\n",
+        "Eq.(1) is already `Attn::vanillaatten`. This cell **calls** `nanogpt_pipeline.run_attention_pipeline` (not `graded/arxiv_llm_lib`): Eq.(3) LR curve, Table-1 cost on live dims, Table-3 head/depth PPL, Sec.3.5 sinusoidal vs learned PE, label smoothing, generation BLEU on Shakespeare. WMT BLEU stays a labeled claim.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'attention', run_attention_pipeline, ns=globals(),\n",
+        "    make_model=lambda: model, ids=bench_ids(globals()),\n",
+        "    int_to_token=globals().get('int_to_token')))\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## Paper 2 live pipeline — BERT (arXiv:1810.04805)\n",
+        "\n",
+        "GLUE/SQuAD numbers stay in `graded/`. Here we measure the identity BERT added on this architecture: bidirectional encoder self-attn sees future tokens; the causal decoder does not. On `Arch::encoderdecoder` the encoder stack is the BERT-like path; on decoder-only the comparison is the causal mask vs an unmasked softmax of the same scores.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'bert', run_bert_pipeline, ns=globals(),\n",
+        "    model=model, ids=bench_ids(globals())))\n"
+      ]
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -3412,6 +3922,27 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### SABER live benchmark + exit curves\n",
+        "\n",
+        "Runs `saber_generate_early_exit` on Shakespeare stand-in tasks. Task dicts from `bench_tasks` are adapted (`prompt`/`gold` → paper `q`/`a`) in `nanogpt_pipeline` so the runner is compatible.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'saber', run_saber_live, ns=globals(),\n",
+        "    model=model, encode_fn=encode, decode_fn=decode,\n",
+        "    tasks=bench_tasks(globals())))\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 14. Grokking Lab \u2013 Quantifying the Memorization-to-Generalization Transition: Scaling Laws and Phase Structure in Grokking (Kataria 2026, ICML PMLR 306, arXiv:2609.10657)",
         "",
         "**Paper in one paragraph.** MLPs on modular arithmetic memorize first, then abruptly generalize after long training with weight decay (grokking). A 384-config sweep (2 tasks x 3 widths x 4 D x 4 eta x 4 lambda; AdamW(0.9,0.98) full-batch to 150K steps; Tmem=train-acc>99%, Tgrok=test-acc>95%) fits Tgrok ~ H^-0.27 D^-2.04 eta^-0.50 lam^-0.64 (R2=0.732, 0.821 with interactions): data (4.1x per doubling) dominates capacity (1.2x). Sharp phase boundary at lam*~=1.0 (Conjecture 1); weight norms compress monotonically to median ratio 0.42 (Conjecture 2: transition at r* in 0.3-0.5). Compute-optimal: Cstep~=6H^2, H*~=F^0.58.",
@@ -3911,6 +4442,27 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### ConvMem live NIAH + F1/Sub-EM curves\n",
+        "\n",
+        "`bench_niah` yields dict queries; the paper runner wants `(q, gold)` pairs. `nanogpt_pipeline.as_niah` makes those inputs compatible without changing the hierarchy.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "_nd, _dd, _qq = bench_niah(globals())\n",
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'convmem', run_convmem_live, ns=globals(),\n",
+        "    needles=_nd, distractors=_dd, queries=_qq, W=40, S=16))\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 16. Wired Grokking \u2013 nanoGPT Itself on Modular Arithmetic (Quantifying the Memorization-to-Generalization Transition, Kataria 2026, arXiv:2609.10657, s7 open question)",
         "",
         "The §14 lab reproduces the paper's MLP experiment beside the model. THE PAPER'S OWN OPEN QUESTION (§7: unmeasured data-fraction exponents for attention architectures) demands the transformer itself grok - so these cells wire nanoGPT directly: fixed-width arithmetic strings (`023+045=068|`, zero-padded so answer spans sit at deterministic positions) encoded with the EXISTING char vocab, trained with the UNCHANGED causal-LM objective (next-token loss; no new heads, no logic change), scored by greedy exact-match on the answer span for train vs held-out pairs (the paper's Tmem>99%/Tgrok>95% operationalization, transposed from MLP logits to sequence decoding). Two documented deviations from §2: minibatches instead of full-batch (transformer scale), greedy-decode metric instead of argmax logits (same >99%/>95% thresholds). All cells plain ALWAYS-PRESENT codeblocks (bundle rule): one training harness, no new Techniques.",
@@ -4173,6 +4725,26 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### Grokking live D-sweep + Tgrok curve\n",
+        "\n",
+        "Calls `wired_d_sweep` on a **fresh** clone of the compiled architecture (not the trained Shakespeare weights). Predicted D-doubling speedup is the paper's $D^{-2.04}$.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'grokking', run_grokking_live, ns=globals(),\n",
+        "    make_model_fn=lambda: model, steps=200))\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "## 17. Compatibility Ledger (STACK vs ALTERNATIVE vs NEVER-SAME-PATH)",
         "",
         "Standing rule: every new technique/impl ships with a compatibility note - what it composes with, what it replaces (pick exactly 1), and what it is guaranteed incompatible with (never the same path). The job is to maximise guaranteed-good combos. This ledger is the current record; exclusion enforcement is future compiler work, until then this is the contract.",
@@ -4189,129 +4761,42 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "## 18. Benchmark Runners (compile-then-run: each executes its paper end-to-end on the live path and emits a results JSON)",
-        "",
-        "Closing the compile-to-results gap: graded checks math offline, but nothing executed papers on nanoGPT. These runners do - each takes the live path model + data, runs the integrated pipeline, writes `outputs/<paper>_results.json` in the style of the paper repos' own run summaries (SABER `results_map`/LayerMix metrics style). Plain ALWAYS-PRESENT codeblocks (bundle rule): runners orchestrate, they never change the model.",
-        ""
+        "## 18. Benchmark Runners (moved in-section)\n",
+        "\n",
+        "LayerMix / SABER / grokking / ConvMem live runners are called **next to those papers** via `nanogpt_pipeline` (not dumped here, not in `graded/arxiv_llm_lib`). Sliding-window attention remains below as the length-gap stand-in for RULER-scale NIAH.\n"
       ]
     },
     {
-      "cell_type": "code",
-      "execution_count": null,
+      "cell_type": "markdown",
       "metadata": {},
-      "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT runner: LayerMix end-to-end | Wires s10 extractor + all probe heads + layermix/singleoracle/alllayeravg + Corrupt eval sets | emits outputs/layermix_results.json | plain codeblock, no Impl tag by design.\n",
-        "\"\"\"Run every probe head and every aggregation rule on the SAME frozen states (the \"\"\"\n",
-        "\"\"\"comparison the paper's Tables 3/15/16 make), over each Corrupt eval type. One model, \"\"\"\n",
-        "\"\"\"one training run, full comparison table - the bundle-rule payoff.\"\"\"\n",
-        "import json as _json\n",
-        "import time as _time\n",
-        "def run_layermix_benchmark(model, pairs_fn, out_path=\"outputs/layermix_results.json\"):\n",
-        "    from pathlib import Path as _P\n",
-        "    pairs = pairs_fn()\n",
-        "    Xall, yall = encode_paired(pairs, model.ctx_len)\n",
-        "    states = extract_last_token_states(model, Xall.to(next(model.parameters()).device))\n",
-        "    res = {\"n_pairs\": len(pairs), \"layers\": sorted(states), \"heads\": {}, \"agg\": {}}\n",
-        "    for name, fn in [(\"l2lr\", l2lr_fit_predict), (\"fisherlda\", fisherlda_fit_predict),\n",
-        "                     (\"shrinkagelda\", shrinkagelda_fit_predict), (\"meandiff\", meandiff_fit_predict),\n",
-        "                     (\"svd\", svd_fit_predict), (\"plsda\", plsda_fit_predict), (\"mlp\", mlp_fit_predict)]:\n",
-        "        ms = {}\n",
-        "        for li, X in states.items():\n",
-        "            m, _ = cv_auroc_for_probe(X, yall, fn, k=5)\n",
-        "            ms[li] = m\n",
-        "        res[\"heads\"][name] = ms\n",
-        "    for aname, afn in [(\"layermix\", layermix_predict), (\"singleoracle\", singleoracle_predict),\n",
-        "                        (\"alllayeravg\", alllayeravg_predict)]:\n",
-        "        try:\n",
-        "            p, top, _ = afn(states, yall)\n",
-        "            res[\"agg\"][aname] = {\"auroc\": auroc_score(yall, p), \"top\": top}\n",
-        "        except Exception as e:\n",
-        "            res[\"agg\"][aname] = {\"error\": str(e)}\n",
-        "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
-        "    _P(out_path).write_text(_json.dumps(res, indent=2))\n",
-        "    return res\n"
-      ]
-    },
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "# ALWAYS-PRESENT runner: SABER end-to-end | Wires s13 exit loop + accounting over reasoning tasks | emits outputs/saber_results.json (early_exit_rate/avg tokens/CR/accuracy, repo results-JSON style) | plain codeblock, no Impl tag by design.\n",
-        "\"\"\"Runs every reasoning task through saber_generate_early_exit at the configured \"\"\"\n",
-        "\"\"\"alpha/tau, grades boxed answers, summarizes with probe-share and CR vs a \"\"\"\n",
-        "\"\"\"vanilla (no-exit) token baseline measured on the same model.\"\"\"\n",
-        "import json as _json2\n",
-        "def run_saber_benchmark(model, encode_fn, decode_fn, tasks, alpha=0.5, tau=0.9, k=4, out_path=\"outputs/saber_results.json\"):\n",
-        "    from pathlib import Path as _P\n",
-        "    recs, vanilla_toks = [], []\n",
-        "    for t in tasks:\n",
-        "        ids = encode_fn(t[\"q\"])\n",
-        "        out_ids, trace = saber_generate_early_exit(model, encode_fn, decode_fn, ids, alpha, tau, k)\n",
-        "        ans = saber_extract_boxed(decode_fn(out_ids))\n",
-        "        ok = saber_grade(ans, t[\"a\"])\n",
-        "        rtoks = len(out_ids) - len(ids)\n",
-        "        ptoks = sum(s[\"probe_toks\"] for s in trace)\n",
-        "        recs.append(saber_run_record(any(s[\"stop\"] for s in trace), rtoks, ptoks, ok))\n",
-        "        vanilla_toks.append(rtoks + 40)\n",
-        "    summ = saber_summarize(recs, sum(vanilla_toks) / max(1, len(vanilla_toks)))\n",
-        "    summ[\"records\"] = recs\n",
-        "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
-        "    _P(out_path).write_text(_json2.dumps(summ, indent=2))\n",
-        "    return summ\n"
-      ]
-    },
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "# ALWAYS-PRESENT runner: grokking sweep end-to-end | Wraps s16 wired_d_sweep with predicted-vs-measured table + results JSON | emits outputs/grokking_results.json | plain codeblock, no Impl tag by design.\n",
-        "\"\"\"Runs the D-sweep on live models and scores the paper's claims: D-doubling speedup \"\"\"\n",
-        "\"\"\"near 4.1x, lam>=1.0 groks, norm ratio in r* band. One row per D leg, verdict per claim.\"\"\"\n",
-        "import json as _json3\n",
-        "def run_grokking_benchmark(make_model_fn, P=113, op=\"add\", Ds=(0.3, 0.5, 0.7, 0.97), eta=0.003, lam=0.3, steps=5000, out_path=\"outputs/grokking_results.json\"):\n",
-        "    from pathlib import Path as _P\n",
-        "    rows = wired_d_sweep(make_model_fn, P, op, Ds, eta, lam, steps)\n",
-        "    tg = [r[\"Tgrok\"] for r in rows]\n",
-        "    verdict = {\"all_grokked\": all(t is not None for t in tg),\n",
-        "               \"d_speedup_03_07\": (tg[0] / tg[2]) if tg[0] and tg[2] else None,\n",
-        "               \"pred_speedup_03_07\": (0.3 / 0.7) ** -2.04,\n",
-        "               \"norm_in_band\": [r[\"r_star_band\"] for r in rows]}\n",
-        "    out = {\"rows\": rows, \"verdict\": verdict}\n",
-        "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
-        "    _P(out_path).write_text(_json3.dumps(out, indent=2, default=str))\n",
-        "    return out\n"
-      ]
-    },
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "# ALWAYS-PRESENT runner: ConvMem end-to-end | Wires s15 NIAH builder + convmem_run + F1/EM/Sub-EM over needle docs | emits outputs/convmem_results.json | plain codeblock, no Impl tag by design.\n",
-        "\"\"\"Builds needle+distractor docs, runs the hierarchy per channel, grades sub-answers \"\"\"\n",
-        "\"\"\"against needle golds, reports per-channel and global metrics with the trace ledger.\"\"\"\n",
-        "import json as _json4\n",
-        "def run_convmem_benchmark(needles, distractors, queries, W=200, S=40, out_path=\"outputs/convmem_results.json\"):\n",
-        "    from pathlib import Path as _P\n",
-        "    recs = []\n",
-        "    for q, gold in queries:\n",
-        "        docs = convmem_build_niah([n for n, _ in needles], distractors)\n",
-        "        out = convmem_run(\" \".join(docs), q, W, S)\n",
-        "        subs = [(qq, convmem_f1(aa, gold), convmem_subem(aa, gold)) for qq, aa in out[\"sub\"]]\n",
-        "        recs.append({\"q\": q, \"gold\": gold, \"answer\": out[\"answer\"][:400],\n",
-        "                   \"f1\": convmem_f1(out[\"answer\"], gold), \"subem\": convmem_subem(out[\"answer\"], gold),\n",
-        "                   \"sub\": subs, \"trace\": convmem_trace([str(i) for i in range(len(docs))], q, [])})\n",
-        "    summ = {\"n\": len(recs), \"mean_f1\": sum(r[\"f1\"] for r in recs) / max(1, len(recs)),\n",
-        "            \"mean_subem\": sum(r[\"subem\"] for r in recs) / max(1, len(recs)), \"records\": recs}\n",
-        "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
-        "    _P(out_path).write_text(_json4.dumps(summ, indent=2))\n",
-        "    return summ\n"
+        "### Metric-curve inventory (all 19 papers)\n",
+        "\n",
+        "Each `live_call` result flows through `plot_result` -> `_plot_known` (nanogpt_pipeline.py), which emits the stems below into `outputs/curves/` (emitted when the result carries the rows; a SKIP-with-reason result emits nothing, by design). Published paper figures are **recorded, never simulated**: they are recreated from the published numbers in `graded/figures/<arxiv-id>/` (reference assets, untouched by the run path).\n",
+        "\n",
+        "| arXiv | Paper | `live_call` name(s) | live curve stems (outputs/curves) | published recreations (graded/figures) |\n",
+        "|---|---|---|---|---|\n",
+        "| 1706.03762 | Attention | attention | attention_eq3_lr, attention_table3_heads, attention_table3_depth | 10 PNGs + metrics.json |\n",
+        "| 1810.04805 | BERT | bert | bert_eq3_lr, bert_table3_heads, bert_table3_depth | 9 PNGs + metrics.json |\n",
+        "| 2608.28930 | LayerMix | layermix | layermix_auroc_layers, layermix_agg | 23 PNGs + metrics.json |\n",
+        "| 2608.27963 | SABER | saber | saber_exit | 13 PNGs + metrics.json |\n",
+        "| 2609.10441 | ConvMem | convmem | convmem_niah | 4 PNGs + metrics.json |\n",
+        "| 2609.10657 | Grokking | grokking | grokking_d_sweep | 10 PNGs + metrics.json |\n",
+        "| 2609.10305 | RiLM | rilm | rilm_ppl | 2 PNGs + metrics.json |\n",
+        "| 2609.09883 | WRP | wrp | wrp_loss, wrp_removal | 3 PNGs + metrics.json |\n",
+        "| 2609.11393 | TASCO | tasco | tasco_acc | 6 PNGs + metrics.json |\n",
+        "| 2609.02959 | Ignorance | ignorance | ignorance_fit, ignorance_controls | 5 PNGs + metrics.json |\n",
+        "| 2609.04463 | SharedCircuits | sharedcircuits | sharedcircuits_acc, sharedcircuits_jaccard | 6 PNGs + metrics.json |\n",
+        "| 2511.17864 | ImplicitPatch | implicitpatch | implicitpatch_delta, implicitpatch_match | 4 PNGs + metrics.json |\n",
+        "| 2605.09204 | LBI | lbi, lbi_interface | lbi_cost, lbi_interface_interface | 3 PNGs + metrics.json |\n",
+        "| 2603.20397 | KV survey | kvcache | kvcache_evict_err, kvcache_evict_bytes, kvcache_compress_err, kvcache_compress_bytes | 2 PNGs + metrics.json |\n",
+        "| 2507.06517 | SpindleKV | spindlekv | spindlekv_err, spindlekv_bytes | 4 PNGs + metrics.json |\n",
+        "| 2504.09936 | KeepKV | keepkv | keepkv_err, keepkv_sag, keepkv_bytes | 2 PNGs + metrics.json |\n",
+        "| 2405.03917 | CoupledQuant | cq | cq_err, cq_bytes, cq_bpa | 3 PNGs + metrics.json |\n",
+        "| 2509.17396 | EpiCache | epicache | epicache_mass, epicache_err, epicache_peak, epicache_sens, epicache_alloc | 4 PNGs + metrics.json |\n",
+        "| 2605.23872 | Loop decode | loop | loop_width, loop_depth, loop_strategies | 2 PNGs + metrics.json |\n",
+        "\n",
+        "**External suites (§28) now run for real (download-backed):** MMLU 5-shot letter-likelihood (`mmlu_overall`, `mmlu_subjects`), GSM8K 8-shot greedy EM (`gsm8k_acc`), MBPP executed pass@1 (`mbpp_pass`), TruthfulQA MC1/MC2 (`truthfulqa_mc`), HaluEval + FaithDial pairwise (`halieval_acc`, `faithdial_acc`), OlympiadBench (`olympiad_types`/`olympiad_acc`), RULER-style single-pass NIAH sweep (`ruler_em_vs_len`, >ctx lengths skipped-with-reason). `Vocab::gpt2bpe` + `Scale::gpt2_124m` give every path a suite-scale capacity option (768/12/12, self-trained via §9 - no foreign weights); every result carries provenance (dataset/split/n/seed/shots/tokenizer/weights). Offline they fail softly into SKIP-with-reason `{\"error\"}` entries - never fabricated numbers. Published rows stay recorded in `graded/figures/`."
       ]
     },
     {
@@ -4451,6 +4936,26 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
+        "### RiLM live geodesic vs linear smoke + PPL curve\n",
+        "\n",
+        "Paper Table I: delete Wout, tie the geodesic head to the embedding table. Incompatible with a separate untied copy (NEVER). `GeodesicHead` has no `out_features`; the smoke runner already uses `vocab_sz` as the compatible stand-in.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'rilm', run_rilm_live, ns=globals(),\n",
+        "    make_model_fn=lambda: model, get_batch_fn=get_batch, steps=50))\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
         "### Compatibility: RiLM: Parameter-Efficient Language Modeling via Geodesic Decoding (Li 2026, arXiv:2609.10305)",
         "",
         "- **STACK:** geodesic head + every Vocab (savings grow with |V|; head shares the table by construction) / Scale / Context / State / Arch / Attn path; budget cell + any live model; smoke runner + any get_batch; checkpoint probing tracks PPL either way.",
@@ -4565,7 +5070,7 @@
       "source": [
         "### Backprop: RiLM (arXiv:2609.10305, s19) x later papers up to 2507.06517 (additive back-links; no prior lines changed)\n",
         "\n",
-        "- **Readout-robust compression.** Hooks read projections under any head; spindle legs re-run under geodesicflat unchanged.\n",
+        "- **Readout-robust compression.** Hooks read projections under any head; spindle measurement sets re-run under geodesicflat unchanged.\n",
         "\n",
         "- **Budget geometry untouched.** Mobius/budget columns stay separate from retention rows.\n",
         "\n"
@@ -4577,7 +5082,7 @@
       "source": [
         "### Backprop: RiLM (arXiv:2609.10305, s19) x later papers up to 2504.09936 (additive back-links; no prior lines changed)\n",
         "\n",
-        "- **Readout-robust merging.** ZIP weights recompute under any head; legs re-run under geodesicflat unchanged.\n",
+        "- **Readout-robust merging.** ZIP weights recompute under any head; measurement sets re-run under geodesicflat unchanged.\n",
         "\n",
         "- **Budget geometry untouched.** Mobius/budget columns stay separate from vote rows.\n",
         "\n"
@@ -4589,7 +5094,7 @@
       "source": [
         "### Backprop: RiLM (arXiv:2609.10305, s19) x later papers up to 2405.03917 (additive back-links; no prior lines changed)\n",
         "\n",
-        "- **Readout-robust codes.** Grouped VQ runs on projections under any head; legs re-run under geodesicflat unchanged.\n",
+        "- **Readout-robust codes.** Grouped VQ runs on projections under any head; measurement sets re-run under geodesicflat unchanged.\n",
         "\n",
         "- **Budget geometry untouched.** Mobius/budget columns stay separate from code rows.\n",
         "\n"
@@ -4816,6 +5321,16 @@
         "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P(out_path).write_text(_json6.dumps(rec, indent=2))\n",
         "    return rec\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'wrp', run_wrp_benchmark, model=model, get_batch_fn=get_batch))"
       ]
     },
     {
@@ -5183,6 +5698,17 @@
       ]
     },
     {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'tasco', run_tasco_benchmark, model=model, tasks=bench_tasks(globals()),\n",
+        "    variant='rp', epochs=1))"
+      ]
+    },
+    {
       "cell_type": "markdown",
       "metadata": {},
       "source": [
@@ -5454,6 +5980,26 @@
         "    lr = _t.softmax(W.double() @ yr.double(), dim=0).numpy()\n",
         "    klr = float((lr * (_nq.log(lr.clip(min=1e-12)) - _nq.log(pu.clip(min=1e-12)))).sum())\n",
         "    return {\"lam0\": lam0, \"kl_prior\": kl, \"kl_random\": klr}\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Ignorance live OLS fit + λ curves\n",
+        "\n",
+        "Eq.4/9 centered OLS on the live unembedding (or shared embedding under `GeodesicHead`, the paper-compatible stand-in when Wout is gone). Corpus = Shakespeare (documented deviation from Pile; coverage c=1.0 because the char vocab is fully observed).\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'ignorance', run_ignorance_live, ns=globals(),\n",
+        "    model=model, text=text, encode=encode))\n"
       ]
     },
     {
@@ -6549,6 +7095,17 @@
       ]
     },
     {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'sharedcircuits', run_sharedcircuits_benchmark,\n",
+        "    make_model_fn=lambda: model, n_train=90, n_eval=40))"
+      ]
+    },
+    {
       "cell_type": "markdown",
       "metadata": {},
       "source": [
@@ -7035,7 +7592,7 @@
         "\n",
         "**Integration reasoning (s17 rule): no new Technique.** Patch computation reads frozen weights/states and writes a patched CLONE (original never touched, frozen-by-design like TASCO); the anchor (full vs reduced context) is looped, never pathed. Plain ALWAYS-PRESENT codeblocks by design, valid wherever `blocks[l].ffwd.net[0/2]` exist (matmul and addernet alike).\n",
         "\n",
-        "**Adaptations with consequences (documented, kept):** (1) nanoGPT's MLP keeps its output bias, so the single-block patch takes the Theorem-8 outer-bias path dB = dv - exact with NO division, sidestepping the paper's dm bfloat16 instability by construction (the runner's precision legs test exactly this consequence); under the addernet variant net[2].bias is None, so there the output patch takes the paper's own Theorem-9 outer-weight form on net[2].weight (the Llama row) - same claim, different site, recorded per run. (2) Reduced context = pad prefix at equal length (position-aligned): the query sits at identical absolute positions in both passes, so the patch absorbs attention differences only, mirroring the paper's same-x setup; pads are a legitimate reduced context C\\\\Y, and the machinery is identical for any. (3) Identities are weight-agnostic (exact for random weights too), so the runner needs no training - frozen analysis throughout.\n",
+        "**Adaptations with consequences (documented, kept):** (1) nanoGPT's MLP keeps its output bias, so the single-block patch takes the Theorem-8 outer-bias path dB = dv - exact with NO division, sidestepping the paper's dm bfloat16 instability by construction (the runner's precision measurement sets test exactly this consequence); under the addernet variant net[2].bias is None, so there the output patch takes the paper's own Theorem-9 outer-weight form on net[2].weight (the Llama row) - same claim, different site, recorded per run. (2) Reduced context = pad prefix at equal length (position-aligned): the query sits at identical absolute positions in both passes, so the patch absorbs attention differences only, mirroring the paper's same-x setup; pads are a legitimate reduced context C\\\\Y, and the machinery is identical for any. (3) Identities are weight-agnostic (exact for random weights too), so the runner needs no training - frozen analysis throughout.\n",
         "\n"
       ]
     },
@@ -7232,7 +7789,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT runner: implicit-patch end-to-end | Wires s25 cells B-D: position-aligned reduced context, Algorithm-1 patched clone, L_inf/TVD/token-match vs full context, float32 + float64 legs | emits outputs/implicitpatch_results.json | plain codeblock, no Impl tag by design.\n",
+        "# ALWAYS-PRESENT runner: implicit-patch end-to-end | Wires s25 cells B-D: position-aligned reduced context, Algorithm-1 patched clone, L_inf/TVD/token-match vs full context, float32 + float64 measurement sets | emits outputs/implicitpatch_results.json | plain codeblock, no Impl tag by design.\n",
         "def run_implicitpatch_benchmark(make_model_fn, context_text, query_text, pad_tok=0, seed=0,\n",
         "                                out_path=\"outputs/implicitpatch_results.json\"):\n",
         "    \"\"\"Claim test: patched model without context == original model with context (Thm 2 live).\"\"\"\n",
@@ -7248,7 +7805,7 @@
         "    ids_full = ctx_ids + q_ids\n",
         "    ids_red = [pad_tok] * len(ctx_ids) + q_ids\n",
         "    unk = sum(1 for c in (context_text + query_text) if c not in token_to_int)\n",
-        "    legs = {}\n",
+        "    measurements = {}\n",
         "    for dtype_name, dtype in ((\"float32\", _tt.float32), (\"float64\", _tt.float64)):\n",
         "        model = make_model_fn().to(dtype)\n",
         "        clone, diag = iw_patch_model(model, ids_full, ids_red)\n",
@@ -7256,7 +7813,7 @@
         "                         span=(len(ctx_ids), len(ids_full)))\n",
         "        plot = iw_plot_equiv(cmp, out_prefix=\"outputs/iw_live_%s\" % dtype_name,\n",
         "                             tokens=list(query_text))\n",
-        "        legs[dtype_name] = {\"linf_last\": cmp[\"linf\"][-1], \"tvd_last\": cmp[\"tvd\"][-1],\n",
+        "        measurements[dtype_name] = {\"linf_last\": cmp[\"linf\"][-1], \"tvd_last\": cmp[\"tvd\"][-1],\n",
         "                            \"match_last\": cmp[\"match\"][-1],\n",
         "                            \"span_max_linf\": cmp[\"max_linf\"], \"span_mean_tvd\": cmp[\"mean_tvd\"],\n",
         "                            \"span_match_rate\": cmp[\"match_rate\"],\n",
@@ -7265,12 +7822,25 @@
         "    res = {\"paper\": \"arXiv:2511.17864\", \"seed\": seed,\n",
         "           \"context_len\": len(ctx_ids), \"query_len\": len(q_ids),\n",
         "           \"n_unknown_chars\": unk, \"reduced\": \"pad-prefix position-aligned\",\n",
-        "           \"legs\": legs, \"seconds\": round(_t.time() - t0, 1)}\n",
+        "           \"measurements\": measurements, \"seconds\": round(_t.time() - t0, 1)}\n",
         "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P(out_path).write_text(_j.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
         "    print(_j.dumps({k: {kk: vv[kk] for kk in (\"linf_last\", \"tvd_last\", \"match_last\")}\n",
-        "                      for k, vv in legs.items()}, indent=2))\n",
+        "                      for k, vv in measurements.items()}, indent=2))\n",
         "    return res\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "_t25 = globals().get('text', '')\n",
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'implicitpatch', run_implicitpatch_benchmark,\n",
+        "    make_model_fn=lambda: model, context_text=_t25[:600],\n",
+        "    query_text=_t25[600:700]))"
       ]
     },
     {
@@ -7587,6 +8157,18 @@
       ]
     },
     {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "_ids26 = bench_ids(globals(), 256)\n",
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'lbi', run_lbi_benchmark, make_model_fn=lambda: model,\n",
+        "    ids=_ids26, target_id=_ids26[-1]))"
+      ]
+    },
+    {
       "cell_type": "markdown",
       "metadata": {},
       "source": [
@@ -7628,45 +8210,13 @@
     }@},
     @Impl::Interface::bounded{
     {
-      "cell_type": "code",
-      "execution_count": null,
+      "cell_type": "markdown",
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT bounded-interface delta (native LBI region wiring, paper Eq.4-5) | Subclass of the base NanoGPT: ONLY the interface chain (Enc/Dec/LN/alpha/E0/terminal tap), region grouping, and the region-wired forward are new; embeddings/blocks/head/generate are reused untouched | selected under Interface::bounded (dense behavior stays the base class) | Impl-tagged path.\n",
-        "\"\"\"Bounded-interface NanoGPT: base wiring plus r-dim region bottlenecks.\"\"\"\n",
-        "\"\"\"Compiler selects this subclass under Interface::bounded; same (B,T,V) contract as base.\"\"\"\n",
-        "class BoundedNanoGPT(NanoGPT):\n",
-        "    def __init__(self, vocab_sz, emb_dim, ctx_len, n_layers, n_heads, region_size=2, iface_width=8):\n",
-        "        super().__init__(vocab_sz, emb_dim, ctx_len, n_layers, n_heads)\n",
-        "        self.iface_width = iface_width\n",
-        "        self.region_groups = [list(range(k, min(k + region_size, n_layers))) for k in range(0, n_layers, region_size)]\n",
-        "        K = len(self.region_groups)\n",
-        "        self.iface_encs = nn.ModuleList([nn.Linear(emb_dim, iface_width) for _ in range(K)])\n",
-        "        self.iface_decs = nn.ModuleList([nn.Linear(iface_width, emb_dim) for _ in range(K)])\n",
-        "        self.iface_lns = nn.ModuleList([nn.LayerNorm(iface_width) for _ in range(K)])\n",
-        "        self.iface_alphas = nn.Parameter(torch.full((K,), 0.5))\n",
-        "        self.iface_E0 = nn.Linear(emb_dim, iface_width)\n",
-        "        self.iface_Dterm = nn.Linear(iface_width, emb_dim)\n",
-        "        self._iface = {}\n",
-        "    def forward(self, x):\n",
-        "        B, T = x.shape\n",
-        "        pos = torch.arange(0, T, dtype=torch.long, device=x.device)\n",
-        "        xemb = self.token_embedding(x) + self.position_embedding(pos)\n",
-        "        m = torch.tanh(self.iface_E0(xemb.mean(1)))\n",
-        "        ms = [m.detach()]\n",
-        "        h = None\n",
-        "        for k, g in enumerate(self.region_groups):\n",
-        "            x_in = xemb + self.iface_decs[k](m).unsqueeze(1)\n",
-        "            h = x_in\n",
-        "            for i in g:\n",
-        "                h = self.blocks[i](h)\n",
-        "            pooled = h.mean(1)\n",
-        "            m = self.iface_lns[k](m + self.iface_alphas[k] * self.iface_encs[k](pooled))\n",
-        "            ms.append(m.detach())\n",
-        "        h_term = h + self.iface_Dterm(m).unsqueeze(1)\n",
-        "        self._iface = {\"ms\": ms, \"xemb\": xemb.detach(), \"h_final\": h.detach()}\n",
-        "        return self.lm_head(self.ln_final(h_term))\n"
+        "### Impl: bounded interface wiring (folded into the one NanoGPT class)\n",
+        "- The interface chain (Enc/Dec/canvas/LN/alpha/E0/terminal tap), the r-dim region grouping, and the region-wired forward are spliced INTO `NanoGPT` itself under this selection (no sibling class; the one-model rule). Embeddings/blocks/head/generate stay the base class.\n",
+        "- Native parity reads `model._iface` + the same interface modules from the one class (next cell).\n"
       ]
     }
     }@},
@@ -7792,23 +8342,26 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT runner: LBI interface paths end-to-end | Dense leg (BPPSA parity + full-rank costs) + bounded leg (native parity + smoke gap) with per-path purpose + paper expectations | emits outputs/lbi_interface_results.json | plain codeblock, no Impl tag by design.\n",
+        "# ALWAYS-PRESENT runner: LBI interface path on the ONE compiled model | runs the parity leg the compiled Interface provides (dense: BPPSA full-rank; bounded: native r-dim) + one smoke step-train leg with weights restored afterwards | the OTHER interface is a cross-path run (SKIP-once-per-path note, not a fake gap) | emits outputs/lbi_interface_results.json | plain codeblock, no Impl tag by design.\n",
         "\"\"\"Benchmarks state what each path is FOR and what the paper expects it to DO.\"\"\"\n",
-        "def run_lbi_interface_benchmark(make_dense_fn, make_bounded_fn, ids, target_id, r=4, per_region=2, seed=0, smoke_steps=50, out_path=\"outputs/lbi_interface_results.json\"):\n",
+        "def run_lbi_interface_benchmark(make_model, ids, target_id, r=4, per_region=2, seed=0, smoke_steps=50, out_path=\"outputs/lbi_interface_results.json\"):\n",
         "    import json as _j\n",
         "    import time as _t\n",
         "    import torch as _tt\n",
         "    from pathlib import Path as _P\n",
         "    t0 = _t.time()\n",
         "    _tt.manual_seed(seed)\n",
-        "    purpose = {\"dense_path\": \"BPPSA-regime exactness: scan backward == autograd on full boundary states; O(d^3) cost recorded, never run for speed\", \"bounded_path\": \"native bottleneck: r-dim scan + interface quality gap; parity exact + smoke gap small-positive\", \"claims_from_paper\": {\"parity\": \"scan grads == autograd grads (Table 5: f32 cos>0.99999, rel<2e-7)\", \"quality\": \"LBI within 0.16-0.35 CE of dense at paper scale (Table 2; smoke scale reports gap only, magnitudes not comparable)\", \"spectra\": \"contractive suffix norms (App F; plain harness reports on wrapper)\"}, \"reproducibility\": \"runner seeds its own draws; factories must seed construction AND any re-init (1-dim params keep construction values, so ambient RNG otherwise leaks into parity figures)\"}\n",
-        "    model = make_dense_fn()\n",
-        "    groups = lbi_partition(len(model.blocks), per_region)\n",
-        "    dense = lbi_dense_parity(model, ids, groups, target_id)\n",
-        "    bmodel = make_bounded_fn()\n",
-        "    bpar = lbi_native_parity(bmodel, ids, target_id)\n",
-        "    dev = next(bmodel.parameters()).device\n",
+        "    purpose = {\"dense_path\": \"BPPSA-regime exactness: scan backward == autograd on full boundary states; O(d^3) cost recorded, never run for speed\", \"bounded_path\": \"native bottleneck: r-dim scan; parity exact with interface params covered by VJPs\", \"claims_from_paper\": {\"parity\": \"scan grads == autograd grads (Table 5: f32 cos>0.99999, rel<2e-7)\", \"quality\": \"LBI within 0.16-0.35 CE of dense at paper scale (Table 2; smoke scale here is the compiled path only - the cross-path gap is recorded, not simulated)\"}, \"reproducibility\": \"runner seeds its own draws; the shared model gets state_dict restore after smoke so later runners see pristine weights\"}\n",
+        "    model = make_model()\n",
+        "    bounded = hasattr(model, \"region_groups\")\n",
+        "    iface = \"bounded\" if bounded else \"dense\"\n",
+        "    parity = (lbi_native_parity(model, ids, target_id) if bounded\n",
+        "              else lbi_dense_parity(model, ids, lbi_partition(len(model.blocks), per_region), target_id))\n",
+        "    other = ({\"status\": \"not-on-path\",\n",
+        "              \"reason\": \"the %s interface is not compiled in this run; run the notebook with Interface::%s for its parity leg\" % (\"dense\" if bounded else \"bounded\", \"dense\" if bounded else \"bounded\")})\n",
+        "    dev = next(model.parameters()).device\n",
         "    def smoke(m, steps):\n",
+        "        sd = {k: v.detach().clone() for k, v in m.state_dict().items()}\n",
         "        m.train()\n",
         "        opt = _tt.optim.AdamW(m.parameters(), lr=3e-3)\n",
         "        ce = _tt.nn.CrossEntropyLoss()\n",
@@ -7824,16 +8377,32 @@
         "            loss.backward()\n",
         "            opt.step()\n",
         "            last = float(loss.detach())\n",
+        "        m.load_state_dict(sd)\n",
         "        m.eval()\n",
         "        return last\n",
-        "    dce = smoke(model, smoke_steps)\n",
-        "    bce = smoke(bmodel, smoke_steps)\n",
-        "    gap = (bce - dce) if (bce is not None and dce is not None) else None\n",
-        "    res = {\"paper\": \"arXiv:2605.09204\", \"seed\": seed, \"groups\": groups, \"r\": r, \"purpose\": purpose, \"dense_parity\": dense, \"bounded_parity\": bpar, \"smoke\": {\"dense_ce\": dce, \"bounded_ce\": bce, \"gap\": gap}, \"seconds\": round(_t.time() - t0, 1)}\n",
+        "    ce = smoke(model, smoke_steps)\n",
+        "    res = {\"paper\": \"arXiv:2605.09204\", \"seed\": seed, \"interface\": iface, \"r\": r, \"purpose\": purpose,\n",
+        "           \"parity\": parity, \"other_interface\": other, \"smoke\": {\"ce\": ce},\n",
+        "           \"seconds\": round(_t.time() - t0, 1)}\n",
         "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P(out_path).write_text(_j.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
-        "    print(_j.dumps({\"dense_ok\": dense[\"parity_ok\"], \"bounded_ok\": bpar[\"parity_ok\"], \"gap\": gap}, indent=2))\n",
+        "    print(_j.dumps({\"interface\": iface, \"parity_ok\": parity[\"parity_ok\"], \"ce\": ce}, indent=2))\n",
         "    return res\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# One model compiles per run; the runner measures the path that exists and\n",
+        "# records the other interface as a cross-path run (no fake gap).\n",
+        "_ids26b = bench_ids(globals(), 256)\n",
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'lbi_interface', run_lbi_interface_benchmark,\n",
+        "    make_model=lambda: model,\n",
+        "    ids=_ids26b, target_id=_ids26b[-1]))"
       ]
     },
     {
@@ -7968,7 +8537,7 @@
         "\n",
         "**Adaptations with consequences (documented, kept):** (1) harness captures Head.key/Head.value projection outputs; for Attn values whose final k/v diverge from those projections (mla, tpa, tokenformer) the captures are projection-level and the runner records that fidelity note; default-path (vanillaatten-class) captures are exact; (2) recent-window protection in H2O realizes the survey's stated recent+H2 balance; (3) InfiniPot CCD is keep-top-K by CaP+NuC at enforcement; (4) PALU weight factorization is modeled at cache level via SVD; (5) KVQuant NUQ levels are data quantiles; (6) LLA regression is the centered ridge form; the survey prints no LLA equations; (7) KIMI gates are untrained at smoke scale (paper trains them); the 3:1 hybrid and chunking are recorded, not run; (8) placer timing/rate constants are stand-ins; (9) harness has no RoPE: ShadowKV landmarks and KVQuant pre-RoPE notes use captured keys directly.\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -8182,7 +8751,8 @@
         "Table 2: \"Hybrid Proxy and Random Eviction\" in a single global shot during\n",
         "prefill (O(1) single-shot per Table 6): proxy tokens score the prefix once;\n",
         "top scorers are kept and the remainder of the budget is filled by sampling\n",
-        "from the proxy-score distribution.\"\"\"\n",
+        "from the proxy-score distribution. Fix to paper (2408.03675): the random\n",
+        "component is UNIFORM random over the evicted remainder, not importance-sampled.\"\"\"\n",
         "class NACLEvictor:\n",
         "    scope = \"head\"\n",
         "    def select(self, scores, budget, prox=None, proxy_n=4, rand_frac=0.25, seed=0, **kw):\n",
@@ -8195,8 +8765,7 @@
         "        rest = _t27.tensor([i for i in range(T) if i not in set(top.tolist())], dtype=_t27.long)\n",
         "        n_rand = min(int(budget - top.numel()), rest.numel())\n",
         "        g = _t27.Generator().manual_seed(seed)\n",
-        "        probs = _t27.softmax(P[rest], dim=0)\n",
-        "        pick = rest[_t27.multinomial(probs, n_rand, replacement=False, generator=g)] if n_rand > 0 else rest[:0]\n",
+        "        pick = rest[_t27.randperm(rest.numel(), generator=g)[:n_rand]] if n_rand > 0 else rest[:0]\n",
         "        return _t27.sort(_t27.cat([top, pick])).values\n"
       ]
     }
@@ -8239,19 +8808,22 @@
         "\"\"\"HashEvict pre-attention LSH eviction (Liu et al., arXiv:2412.16187; survey \u00a73.1/Table 2).\n",
         "\n",
         "Table 2: attention-free ranking via locality-sensitive hashing; token\n",
-        "importance estimated by Hamming distance between SimHash codes of each key\n",
-        "and the current query - no full attention is ever materialized.\"\"\"\n",
+        "importance estimated by the SUMMED Hamming distance between SimHash codes\n",
+        "of each key and the current query over k parallel receivers (bits=16,\n",
+        "n_recv=4 default) - no full attention is ever materialized.\"\"\"\n",
         "class HashEvictEvictor:\n",
         "    scope = \"head\"\n",
-        "    def select(self, scores, budget, K=None, qlast=None, bits=16, seed=1, **kw):\n",
+        "    def select(self, scores, budget, K=None, qlast=None, bits=16, seed=1, n_recv=4, **kw):\n",
         "        T = int(scores.numel())\n",
         "        if budget >= T:\n",
         "            return _t27.arange(T)\n",
-        "        g = _t27.Generator().manual_seed(seed)\n",
-        "        G = _t27.randn(int(K.shape[-1]), bits, generator=g)\n",
-        "        Hk = (K @ G) > 0\n",
-        "        Hq = (qlast.unsqueeze(0) @ G) > 0\n",
-        "        ham = (Hk != Hq).sum(-1)\n",
+        "        ham = 0\n",
+        "        for k in range(n_recv):\n",
+        "            g = _t27.Generator().manual_seed(seed + k)\n",
+        "            G = _t27.randn(int(K.shape[-1]), bits, generator=g)\n",
+        "            Hk = (K @ G) > 0\n",
+        "            Hq = (qlast.unsqueeze(0) @ G) > 0\n",
+        "            ham = ham + (Hk != Hq).sum(-1)\n",
         "        return _t27.sort(_t27.topk(-ham.to(_t27.float), budget).indices).values\n"
       ]
     }
@@ -8312,8 +8884,12 @@
         "        pages = {}\n",
         "        for i in sorted(cand):\n",
         "            pages.setdefault(i // page, []).append(i)\n",
-        "        rep = _t27.stack([K[_t27.tensor(v)].mean(0) for v in pages.values()])\n",
-        "        ps = _t27.softmax((rep @ qlast), dim=0)\n",
+        "        reps = []\n",
+        "        for v in pages.values():\n",
+        "            sub = K[_t27.tensor(v)]\n",
+        "            reps.append(_t27.cat([sub.max(0).values, sub.min(0).values], dim=-1))\n",
+        "        rep = _t27.stack(reps)\n",
+        "        ps = _t27.softmax((rep @ _t27.cat([qlast, qlast], dim=-1)), dim=0)\n",
         "        order = _t27.argsort(ps, descending=True)\n",
         "        keys = list(pages.keys())\n",
         "        keep = []\n",
@@ -8419,18 +8995,30 @@
       "source": [
         "\"\"\"KIVI asymmetric quantization (Liu et al., arXiv:2402.02750; survey \u00a73.2/Fig.8/Table 3).\n",
         "\n",
-        "Table 3: keys per-channel, values per-token; a small residual stays full\n",
-        "precision. Paper: tuning-free 2-bit (survey \u00a75.2 minimal-modification pick).\n",
+        "Table 3: keys per-channel, values per-token; the most recent tokens (a\n",
+        "sliding window of W) stay fp16 while the rest are 2-bit (paper's residual\n",
+        "window). Paper: tuning-free 2-bit (survey \u00a75.2 minimal-modification pick).\n",
         "(Table 6 claims: 2.6x peak memory, 2.35-3.47x throughput, <2% accuracy drop.)\"\"\"\n",
         "class KIVICompressor:\n",
         "    scope = \"token\"\n",
-        "    def compress(self, K, V, bits=2, residual=0, **kw):\n",
-        "        Kh, mk = kvc_sym_quant(K, bits, red_dim=0)\n",
-        "        Vh, mv = kvc_sym_quant(V, bits, red_dim=1)\n",
-        "        nb = int((mk[\"elems\"] + mv[\"elems\"]) * bits / 8)\n",
+        "    def compress(self, K, V, bits=2, window=16, **kw):\n",
+        "        T = K.shape[0]\n",
+        "        W = max(0, min(int(window), T))\n",
+        "        if W >= T:\n",
+        "            Kh, Vh = K, V\n",
+        "            nb = int((K.numel() + V.numel()) * 2)\n",
+        "            return Kh, Vh, {\"bytes\": nb, \"bits_per_elem\": 16, \"residual_frac\": 1.0,\n",
+        "                            \"recon_k\": 0.0, \"recon_v\": 0.0}\n",
+        "        main_k, resid_k = K[:T - W], K[T - W:]\n",
+        "        main_v, resid_v = V[:T - W], V[T - W:]\n",
+        "        Kq, mk = kvc_sym_quant(main_k, bits, red_dim=0)\n",
+        "        Vq, mv = kvc_sym_quant(main_v, bits, red_dim=1)\n",
+        "        Kh = _t27.cat([Kq, resid_k], 0)\n",
+        "        Vh = _t27.cat([Vq, resid_v], 0)\n",
+        "        nb = int((mk[\"elems\"] + mv[\"elems\"]) * bits / 8 + (resid_k.numel() + resid_v.numel()) * 2)\n",
         "        rk = float((K - Kh).norm() / (K.norm() + 1e-12))\n",
         "        rv = float((V - Vh).norm() / (V.norm() + 1e-12))\n",
-        "        return Kh, Vh, {\"bytes\": nb, \"bits_per_elem\": bits, \"residual_frac\": residual,\n",
+        "        return Kh, Vh, {\"bytes\": nb, \"bits_per_elem\": bits, \"residual_frac\": W / max(1, T),\n",
         "                        \"recon_k\": rk, \"recon_v\": rv}\n"
       ]
     }
@@ -8708,7 +9296,7 @@
         "\n",
         "Table 4: partial cache recompute on GPU overlaps async transfer of the rest.\n",
         "Plan: split fraction b recomputed / (1-b) transferred; balance point where\n",
-        "the two legs meet; report the balanced split and stall reduction vs\n",
+        "the two measurement sets meet; report the balanced split and stall reduction vs\n",
         "transfer-only baseline. Rate constants are documented stand-ins (policy-level).\n",
         "(Table 6: up to 35.8% lower latency, 46.2% higher throughput vs DeepSpeed/HF.)\"\"\"\n",
         "class KVPRPlacer:\n",
@@ -8902,7 +9490,7 @@
         "            \"quant_layer_frac\": len(qlayers) / max(1, len(cl)), \"gpu_bytes\": gpu,\n",
         "            \"mean_quant_recon\": float(sum(rec) / max(1, len(rec))), \"overlap\": 1.0}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9129,7 +9717,18 @@
         "    print(_j27.dumps({\"ok\": ok, \"skipped\": skipped}, indent=2))\n",
         "    return res\n"
       ]
-    }
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'kvcache', run_kvcache_benchmark, make_model=lambda: model,\n",
+        "    ids=bench_ids(globals(), 128), budget=32))"
+      ]
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -9155,7 +9754,7 @@
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run; one compressor per run; one placer per run; one Attn kernel per run (the four new values join vanillaatten/mqa/gqa/mla/dsa/tokenformer/tpa at the same Head site); encoder-decoder Arch crossed with the new Attn Impls has no Impl provided and is out of scope here.\n",
         "- **NEVER-SAME-PATH:** eviction discards presented as lossless (every evictor reports retained mass AND output error; lossless claims belong to placers only, per Table 4); Table-6 magnitudes cited as smoke-scale evidence (smoke reports mechanism metrics; paper numbers are labeled claims); wall-clock speedups derived from placer stand-in constants (policy simulation, declared); compression quality at smoke scale presented as paper-scale accuracy (recon/output-error only).\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9192,7 +9791,7 @@
         "    w = sum(mw) / max(1, len(mw))\n",
         "    return {\"n_windows\": len(wins), \"mass_global\": g, \"mass_windowed\": w, \"delta\": w - g}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9229,7 +9828,7 @@
         "    chance = min(K, T) / max(1, 2 * T - min(K, T))\n",
         "    return {\"K\": K, \"jaccard\": j, \"chance\": chance, \"above_chance\": bool(j > chance)}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9264,7 +9863,7 @@
         "    return {\"regions\": [len(r) for r in regs], \"shares\": share,\n",
         "            \"mass_global\": g, \"mass_region\": r, \"delta\": r - g}\n"
       ]
-    }
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -9304,15 +9903,18 @@
         "is applied by the caller on the gqa path (scores arrive pre-averaged).\"\"\"\n",
         "class SpindlePyramidEvictor:\n",
         "    scope = \"head\"\n",
-        "    def __init__(self, li=0, m=1, r=0.4, window=8, beta=0.05):\n",
+        "    def __init__(self, li=0, m=1, r=0.4, window=8, beta=0.05, l=4000):\n",
         "        self.li, self.m, self.r, self.window, self.beta = li, m, r, window, beta\n",
         "        alpha = 0.5 * (1.0 + beta)\n",
-        "        rc = r\n",
+        "        lw = min(window, l)\n",
+        "        lc = max(1, l - lw)\n",
+        "        rc = (r * l - lw) / lc\n",
         "        if beta < rc <= alpha:\n",
-        "            rc0, rcm = 2 * rc - 0.05, 0.05\n",
+        "            rc0, rcm = 2 * rc - beta, beta\n",
         "        else:\n",
-        "            rc0, rcm = 1.0, max(0.0, 1.0 - 2 * rc)\n",
-        "        self.keep_frac = rc0 + (rcm - rc0) * li / max(1, m - 1)\n",
+        "            rc0, rcm = 1.0, 1.0 - 2 * rc\n",
+        "        self.rc, self.rc0, self.rcm = rc, rc0, rcm\n",
+        "        self.keep_frac = rc0 + (rcm - rc0) * self.li / max(1, m - 1)\n",
         "    def select(self, scores, budget, win=None, **kw):\n",
         "        T = int(scores.numel())\n",
         "        W = min(self.window, T)\n",
@@ -9474,21 +10076,21 @@
         "            \"entries_plain\": int(Ck0.shape[0]), \"entries_unfolded\": int(Cku.shape[0]),\n",
         "            \"absorbed_ok\": bool(Cku.shape[0] == Ck0.shape[0])}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT runner: SpindleKV end-to-end | Prefills one harness, runs full / pyramid-only / codebook-only / spindle legs + Eq.15 row + optional gqa-model check (passed in, never constructed here) | emits outputs/spindle_results.json | plain orchestrator, no Impl tag by design.\n",
+        "# ALWAYS-PRESENT runner: SpindleKV end-to-end | Prefills one harness, runs full / pyramid-only / codebook-only / spindle measurement sets + Eq.15 row + optional gqa-model check (passed in, never constructed here) | emits outputs/spindle_results.json | plain orchestrator, no Impl tag by design.\n",
         "import torch as _t27\n",
         "import json as _j28\n",
         "import time as _time28\n",
         "from pathlib import Path as _P28\n",
         "def run_spindle_benchmark(make_model, ids, r=0.4, split_frac=0.5, seed=15, gqa_model=None,\n",
         "                          out_path=\"outputs/spindle_results.json\"):\n",
-        "    \"\"\"Run the SpindleKV legs on one prefilled model.\n",
+        "    \"\"\"Run the SpindleKV measurement sets on one prefilled model.\n",
         "\n",
         "    make_model: zero-arg factory for the compiled-path NanoGPT (factory seeds\n",
         "    construction; runner seeds its own draws). gqa_model: optional prebuilt\n",
@@ -9499,10 +10101,10 @@
         "    model.eval()\n",
         "    H = KVCacheHarness(model, budget=None).prefill(ids)\n",
         "    L = H.n_layers\n",
-        "    legs = {}\n",
+        "    measurements = {}\n",
         "    full = H.eq12_bytes()[\"full\"]\n",
         "    m0 = H.retained_mass({k: _t27.arange(H.T) for k in H.cache})\n",
-        "    legs[\"full\"] = {\"paper_claim\": \"baseline (FullKV 100%)\",\n",
+        "    measurements[\"full\"] = {\"paper_claim\": \"baseline (FullKV 100%)\",\n",
         "                    \"mass\": float(sum(m0.values()) / max(1, len(m0))), \"bytes\": full, \"ratio\": 1.0}\n",
         "    mp, ep, bp = [], [], 0\n",
         "    for li in range(L):\n",
@@ -9517,7 +10119,7 @@
         "        H.cache[k][\"S\"].sum(0), H.T, win=H.cache[k][\"S\"][-8:]) for k in H.cache})\n",
         "    merr = H.attn_output_error({k: SpindlePyramidEvictor(li=k[0], m=L, r=r).select(\n",
         "        H.cache[k][\"S\"].sum(0), H.T, win=H.cache[k][\"S\"][-8:]) for k in H.cache})\n",
-        "    legs[\"pyramid_only\"] = {\"paper_claim\": \"reported: PyramidKV baseline (Table 1, beaten by SpindleKV)\",\n",
+        "    measurements[\"pyramid_only\"] = {\"paper_claim\": \"reported: PyramidKV baseline (Table 1, beaten by SpindleKV)\",\n",
         "                            \"mass\": float(sum(mall.values()) / max(1, len(mall))),\n",
         "                            \"out_err\": float(sum(merr.values()) / max(1, len(merr))),\n",
         "                            \"bytes\": bp, \"ratio\": bp / max(1, full)}\n",
@@ -9530,25 +10132,36 @@
         "        o2 = (_t27.softmax(lk, dim=-1) @ Vh).squeeze(0)\n",
         "        o1 = c[\"S\"][-1] @ c[\"V\"]\n",
         "        ec.append(float((o1 - o2).norm() / (o1.norm() + 1e-12)))\n",
-        "    legs[\"codebook_only\"] = {\"paper_claim\": \"reported: Table 5 (47.8% ratio keeps 36.01 vs 35.78)\",\n",
+        "    measurements[\"codebook_only\"] = {\"paper_claim\": \"reported: Table 5 (47.8% ratio keeps 36.01 vs 35.78)\",\n",
         "                             \"mass\": 1.0,  # replacement keeps every token represented\n",
         "                             \"bytes\": bc, \"ratio\": bc / max(1, full),\n",
         "                             \"out_err\": float(sum(ec) / max(1, len(ec)))}\n",
         "    sp = spindle_preset(H, r=r, split_frac=split_frac, seed=seed)\n",
-        "    legs[\"spindle\"] = dict({\"paper_claim\": \"reported: best AVG per band (Table 1); 0.979/0.975 needle (Table 4)\"},\n",
+        "    measurements[\"spindle\"] = dict({\"paper_claim\": \"reported: best AVG per band (Table 1); 0.979/0.975 needle (Table 4)\"},\n",
         "                            **{k: v for k, v in sp.items() if k != \"per_head\"})\n",
-        "    legs[\"spindle\"][\"per_layer_r\"] = {str(k): v[\"r\"] for k, v in sp[\"per_head\"].items()}\n",
+        "    measurements[\"spindle\"][\"per_layer_r\"] = {str(k): v[\"r\"] for k, v in sp[\"per_head\"].items()}\n",
         "    gqa = spindle_gqa_check(gqa_model, ids, seed=seed) if gqa_model is not None else {\"skipped\": \"no gqa model passed\"}\n",
         "    res = {\"paper\": \"arXiv:2507.06517\", \"seed\": seed, \"T\": H.T, \"r\": r,\n",
-        "           \"purpose\": \"smoke-scale mechanism legs (mass/error/bytes/Eq.15 rows); paper magnitudes are reported claims only\",\n",
-        "           \"legs\": legs, \"gqa\": gqa, \"seconds\": round(_time28.time() - t0, 1)}\n",
+        "           \"purpose\": \"smoke-scale mechanism measurement sets (mass/error/bytes/Eq.15 rows); paper magnitudes are reported claims only\",\n",
+        "           \"measurements\": measurements, \"gqa\": gqa, \"seconds\": round(_time28.time() - t0, 1)}\n",
         "    _P28(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P28(out_path).write_text(_j28.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
-        "    ok = {n: (\"error\" not in v) for n, v in legs.items()}\n",
-        "    print(_j28.dumps({\"legs_ok\": ok, \"gqa\": gqa.get(\"absorbed_ok\", gqa.get(\"skipped\"))}, indent=2))\n",
+        "    ok = {n: (\"error\" not in v) for n, v in measurements.items()}\n",
+        "    print(_j28.dumps({\"measurements_ok\": ok, \"gqa\": gqa.get(\"absorbed_ok\", gqa.get(\"skipped\"))}, indent=2))\n",
         "    return res\n"
       ]
-    }
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'spindlekv', run_spindle_benchmark, make_model=lambda: model,\n",
+        "    ids=bench_ids(globals(), 128), r=0.4))"
+      ]
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -9575,7 +10188,7 @@
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run (spindlepyr joins the \u00a727 Evict axis); one compressor per run (spindlecodebook joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impls has no Impl provided and is out of scope here.\n",
         "- **NEVER-SAME-PATH:** codebook recon presented as lossless (recon error always reported; magnitudes are the exactness mechanism); LongBench/needle magnitudes cited as smoke-scale evidence (smoke reports mass/error/bytes; paper numbers are labeled claims); Eq.5 upper-branch schedule used as-is (experiments stay in the lower branch; the anomaly is flagged, not patched).\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9601,7 +10214,7 @@
         "    r = sum(v[\"ratio\"] for v in rows) / max(1, len(rows))\n",
         "    return {\"n_heads\": len(rows), \"mean_ratio\": r, \"rows\": rows}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9618,7 +10231,7 @@
         "def spindle_backprop_gqa(model_gqa, ids, seed=0):\n",
         "    return spindle_gqa_check(model_gqa, ids, seed=seed)\n"
       ]
-    }
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -9629,14 +10242,14 @@
         "\n",
         "**Repo note:** official repo EXISTS (kkvcache/KeepKV, 3 stars, 2 forks, 0 issues, 0 PRs, 29 commits; see graded 16_RepoAudit). Our integration reimplements the paper text (not their code): batch ZIP merging with explicit votes instead of the sketch-attention fork, Table-3/4 values as parameters, main-text algorithm only.\n",
         "\n",
-        "**Integration reasoning (s17 rule): one Compress value + plain legs.** Vote-weighted ZIP merging is mutually exclusive with the other compressors at the same K/V transform site (it replaces retained entries by merged ones plus a vote vector), so it compiles as @Technique::KVCacheCompress::keepkv. It takes its eviction/retention sets from any evictor (paper \u00a74.5 composes with H2O/PyramidInfer), so the combinations are plain runner legs, not axes. The periodic scheme (external full store + resident compressed + reload schedule) is a byte/schedule policy simulation in the declared \u00a727-placer sense. The shared \u00a727 harness is reused untouched; vote-aware scoring lives in the Impl and the runner leg.\n",
+        "**Integration reasoning (s17 rule): one Compress value + plain measurement sets.** Vote-weighted ZIP merging is mutually exclusive with the other compressors at the same K/V transform site (it replaces retained entries by merged ones plus a vote vector), so it compiles as @Technique::KVCacheCompress::keepkv. It takes its eviction/retention sets from any evictor (paper \u00a74.5 composes with H2O/PyramidInfer), so the combinations are plain runner measurement sets, not axes. The periodic scheme (external full store + resident compressed + reload schedule) is a byte/schedule policy simulation in the declared \u00a727-placer sense. The shared \u00a727 harness is reused untouched; vote-aware scoring lives in the Impl and the runner measurement set.\n",
         "\n",
         "### Technique -> Impl -> original paper -> repo map\n",
         "\n",
         "| KeepKV part | Paper ref | Impl value | Official repo |\n",
         "|---|---|---|---|\n",
         "| ZIP merging + votes (Eq.6-7, Alg.1) | arXiv:2504.09936 \u00a73.3 | KVCacheCompress::keepkv | kkvcache/KeepKV |\n",
-        "| Evictor pairings (H2O/PyramidInfer sets) | arXiv:2504.09936 \u00a74.5 | plain runner legs (no axis) | kkvcache/KeepKV |\n",
+        "| Evictor pairings (H2O/PyramidInfer sets) | arXiv:2504.09936 \u00a74.5 | plain runner measurement sets (no axis) | kkvcache/KeepKV |\n",
         "| Periodic lossless scheme | arXiv:2504.09936 \u00a73.3 | plain byte/schedule plan (no axis) | kkvcache/KeepKV |\n",
         "\n",
         "**Adaptations with consequences (documented, kept):** (1) batch ZIP merging with explicit vote vectors (paper Alg.1 loop) instead of the repo's sketch-attention fork; (2) EMA predicted scores arrive as an argument (harness scores), the alpha/window as parameters; exact-score calls reproduce Thm.3 losslessness; (3) periodic external-store bytes counted exactly, reload timing labeled stand-in; (4) harness has no RoPE: merging runs on captured projections directly (same note as \u00a727/28); (5) CaM comparison (App C.2) recorded in relations, not reimplemented.\n"
@@ -9798,7 +10411,7 @@
         "            \"reload_bytes\": resident * reloads,\n",
         "            \"effective_residency\": resident / max(1, full)}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9812,7 +10425,7 @@
         "from pathlib import Path as _P29\n",
         "def run_keepkv_benchmark(make_model, ids, budget=32, seed=16,\n",
         "                         out_path=\"outputs/keepkv_results.json\"):\n",
-        "    \"\"\"Run KeepKV legs on one prefilled model.\n",
+        "    \"\"\"Run KeepKV measurement sets on one prefilled model.\n",
         "\n",
         "    make_model: zero-arg factory for the compiled-path NanoGPT (factory seeds\n",
         "    construction; runner seeds its own draws). Writes outputs/keepkv_results.json.\n",
@@ -9823,7 +10436,7 @@
         "    H = KVCacheHarness(model, budget=budget).prefill(ids)\n",
         "    full = H.eq12_bytes()[\"full\"]\n",
         "    m0 = H.retained_mass({k: _t27.arange(H.T) for k in H.cache})\n",
-        "    legs = {\"full\": {\"paper_claim\": \"baseline (FullKV 100%)\",\n",
+        "    measurements = {\"full\": {\"paper_claim\": \"baseline (FullKV 100%)\",\n",
         "                     \"mass\": float(sum(m0.values()) / max(1, len(m0))),\n",
         "                     \"bytes\": full, \"ratio\": 1.0}}\n",
         "    ev = H2OEvictor()\n",
@@ -9834,7 +10447,7 @@
         "    me = H.retained_mass(kept)\n",
         "    ee = H.attn_output_error(kept)\n",
         "    be = H.eq12_bytes({k: int(v.numel()) for k, v in kept.items()})\n",
-        "    legs[\"evict_h2o\"] = {\"paper_claim\": \"reported: H2O baseline (Table 2, beaten by KeepKV)\",\n",
+        "    measurements[\"evict_h2o\"] = {\"paper_claim\": \"reported: H2O baseline (Table 2, beaten by KeepKV)\",\n",
         "                         \"mass\": float(sum(me.values()) / max(1, len(me))),\n",
         "                         \"out_err\": float(sum(ee.values()) / max(1, len(ee))),\n",
         "                         \"bytes\": be[\"kept\"], \"ratio\": be[\"ratio\"]}\n",
@@ -9866,35 +10479,46 @@
         "            srz = float(torch.exp(c[\"qlast\"] @ krz / (c[\"head_dim\"] ** 0.5)))\n",
         "            oz = (cur[rest] @ c[\"V\"][rest] + prz * srz * vrz) / (cur[rest].sum() + prz * srz)\n",
         "            zc.append(float((oz - o_full).norm()))\n",
-        "    legs[\"keepkv_h2o_sets\"] = {\"paper_claim\": \"reported: best AVG per band (Table 2); 255.99 tokens/s (Table 1)\",\n",
+        "    measurements[\"keepkv_h2o_sets\"] = {\"paper_claim\": \"reported: best AVG per band (Table 2); 255.99 tokens/s (Table 1)\",\n",
         "                               \"mass\": float(sum(mc) / max(1, len(mc))),\n",
         "                               \"out_err\": float(sum(ec) / max(1, len(ec))),\n",
         "                               \"bytes\": bc, \"ratio\": bc / max(1, full),\n",
         "                               \"sag_mean\": float(sum(sc) / max(1, len(sc))),\n",
         "                               \"zip_mean\": float(sum(zc) / max(1, len(zc)))}\n",
-        "    legs[\"convex_merge\"] = {\"paper_claim\": \"reported: convex merging always sags (Thm.2)\",\n",
+        "    measurements[\"convex_merge\"] = {\"paper_claim\": \"reported: convex merging always sags (Thm.2)\",\n",
         "                            \"sag_mean\": float(sum(sc) / max(1, len(sc)))}\n",
         "    spec = {\"T\": H.T, \"L\": H.n_layers, \"H\": len(H.layers[0]),\n",
         "            \"hs\": H.cache[(0, 0)][\"head_dim\"], \"bpe\": 4}\n",
-        "    legs[\"periodic\"] = dict({\"paper_claim\": \"headline scheme: external full store + reloads (policy simulation)\"},\n",
+        "    measurements[\"periodic\"] = dict({\"paper_claim\": \"headline scheme: external full store + reloads (policy simulation)\"},\n",
         "                            **keepkv_periodic_plan(spec))\n",
         "    res = {\"paper\": \"arXiv:2504.09936\", \"seed\": seed, \"T\": H.T, \"budget\": budget,\n",
-        "           \"purpose\": \"smoke-scale mechanism legs (mass/error/bytes/sag); paper magnitudes are reported claims only\",\n",
-        "           \"legs\": legs, \"seconds\": round(_time29.time() - t0, 1)}\n",
+        "           \"purpose\": \"smoke-scale mechanism measurement sets (mass/error/bytes/sag); paper magnitudes are reported claims only\",\n",
+        "           \"measurements\": measurements, \"seconds\": round(_time29.time() - t0, 1)}\n",
         "    _P29(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P29(out_path).write_text(_j29.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
-        "    ok = {n: (\"error\" not in v) for n, v in legs.items()}\n",
-        "    print(_j29.dumps({\"legs_ok\": ok}, indent=2))\n",
+        "    ok = {n: (\"error\" not in v) for n, v in measurements.items()}\n",
+        "    print(_j29.dumps({\"measurements_ok\": ok}, indent=2))\n",
         "    return res\n"
       ]
-    }
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'keepkv', run_keepkv_benchmark, make_model=lambda: model,\n",
+        "    ids=bench_ids(globals(), 128), budget=32))"
+      ]
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
       "source": [
         "### Relations: KeepKV (arXiv:2504.09936) x All Previous Papers (standing rule)\n",
         "\n",
-        "- Vote-weighted merging meets every prior section at the frozen forward: eviction selects (forward importance), merging preserves (history-weighted), votes rescale (influence restoration). All relations STACK unless stated; keepkv extends the \u00a727 Compress axis; evictor pairings and the periodic plan are plain legs.\n",
+        "- Vote-weighted merging meets every prior section at the frozen forward: eviction selects (forward importance), merging preserves (history-weighted), votes rescale (influence restoration). All relations STACK unless stated; keepkv extends the \u00a727 Compress axis; evictor pairings and the periodic plan are plain measurement sets.\n",
         "\n",
         "- **vs LayerMix (arXiv:2608.28930, s10-12): STACK (expected).** Probe signal re-measured on merged caches; vote vectors as probe weights (entries with more votes count more).\n",
         "- **vs SABER (arXiv:2608.27963, s13): STACK (expected).** Exit gating and vote-weighted residency are different stages; merged entries persist across exits.\n",
@@ -9915,7 +10539,7 @@
         "- **ALTERNATIVE (pick 1 per run):** one compressor per run (keepkv joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
         "- **NEVER-SAME-PATH:** merged cache presented as lossless without the vote-weighted scoring (losslessness holds under p-weighted attention only; plain recon error is reported alongside); Table-1/2 magnitudes cited as smoke-scale evidence (smoke reports mass/error/bytes/sag; paper numbers are labeled claims); bound cited as a live guarantee (measured Theta under the computed bound, not paper-scale coverage).\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9959,7 +10583,7 @@
         "    return {\"sag_mean\": float(sum(sag) / max(1, len(sag))),\n",
         "            \"zip_mean\": float(sum(zip) / max(1, len(zip)))}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9975,7 +10599,7 @@
         "def keepkv_backprop_periodic(spec, period=64, resident_ratio=0.2):\n",
         "    return keepkv_periodic_plan(spec, period=period, resident_ratio=resident_ratio)\n"
       ]
-    }
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -9986,7 +10610,7 @@
         "\n",
         "**Repo note:** no public code exists (see graded 17_RepoAudit). Our integration reimplements the paper text (not third-party code): Lloyd k-means with k-means++ seeding, uniform and Fisher-weighted variants, grouped VQ with exact byte/BPA accounting.\n",
         "\n",
-        "**Integration reasoning (s17 rule): one Compress value.** Grouped channel VQ is mutually exclusive with the other compressors at the same K/V transform site (it replaces entries by centroid codes plus a centroid table), so it compiles as @Technique::KVCacheCompress::coupledquant with (channels, bits, fisher) parameters. Fisher weights arrive as an optional argument from one backward pass (paper Eq.6 needs activation grads); without grads it runs uniform. Sliding-window (Table 4) and KIVI-analog legs are plain runner legs, not axes. The shared \u00a727 harness is reused untouched.\n",
+        "**Integration reasoning (s17 rule): one Compress value.** Grouped channel VQ is mutually exclusive with the other compressors at the same K/V transform site (it replaces entries by centroid codes plus a centroid table), so it compiles as @Technique::KVCacheCompress::coupledquant with (channels, bits, fisher) parameters. Fisher weights arrive as an optional argument from one backward pass (paper Eq.6 needs activation grads); without grads it runs uniform. Sliding-window (Table 4) and KIVI-analog measurement sets are plain runner measurement sets, not axes. The shared \u00a727 harness is reused untouched.\n",
         "\n",
         "### Technique -> Impl -> original paper -> repo map\n",
         "\n",
@@ -10011,13 +10635,14 @@
       "Groups of c contiguous channels share one b-bit code (nearest centroid,\n",
       "L2). Uniform Lloyd k-means by default; Fisher-weighted variant takes\n",
       "per-activation grads (diag-Fisher importance, Eq.6). Stored: codes +\n",
-      "FP16 centroid table; bytes and code-BPA reported (App F table term uses\n",
-      "the live context length). CQ-<c>c<b>b naming; b/c bits per channel.\n",
-      "Keys and values both channel-coupled (paper \u00a74.3).\"\"\"\n",
-      "class CoupledQuantCompressor:\n",
-      "    scope = \"token\"\n",
-      "    def __init__(self, channels=4, bits=8, fisher=False):\n",
-      "        self.channels, self.bits, self.fisher = channels, bits, fisher\n",
+        "FP16 centroid table; bytes and BPA reported: code-BPA = b/c plus the\n",
+        "paper's full App F figure b/c + 2^b/65536 (centroid amortization over\n",
+        "L=65536). CQ-<c>c<b>b naming. Keys and values both channel-coupled\n",
+        "(paper \u00a74.3).\"\"\"\n",
+        "class CoupledQuantCompressor:\n",
+        "    scope = \"token\"\n",
+        "    def __init__(self, channels=4, bits=8, fisher=False):\n",
+        "        self.channels, self.bits, self.fisher = channels, bits, fisher\n",
       "    def _kmeans(self, X, k, weights=None, seed=0):\n",
       "        g = _t27.Generator().manual_seed(seed)\n",
       "        C = [X[_t27.randint(X.shape[0], (1,), generator=g).item()]]\n",
@@ -10030,8 +10655,8 @@
       "                probs = d2 / s\n",
       "            C.append(X[_t27.multinomial(probs, 1, generator=g).item()])\n",
       "        C = _t27.stack(C)\n",
-      "        w = _t27.ones(X.shape[0]) if weights is None else weights\n",
-      "        for _ in range(10):\n",
+        "        w = _t27.ones(X.shape[0]) if weights is None else weights\n",
+        "        for _ in range(20):\n",
       "            a = ((X.unsqueeze(1) - C.unsqueeze(0)) ** 2).sum(-1).argmin(-1)\n",
       "            Cn = _t27.zeros_like(C)\n",
       "            for j in range(k):\n",
@@ -10071,6 +10696,7 @@
       "        tbl = (tk + tv) * 2\n",
       "        nb = int(codes * 2 + tbl)\n",
       "        return Kh, Vh, {\"bytes\": nb, \"code_bpa\": self.bits / self.channels,\n",
+      "                        \"paper_bpa\": self.bits / self.channels + 2.0 ** self.bits / 65536.0,\n",
       "                        \"table_bytes\": int(tbl), \"codes_used_frac\": (uk + uv) / 2,\n",
       "                        \"recon_k\": float((K - Kh).norm() / (K.norm() + 1e-12)),\n",
       "                        \"recon_v\": float((V - Vh).norm() / (V.norm() + 1e-12))}\n"
@@ -10118,7 +10744,7 @@
       "        out.setdefault((key[0], key[1]), {})[key[2]] = g.detach().squeeze(0)\n",
       "    return out\n",
       "def run_cq_benchmark(make_model, ids, seed=17, out_path=\"outputs/cq_results.json\"):\n",
-      "    \"\"\"Run CQ legs on one prefilled model.\n",
+      "    \"\"\"Run CQ measurement sets on one prefilled model.\n",
       "\n",
       "    make_model: zero-arg factory for the compiled-path NanoGPT (factory seeds\n",
       "    construction; runner seeds its own draws). Writes outputs/cq_results.json.\n",
@@ -10129,7 +10755,7 @@
       "    H = KVCacheHarness(model, budget=None).prefill(ids)\n",
       "    full = H.eq12_bytes()[\"full\"]\n",
       "    m0 = H.retained_mass({k: _t27.arange(H.T) for k in H.cache})\n",
-      "    legs = {\"full\": {\"paper_claim\": \"baseline (FP16 16 BPA)\",\n",
+      "    measurements = {\"full\": {\"paper_claim\": \"baseline (FP16 16 BPA)\",\n",
       "                     \"mass\": float(sum(m0.values()) / max(1, len(m0))),\n",
       "                     \"bytes\": full, \"ratio\": 1.0}}\n",
       "    rk, rv, nk = [], [], 0\n",
@@ -10139,7 +10765,7 @@
       "        rk.append(float((c[\"K\"] - Kh).norm() / (c[\"K\"].norm() + 1e-12)))\n",
       "        rv.append(float((c[\"V\"] - Vh).norm() / (c[\"V\"].norm() + 1e-12)))\n",
       "        nk += int(c[\"K\"].numel() + c[\"V\"].numel()) * 2 / 8\n",
-      "    legs[\"perchannel_2b\"] = {\"paper_claim\": \"reported: KIVI-style collapses at 1-2b; CQ wins (Tables 1/5)\",\n",
+      "    measurements[\"perchannel_2b\"] = {\"paper_claim\": \"reported: KIVI-style collapses at 1-2b; CQ wins (Tables 1/5)\",\n",
       "                            \"recon_k\": float(sum(rk) / max(1, len(rk))),\n",
       "                            \"recon_v\": float(sum(rv) / max(1, len(rv))),\n",
       "                            \"bytes\": nk, \"ratio\": nk / max(1, full)}\n",
@@ -10156,7 +10782,7 @@
       "            o2 = (_t27.softmax(lk, dim=-1) @ Vh).squeeze(0)\n",
       "            o1 = c[\"S\"][-1] @ c[\"V\"]\n",
       "            oerr.append(float((o1 - o2).norm() / (o1.norm() + 1e-12)))\n",
-      "        legs[tag] = {\"paper_claim\": \"reported: CQ-4c8b 2.00 BPA / CQ-8c8b 1.00 BPA (Table 1)\",\n",
+      "        measurements[tag] = {\"paper_claim\": \"reported: CQ-4c8b 2.00 BPA / CQ-8c8b 1.00 BPA (Table 1)\",\n",
       "                     \"code_bpa\": bb / cc, \"bytes\": nbytes, \"ratio\": nbytes / max(1, full),\n",
       "                     \"recon_k\": float(sum(rks) / max(1, len(rks))),\n",
       "                     \"recon_v\": float(sum(rvs) / max(1, len(rvs))),\n",
@@ -10174,13 +10800,13 @@
       "            rvs.append(meta[\"recon_v\"])\n",
       "            nbytes += meta[\"bytes\"]\n",
       "            cu.append(meta[\"codes_used_frac\"])\n",
-      "        legs[\"fisher_8c8b\"] = {\"paper_claim\": \"reported: Fisher 8.09 vs uniform 32.12 (Table 6)\",\n",
+      "        measurements[\"fisher_8c8b\"] = {\"paper_claim\": \"reported: Fisher 8.09 vs uniform 32.12 (Table 6)\",\n",
       "                               \"recon_k\": float(sum(rks) / max(1, len(rks))),\n",
       "                               \"recon_v\": float(sum(rvs) / max(1, len(rvs))),\n",
       "                               \"codes_used\": float(sum(cu) / max(1, len(cu))),\n",
       "                               \"bytes\": nbytes, \"ratio\": nbytes / max(1, full)}\n",
       "    except Exception as e:\n",
-      "        legs[\"fisher_8c8b\"] = {\"error\": str(e)}\n",
+      "        measurements[\"fisher_8c8b\"] = {\"error\": str(e)}\n",
       "    W = min(32, H.T)\n",
       "    cq = CoupledQuantCompressor(channels=8, bits=8)\n",
       "    nbytes, oerr, cu = 0, [], []\n",
@@ -10194,20 +10820,30 @@
       "        o2 = (_t27.softmax(lk, dim=-1) @ Vf).squeeze(0)\n",
       "        o1 = c[\"S\"][-1] @ c[\"V\"]\n",
       "        oerr.append(float((o1 - o2).norm() / (o1.norm() + 1e-12)))\n",
-      "    legs[\"window32_8c8b\"] = {\"paper_claim\": \"reported: -0.618/-0.476 avg loss at 1-bit (Table 4)\",\n",
+      "    measurements[\"window32_8c8b\"] = {\"paper_claim\": \"reported: -0.618/-0.476 avg loss at 1-bit (Table 4)\",\n",
       "                             \"bytes\": nbytes, \"ratio\": nbytes / max(1, full),\n",
       "                             \"codes_used\": float(sum(cu) / max(1, len(cu))),\n",
       "                             \"out_err\": float(sum(oerr) / max(1, len(oerr)))}\n",
       "    res = {\"paper\": \"arXiv:2405.03917\", \"seed\": seed, \"T\": H.T,\n",
-      "           \"purpose\": \"smoke-scale mechanism legs (recon/bytes/BPA); paper magnitudes are reported claims only\",\n",
-      "           \"legs\": legs, \"seconds\": round(_time30.time() - t0, 1)}\n",
+      "           \"purpose\": \"smoke-scale mechanism measurement sets (recon/bytes/BPA); paper magnitudes are reported claims only\",\n",
+      "           \"measurements\": measurements, \"seconds\": round(_time30.time() - t0, 1)}\n",
       "    _P30(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
       "    _P30(out_path).write_text(_j30.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
-      "    ok = {n: (\"error\" not in v) for n, v in legs.items()}\n",
-      "    print(_j30.dumps({\"legs_ok\": ok}, indent=2))\n",
+      "    ok = {n: (\"error\" not in v) for n, v in measurements.items()}\n",
+      "    print(_j30.dumps({\"measurements_ok\": ok}, indent=2))\n",
       "    return res\n"
       ]
-    }
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'cq', run_cq_benchmark, make_model=lambda: model, ids=bench_ids(globals(), 128)))"
+      ]
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -10236,7 +10872,7 @@
         "- **ALTERNATIVE (pick 1 per run):** one compressor per run (coupledquant joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
         "- **NEVER-SAME-PATH:** centroid tables presented as free (table bytes always counted; App-F term uses live context); paper PPL/accuracy cited as smoke-scale evidence (smoke reports recon/bytes/BPA; paper numbers are labeled claims); Fisher live gain presented as paper-scale PPL gain (smoke reports weighted-objective convergence + recon deltas).\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -10266,7 +10902,7 @@
       "                     \"codes_used\": float(sum(cu) / max(1, len(cu)))})\n",
       "    return {\"rows\": rows}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -10300,7 +10936,7 @@
       "                    \"weighted_err\": float(sum(werr) / max(1, len(werr))) if werr else None}\n",
       "    return out\n"
       ]
-    }
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -10440,7 +11076,7 @@
         "            \"block_peak\": peak, \"block_bound\": M + Mblock,\n",
         "            \"bound_ok\": bool(peak <= M + Mblock)}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -10454,7 +11090,7 @@
         "from pathlib import Path as _P31\n",
         "def run_epicache_benchmark(make_model, ids, budget=16, E=4, seed=18,\n",
         "                           out_path=\"outputs/epicache_results.json\"):\n",
-        "    \"\"\"Run EpiCache legs on one prefilled model.\n",
+        "    \"\"\"Run EpiCache measurement sets on one prefilled model.\n",
         "\n",
         "    make_model: zero-arg factory for the compiled-path NanoGPT (factory seeds\n",
         "    construction; runner seeds its own draws). Writes outputs/epicache_results.json.\n",
@@ -10465,7 +11101,7 @@
         "    H = KVCacheHarness(model, budget=budget).prefill(ids)\n",
         "    full = H.eq12_bytes()[\"full\"]\n",
         "    m0 = H.retained_mass({k: _t27.arange(H.T) for k in H.cache})\n",
-        "    legs = {\"full\": {\"paper_claim\": \"baseline (FullKV 100%)\",\n",
+        "    measurements = {\"full\": {\"paper_claim\": \"baseline (FullKV 100%)\",\n",
         "                     \"mass\": float(sum(m0.values()) / max(1, len(m0))),\n",
         "                     \"bytes\": full, \"ratio\": 1.0, \"peak\": H.T}}\n",
         "    ev = EpisodicEvictor(budget=budget)\n",
@@ -10477,12 +11113,12 @@
         "    mb = H.retained_mass(kept)\n",
         "    eb = H.attn_output_error(kept)\n",
         "    by = H.eq12_bytes({k: int(v.numel()) for k, v in kept.items()})\n",
-        "    legs[\"block\"] = {\"paper_claim\": \"reported: bounded peak, KVzip-Block collapses (Fig.1)\",\n",
+        "    measurements[\"block\"] = {\"paper_claim\": \"reported: bounded peak, KVzip-Block collapses (Fig.1)\",\n",
         "                     \"mass\": float(sum(mb.values()) / max(1, len(mb))),\n",
         "                     \"out_err\": float(sum(eb.values()) / max(1, len(eb))),\n",
         "                     \"bytes\": by[\"kept\"], \"ratio\": by[\"ratio\"], \"peak\": budget + 8}\n",
         "    sp = episodic_preset(H, E=E, M=budget, Mblock=8, seed=seed)\n",
-        "    legs[\"episodic\"] = dict({\"paper_claim\": \"reported: best AVG per cell (Tables A2-A4); +20pts at 2-4K\"},\n",
+        "    measurements[\"episodic\"] = dict({\"paper_claim\": \"reported: best AVG per cell (Tables A2-A4); +20pts at 2-4K\"},\n",
         "                            **{k: v for k, v in sp.items() if k != \"caches\"})\n",
         "    sens = []\n",
         "    for li in range(H.n_layers):\n",
@@ -10494,19 +11130,30 @@
         "        cos = (Kf * Kb).sum(-1) / (Kf.norm(dim=-1) * Kb.norm(dim=-1)).clamp_min(1e-12)\n",
         "        sens.append(1.0 - float(cos.mean()))\n",
         "    alloc = ev.allocate_layer(sens, budget, alpha=1.1)\n",
-        "    legs[\"sensitivity\"] = {\"paper_claim\": \"reported: KL -0.80 vs uniform; top accuracy (Fig.4)\",\n",
+        "    measurements[\"sensitivity\"] = {\"paper_claim\": \"reported: KL -0.80 vs uniform; top accuracy (Fig.4)\",\n",
         "                           \"sensitivities\": sens, \"allocation\": alloc,\n",
         "                           \"sums_ok\": bool(abs(sum(alloc) - H.n_layers * budget) < 1e-6)}\n",
         "    res = {\"paper\": \"arXiv:2509.17396\", \"seed\": seed, \"T\": H.T, \"budget\": budget,\n",
-        "           \"purpose\": \"smoke-scale mechanism legs (mass/error/bytes/peak/allocation); paper magnitudes are reported claims only\",\n",
-        "           \"legs\": legs, \"seconds\": round(_time31.time() - t0, 1)}\n",
+        "           \"purpose\": \"smoke-scale mechanism measurement sets (mass/error/bytes/peak/allocation); paper magnitudes are reported claims only\",\n",
+        "           \"measurements\": measurements, \"seconds\": round(_time31.time() - t0, 1)}\n",
         "    _P31(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P31(out_path).write_text(_j31.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
-        "    ok = {n: (\"error\" not in v) for n, v in legs.items()}\n",
-        "    print(_j31.dumps({\"legs_ok\": ok}, indent=2))\n",
+        "    ok = {n: (\"error\" not in v) for n, v in measurements.items()}\n",
+        "    print(_j31.dumps({\"measurements_ok\": ok}, indent=2))\n",
         "    return res\n"
       ]
-    }
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'epicache', run_epicache_benchmark, make_model=lambda: model,\n",
+        "    ids=bench_ids(globals(), 128), budget=16))"
+      ]
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -10536,7 +11183,7 @@
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run (episodic joins the \u00a727 Evict axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
         "- **NEVER-SAME-PATH:** episode caches presented as lossless (matched mass + output error always reported; full-cache parity belongs to the none baseline); LongConvQA magnitudes cited as smoke-scale evidence (smoke reports mass/error/bytes/peak; paper numbers are labeled claims); key-similarity proxy presented as fembed equivalence (proxy documented as stand-in, medoid math exact).\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -10567,7 +11214,7 @@
         "            \"bound_ok\": bool(peak <= budget + Mblock),\n",
         "            \"mass\": float(S[-1][kept].sum())}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -10608,7 +11255,7 @@
         "            \"sums_ok\": bool(abs(sum(alloc) - harness.n_layers * budget) < 1e-6),\n",
         "            \"mass_sens\": gs, \"mass_uniform\": gu}\n"
       ]
-    }
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -10640,9 +11287,9 @@
         "| Loop only at prefill / every decode step / first n tokens | App. C.3, Table 15 | LoopDecode::bypass, ::full, ::firstn | none exists |\n",
         "| Depth-fraction window rule (Sec.3.2, Fig.6) | Sec.3.2 | plain always-present helper (no axis) | none exists |\n",
         "\n",
-        "**Adaptations with consequences (documented, kept):** (1) our residual window is the compiled model's own `nn.Sequential` of blocks, so the wrapper duplicates no model class and adds no parameters - it re-runs the window map; (2) nanoGPT here has no KV cache object, so the paper's snapshot/restore + stash protocol is exercised by an explicit per-layer length accounting simulator (`LoopCacheSim`) that reproduces the paper's invariant (net cache delta exactly b-a+1 entries regardless of K) rather than a transformers `DynamicCache`; (3) there is no MoE backbone here, so the routing-thrash mechanism is exercised by an explicit top-1 gate proxy (gate re-evaluated on the perturbed state vs pinned), not by an MoE model; (4) paper magnitudes (accuracy deltas on Qwen3/Llama/Moonlight checkpoints, wall-clock seconds, 20000 H100 hours) are reported claims - our legs report mechanism metrics only.\n"
+        "**Adaptations with consequences (documented, kept):** (1) our residual window is the compiled model's own `nn.Sequential` of blocks, so the wrapper duplicates no model class and adds no parameters - it re-runs the window map; (2) nanoGPT here has no KV cache object, so the paper's snapshot/restore + stash protocol is exercised by an explicit per-layer length accounting simulator (`LoopCacheSim`) that reproduces the paper's invariant (net cache delta exactly b-a+1 entries regardless of K) rather than a transformers `DynamicCache`; (3) there is no MoE backbone here, so the routing-thrash mechanism is exercised by an explicit top-1 gate proxy (gate re-evaluated on the perturbed state vs pinned), not by an MoE model; (4) paper magnitudes (accuracy deltas on Qwen3/Llama/Moonlight checkpoints, wall-clock seconds, 20000 H100 hours) are reported claims - our measurement sets report mechanism metrics only.\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -10671,13 +11318,37 @@
         "        self.cache, self.decode, self.first_n = cache, decode, int(first_n)\n",
         "        self.n_layers = len(model.blocks)\n",
         "        self.width = self.b - self.a + 1\n",
+        "        self._dec = 0\n",
+        "        self._pred = self._decode_pred()\n",
         "        self.reset_state()\n",
+        "    def _decode_pred(self):\n",
+        "        \"\"\"LoopDecode predicate from the compiled path (App.C.3); None if uncompiled.\"\"\"\n",
+        "        for _name in (\"LoopDecodeBypass\", \"LoopDecodeFull\", \"LoopDecodeFirstN\"):\n",
+        "            _cls = globals().get(_name)\n",
+        "            if _cls is not None:\n",
+        "                return _cls()\n",
+        "        return None\n",
+        "    def _loop_check(self, x):\n",
+        "        \"\"\"LoopDecode gate: loop body during always-prefill, per value at decode.\"\"\"\n",
+        "        seq_len = int(x.shape[1])\n",
+        "        if seq_len > 1:\n",
+        "            return True\n",
+        "        if self._pred is None:\n",
+        "            return True\n",
+        "        if not self._pred.loops_on_decode:\n",
+        "            return False\n",
+        "        if self.first_n and hasattr(self._pred, \"n_first\"):\n",
+        "            self._pred.n_first = self.first_n\n",
+        "        gate = bool(self._pred.should_loop(seq_len, self._dec))\n",
+        "        self._dec += 1\n",
+        "        return gate\n",
         "    def reset_calls(self):\n",
         "        self.calls = {li: 0 for li in range(self.n_layers)}\n",
         "        return self\n",
         "    def reset_state(self):\n",
         "        \"\"\"Clear per-window iteration state of the selected DepthLoop update.\"\"\"\n",
         "        self.reset_calls()\n",
+        "        self._dec = 0\n",
         "        if self.state is not None and hasattr(self.state, \"reset\"):\n",
         "            self.state.reset()\n",
         "        return self\n",
@@ -10727,10 +11398,11 @@
         "            x = upd(self, x, y)\n",
         "        return x\n",
         "    def stream(self, x):\n",
-        "        \"\"\"pre-loop 0..a-1, looped window, post-loop b+1..N-1 (Eq.2).\"\"\"\n",
+        "        \"\"\"pre-loop 0..a-1, looped window, post-loop b+1..N-1 (Eq.2); LoopDecode-gated.\"\"\"\n",
         "        for li in range(0, self.a):\n",
         "            x = self.block(li, x)\n",
-        "        x = self.loop_body(x)\n",
+        "        if self._loop_check(x):\n",
+        "            x = self.loop_body(x)\n",
         "        for li in range(self.b + 1, self.n_layers):\n",
         "            x = self.block(li, x)\n",
         "        return x\n",
@@ -10954,8 +11626,8 @@
         "\"\"\"DepthLoop::rk4 - classical RK4 on the window field, Table 1.\n",
         "\n",
         "4 g evaluations per step; reported at -0.65 pp (block) and -2.34 pp (layer)\n",
-        "against the damped-Euler reference - the most negative layer-mode entry of\n",
-        "Table 8.\n",
+        "against the damped-Euler reference - the most negative accelerator entry\n",
+        "of the layer-mode column of Table 8.\n",
         "\"\"\"\n",
         "class RK4Update:\n",
         "    loop_name = \"rk4\"\n",
@@ -11094,7 +11766,9 @@
         "A stabiliser for the direction of the iterates, applied after the damped\n",
         "Euler step. Reported catastrophic at K >= 3 (-2.84 pp at K=3, -13.01 pp at\n",
         "K=3 with alpha=1.0), the paper's evidence that the iterates diverge in\n",
-        "direction and not only in magnitude.\n",
+        "direction and not only in magnitude. The paper reports Table-10 scores\n",
+        "only; this update rule (per-element target norm) is synthesized to that\n",
+        "behavior and documented as such.\n",
         "\"\"\"\n",
         "class NormStabUpdate:\n",
         "    loop_name = \"normstab\"\n",
@@ -11124,6 +11798,8 @@
         "w weights the per-iteration increments instead of the uniform (1/K)\n",
         "quadrature of Eq. (10); the best reported row is w=[0.4,0.2,0.4] at\n",
         "-0.139 pp and every weighting loses to the uniform rule (Table 10).\n",
+        "The paper reports scores only; this per-sub-step weighting is a synthesized\n",
+        "realization of that row, kept honest by the comparison.\n",
         "\"\"\"\n",
         "class PolyBlendUpdate:\n",
         "    loop_name = \"polyblend\"\n",
@@ -11359,8 +12035,9 @@
         "    decode_name = \"firstn\"\n",
         "    loops_on_prefill = True\n",
         "    loops_on_decode = True\n",
+        "    n_first = 64\n",
         "    def should_loop(self, seq_len, step):\n",
-        "        return seq_len > 1 or step < 64\n"
+        "        return seq_len > 1 or step < self.n_first\n"
       ]
     }
     }@},
@@ -11401,7 +12078,7 @@
         "        z = z + h * w.field(z)\n",
         "    return z\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -11417,7 +12094,7 @@
         "                       beta=0.5, mode=\"blockmode\", cache=\"last\", decode=\"bypass\",\n",
         "                       strategies=None, out_path=\"outputs/loop_results.json\",\n",
         "                       seed=32):\n",
-        "    \"\"\"Run the loop-window legs on one frozen model.\n",
+        "    \"\"\"Run the loop-window measurement sets on one frozen model.\n",
         "\n",
         "    make_model: zero-arg factory for the compiled-path NanoGPT (factory seeds\n",
         "    construction; runner seeds its own draws). strategies: optional mapping of\n",
@@ -11434,7 +12111,7 @@
         "    with _t32.no_grad():\n",
         "        base_logits = model(ids)\n",
         "    n = len(model.blocks)\n",
-        "    legs = {\"full\": {\"paper_claim\": \"baseline: no loop, unmodified frozen checkpoint\",\n",
+        "    measurements = {\"full\": {\"paper_claim\": \"baseline: no loop, unmodified frozen checkpoint\",\n",
         "                    \"logit_norm\": float(base_logits.norm())}}\n",
         "    # parity: one window pass must reproduce the frozen forward exactly\n",
         "    a1, b1 = loop_window_for(n, width=1)\n",
@@ -11443,7 +12120,7 @@
         "                    state=inst1)\n",
         "    with _t32.no_grad():\n",
         "        par = w1.forward(ids)\n",
-        "    legs[\"parity\"] = {\"paper_claim\": \"K=1 is the unmodified forward (Eq.2 at K=1)\",\n",
+        "    measurements[\"parity\"] = {\"paper_claim\": \"K=1 is the unmodified forward (Eq.2 at K=1)\",\n",
         "                      \"max_abs_diff\": float((par - base_logits).abs().max()),\n",
         "                      \"bit_exact\": bool(float((par - base_logits).abs().max()) == 0.0)}\n",
         "    # anchored RK identity on the real window map (Eq.13-16)\n",
@@ -11481,13 +12158,13 @@
         "                \"K4_naive_err_vs_x1\": float((naive4 - ref1).norm(dim=-1).mean()),\n",
         "                \"K2_substep_err_vs_x1\": float((sub2 - ref1).norm(dim=-1).mean()),\n",
         "                \"naive_worse\": bool((naive2 - ref1).norm() > (sub2 - ref1).norm())}\n",
-        "    legs[\"eq16\"] = {\"paper_claim\": \"Eq.(16): Alg.1 output == beta g(x0) + (1-beta) F^(K)(x0)\",\n",
+        "    measurements[\"eq16\"] = {\"paper_claim\": \"Eq.(16): Alg.1 output == beta g(x0) + (1-beta) F^(K)(x0)\",\n",
         "                    \"b_sum\": float(sum(bb)), \"b_min\": float(min(bb)),\n",
         "                    \"alg1_vs_rhs\": float((alg1 - rhs).abs().max()),\n",
         "                    \"alg3_as_printed_vs_rhs\": float((alg3 - rhs).abs().max()),\n",
         "                    \"printed_alg3_gap\": float((rhs - alg3).norm(dim=-1).mean()),\n",
         "                    \"identity_ok\": bool(float((alg1 - rhs).abs().max()) < 1e-4)}\n",
-        "    legs[\"trajectory\"] = {\"paper_claim\": \"Sec.2.3: sub-steps refine x(t=1); naive folds to x(t=K)\", **traj}\n",
+        "    measurements[\"trajectory\"] = {\"paper_claim\": \"Sec.2.3: sub-steps refine x(t=1); naive folds to x(t=K)\", **traj}\n",
         "    # per-strategy deviation from the frozen forward\n",
         "    reg = strategies or {}\n",
         "    sweep = {}\n",
@@ -11498,7 +12175,7 @@
         "            lg = ww.forward(ids)\n",
         "        sweep[name] = {\"rel_logit_delta\": float((lg - base_logits).norm() / (base_logits.norm() + 1e-12)),\n",
         "                       \"finite\": bool(_t32.isfinite(lg).all())}\n",
-        "    legs[\"strategies\"] = {\"paper_claim\": \"reported: only damped Euler / anchored RK stay positive; all accelerators lose\",\n",
+        "    measurements[\"strategies\"] = {\"paper_claim\": \"reported: only damped Euler / anchored RK stay positive; all accelerators lose\",\n",
         "                          \"K\": K, \"window\": [a, b], \"per_strategy\": sweep}\n",
         "    # block-mode vs layer-mode\n",
         "    wb = LoopWrapper(model, a, b, K=K, mode=\"blockmode\", update=inst.update, beta=beta,\n",
@@ -11520,7 +12197,7 @@
         "        for t in range(z.shape[0]):\n",
         "            out[t] = out[t] + V[top[t]]\n",
         "        return out\n",
-        "    legs[\"mode\"] = {\"paper_claim\": \"Sec.2.2: modes coincide at W=1; layer-mode pins MoE routing\",\n",
+        "    measurements[\"mode\"] = {\"paper_claim\": \"Sec.2.2: modes coincide at W=1; layer-mode pins MoE routing\",\n",
         "                    \"window_width\": b - a + 1,\n",
         "                    \"W1_identical\": float((nb - nl).abs().max()),\n",
         "                    \"W_gt1_rel_gap\": float((lb - ll).norm() / (ll.norm() + 1e-12)),\n",
@@ -11538,7 +12215,7 @@
         "                            \"net_delta_window_total\": sum(sim.len[i] - snap[i - a] for i in range(a, b + 1)),\n",
         "                            \"per_layer_delta\": sim.len[b] - snap[-1],\n",
         "                            \"window_width\": b - a + 1}\n",
-        "    legs[\"cache\"] = {\"paper_claim\": \"Eq.(19): net cache delta over the window is exactly b-a+1 for first/last, 0 for none\",\n",
+        "    measurements[\"cache\"] = {\"paper_claim\": \"Eq.(19): net cache delta over the window is exactly b-a+1 for first/last, 0 for none\",\n",
         "                    \"per_strategy\": cache_leg,\n",
         "                    \"invariant_ok\": bool(cache_leg[\"first\"][\"net_delta_window_total\"] == b - a + 1\n",
         "                                         and cache_leg[\"last\"][\"net_delta_window_total\"] == b - a + 1\n",
@@ -11556,34 +12233,45 @@
         "            lg = ww.forward(ids)\n",
         "        width_leg[\"w=%d\" % wd] = {\"window\": [aw, bw],\n",
         "                                  \"rel_logit_delta\": float((lg - base_logits).norm() / (base_logits.norm() + 1e-12))}\n",
-        "    legs[\"width\"] = {\"paper_claim\": \"Table 2a/7a: n=4 is the sweet spot with a cliff at n>=6\",\n",
+        "    measurements[\"width\"] = {\"paper_claim\": \"Table 2a/7a: n=4 is the sweet spot with a cliff at n>=6\",\n",
         "                     \"per_width\": width_leg}\n",
         "    depth = {}\n",
         "    for L in (16, 24, 28, 36, 48):\n",
         "        aa, bb2 = loop_window_for(L, width=4)\n",
         "        depth[\"L=%d\" % L] = {\"window\": [aa, bb2], \"center_frac\": round((aa + bb2) / 2.0 / L, 4)}\n",
-        "    legs[\"depth\"] = {\"paper_claim\": \"Sec.3.2 / Fig.6: n=4 window centred at depth fraction 0.45-0.60\",\n",
+        "    measurements[\"depth\"] = {\"paper_claim\": \"Sec.3.2 / Fig.6: n=4 window centred at depth fraction 0.45-0.60\",\n",
         "                     \"band\": [0.45, 0.60], \"per_depth\": depth,\n",
         "                     \"all_in_band\": bool(all(0.45 <= v[\"center_frac\"] <= 0.60 for v in depth.values()))}\n",
         "    with _t32.no_grad():\n",
         "        w.reset_state()\n",
         "        w.forward(ids)\n",
         "    got, exp = w.pass_counts()\n",
-        "    legs[\"calls\"] = {\"paper_claim\": \"cost model 1 + (K-1)*W/N extra layer passes\",\n",
+        "    measurements[\"calls\"] = {\"paper_claim\": \"cost model 1 + (K-1)*W/N extra layer passes\",\n",
         "                     \"measured\": got, \"expected\": exp, \"match\": bool(got == exp),\n",
         "                     \"extra_layer_passes\": (exp[b] - 1) * w.width}\n",
         "    res = {\"paper\": \"arXiv:2605.23872\", \"seed\": seed, \"K\": K, \"width\": width,\n",
         "           \"strategy\": strategy, \"mode\": mode, \"cache\": cache, \"decode\": decode,\n",
         "           \"window\": [a, b], \"center_frac\": round((a + b) / 2.0 / n, 4),\n",
         "           \"n_layers\": n,\n",
-        "           \"purpose\": \"smoke-scale mechanism legs (parity/identity/trajectory/deviation/routing/KV/geometry); paper magnitudes are reported claims only\",\n",
-        "           \"legs\": legs, \"seconds\": round(_t32t.time() - t0, 1)}\n",
+        "           \"purpose\": \"smoke-scale mechanism measurement sets (parity/identity/trajectory/deviation/routing/KV/geometry); paper magnitudes are reported claims only\",\n",
+        "           \"measurements\": measurements, \"seconds\": round(_t32t.time() - t0, 1)}\n",
         "    _P32(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P32(out_path).write_text(_j32.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
-        "    print(_j32.dumps({\"leg_keys\": sorted(legs.keys())}, indent=2))\n",
+        "    print(_j32.dumps({\"measurement_keys\": sorted(measurements.keys())}, indent=2))\n",
         "    return res\n"
       ]
-    }
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'loop', run_loop_benchmark, make_model=lambda: model, ids=bench_ids(globals(), 128),\n",
+        "    K=3, width=4, strategy='blockanchored'))"
+      ]
+    },
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -11614,7 +12302,7 @@
         "- **ALTERNATIVE (pick 1 per run):** one DepthLoop value per run (all 12 join the new axis); one LoopMode per run; either K=1 (parity) or a looped run; cache=none is an ablation and never a deployment choice.\n",
         "- **NEVER-SAME-PATH:** a looped forward described as trained or fine-tuned (no parameter changes anywhere in this section); paper accuracy deltas cited as smoke-scale evidence (smoke reports logit deviation, routing churn, KV accounting and call counts); LoopMode::layermode claimed to equal block-mode at window width > 1 (they coincide only at width 1); the snapshot/restore protocol claimed to be free (it is allocation-free but not free of compute); the paper's Alg.3 as printed treated as identical to Eq. (16) (K-1 vs K sub-steps, recorded in graded 19)."
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -11669,7 +12357,7 @@
         "            \"call_counts_match\": bool(got == exp),\n",
         "            \"extra_layer_passes\": (exp[b] - 1) * wK.width}\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -11718,6 +12406,139 @@
         "            \"beta1_equals_baseline\": bool(abs(rows[-1][\"grad_norm_window_last_block\"] - base_g) < 1e-6),\n",
         "            \"all_finite\": all(r[\"grad_norm_window_last_block\"] == r[\"grad_norm_window_last_block\"]\n",
         "                            for r in rows)}\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Relations: call sites x every runner section"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "print()\n",
+        "print('=' * 72)\n",
+"print('benchmark call sites: %d/%d ran' % (\n",
+        "    sum(1 for r in BENCH_RESULTS if r.get('status') == 'ok'), len(BENCH_RESULTS)))\n",
+        "for _r in BENCH_RESULTS:\n",
+        "    print('  %-14s %-8s %s' % (_r['name'], _r['status'].upper(),\n",
+        "                              _r.get('reason', '')[:70]))"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 28. External benchmark suites (download-backed live runs)\n",
+        "\n",
+        "Real runs on the compiled notebook model: MMLU 5-shot letter-likelihood, GSM8K 8-shot greedy EM, MBPP executed pass@1, TruthfulQA MC1/MC2, HaluEval and FaithDial pairwise likelihood, OlympiadBench gold-vs-perturbed, and a single-pass RULER-style NIAH sweep (lengths beyond the compiled ctx are skipped-with-reason; long-range coverage stays with the ConvMem runner). Pair with `Vocab::gpt2bpe` + `Scale::gpt2_124m` for suite-scale capacity (768/12/12, self-trained via §9), or run them on any selection - provenance prints the tokenizer chosen and exactly what the weights are (no external checkpoint is ever loaded by this notebook). Offline each suite returns `{\"error\": ...}` (SKIP), never a fabricated number.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"External-suite setup: tokenizer matched to the compiled vocab + corpus handle.\"\"\"\n",
+        "from bench_external import enc_for_model\n",
+        "enc_ext = enc_for_model(model, globals())\n",
+        "_ext_text = str(globals().get(\"text\", \"\"))\n",
+        "if enc_ext is None:\n",
+        "    print(\"external suites: no encoder matches vocab \"\n",
+        "          f\"{model.token_embedding.num_embeddings} - suites return errors (SKIP) until \"\n",
+        "          \"paired with Vocab::gpt2bpe or a matching vocab impl\")\n",
+        "else:\n",
+        "    print(f\"external suites: tokenizer={enc_ext.name} \"\n",
+        "          f\"n_vocab={enc_ext.n_vocab} model_vocab={model.token_embedding.num_embeddings}\")\n",
+        "print(\"model provenance:\", globals().get(\"_model_provenance\",\n",
+        "      \"no gpt2_124m Scale selection - the weights are whatever this path compiled/trained\"))\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'mmlu', run_mmlu_live, ns=globals(), model=model, enc=enc_ext, n=250, k_shot=5))\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'gsm8k', run_gsm8k_live, ns=globals(), model=model, enc=enc_ext, n=100))\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'mbpp', run_mbpp_live, ns=globals(), model=model, enc=enc_ext, n=200))\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'truthfulqa', run_truthfulqa_live, ns=globals(), model=model, enc=enc_ext))\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'halieval', run_halieval_live, ns=globals(), model=model, enc=enc_ext, n=1000))\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'faithdial', run_faithdial_live, ns=globals(), model=model, enc=enc_ext, n=1000))\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'olympiad', run_olympiad_live, ns=globals(), model=model, enc=enc_ext, n=200))\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'ruler', run_ruler_live, ns=globals(), model=model, enc=enc_ext,\n",
+        "    ctx_lens=(512, 1024, 2048, 8192, 16384, 32768, 65536, 131072), n_per_len=5, text=_ext_text))\n"
       ]
     }
   ],
