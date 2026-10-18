@@ -8859,3 +8859,569 @@ def paper_2605_23872_fig4_curve_shape():
                         "K6_pct": 37.89, "K6_delta_pp": -17.71, "K_range": [1, 12]},
             "claim": "the K-sweep curve is the payoff evidence: damped sub-steps are flat, naive collapses",
             "live_analog": "outputs/loop_curve_results.json (held-out loss vs K per strategy)"}
+
+
+# ============================== Dust (QLabs 2026) ==============================
+# Source: qlabs.sh/research/dust (no arXiv id). Body and appendix tables are
+# reproduced from the HTML text layer; local probes never claim paper-scale runs.
+
+def paper_dust_setup():
+    """Section 3.1 setup: protocol constants and the population-counting rule."""
+    return {
+        "source": "https://qlabs.sh/research/dust (QLabs technical report, Oct 2026; no arXiv id)",
+        "data": "FineWeb",
+        "tokenizer": "4096-token BPE",
+        "batch_tokens": 16384,
+        "batch_shape": "8 sequences x 2048 tokens",
+        "epochs": 1,
+        "optimizer": "SGD with momentum at a constant learning rate",
+        "base_model": "8 layers x width 512",
+        "seeds_per_cell": 3,
+        "val_test_sequences": 544,
+        "report_rule": "test loss at best validation checkpoint",
+        "dust_backprop": "share one momentum and learning-rate grid",
+        "eggroll": "same transformer architecture (EGGROLL-Transformer), own grid of step size, momentum, noise scale, fitness shaping",
+        "population_units": {
+            "dust": "draws (one jitter of activations across all tokens of selected layers, rewarded with the token losses)",
+            "eggroll": "forward passes of the batch",
+        },
+        "draw_cheaper_than_forward": "clean forward is cached; a draw that jitters block l reruns only blocks l onward",
+        "K_excludes": "head and attention-internal draws, a small fraction of the update's FLOPs (Appendix E)",
+        "compute_claim": "from population 256 up Dust uses less compute than EGGROLL at the same population, so the comparison is lenient to EGGROLL",
+        "ladder": {"budgets": ["100k", "1M", "10M", "20M"], "populations": [64, 256, 1024, 4096, 16384]},
+    }
+
+
+def paper_dust_eq1_reward(gamma=0.98):
+    """Equation 1: r_t = sum_{s>=t} gamma^(s-t) c_s; gamma=0 rewards a jitter by its own token alone.
+
+    c_s is the centered loss reduction at token s (mean perturbed loss across draws minus
+    this draw's perturbed loss). Checked against an explicit double loop, with the two
+    named edge cases."""
+    c = torch.tensor([0.5, -0.3, 0.9, 0.1, -0.7, 0.2, 0.4, -0.1, 0.8, 0.6])
+    T = int(c.shape[0])
+    r_loop = torch.zeros(T)
+    for t in range(T):
+        for s in range(t, T):
+            r_loop[t] += gamma ** (s - t) * c[s]
+
+    def _w(g):
+        idx = torch.arange(T)
+        return (g ** (idx[None, :] - idx[:, None]).clamp(min=0)).triu()
+
+    r_vec = (_w(gamma) * c[None, :]).sum(1)
+    r_g0 = (_w(0.0) * c[None, :]).sum(1)
+    r_g1 = (_w(1.0) * c[None, :]).sum(1)
+    suffix = torch.flip(torch.cumsum(torch.flip(c, [0]), 0), [0])
+    return {
+        "T": T,
+        "gamma": gamma,
+        "r_loop_matches_vectorized": bool(torch.allclose(r_loop, r_vec, atol=1e-6)),
+        "gamma_0_is_own_token": bool(torch.allclose(r_g0, c, atol=1e-6)),
+        "gamma_1_is_suffix_sum": bool(torch.allclose(r_g1, suffix, atol=1e-6)),
+        "lag1_weight_is_gamma": round(float((_w(gamma)[0] / _w(gamma)[0, 0])[1]), 6),
+        "layers_seeing_future": "only keys, values, gates and value embeddings require credits from future tokens (gamma close to one); all other layers gamma=0",
+    }
+
+
+def paper_dust_eq2_3_estimator(arxiv_id="qlabs_dust"):
+    """Equations 2-3 on a tiny linear layer: the reward-weighted noise average estimates the
+    output error for each token, and its outer product with the cached input estimates the
+    weight gradient.
+
+    Fixed random layer W (16x32), 64 tokens, quadratic token loss. The estimate is compared
+    against the exact loss derivative of the same clean forward; the cosine is averaged over
+    16 independent draw sets at each K. Eq. 5's law is fitted to the probe curve. A one-hot
+    check confirms the embedding scatter-add reading of Eq. 3."""
+    torch.manual_seed(3)
+    din, dout, T = 32, 16, 64
+    sigma = 0.1
+    W = torch.randn(dout, din) / math.sqrt(din)
+    x = torch.randn(T, din)
+    ystar = torch.randn(T, dout) * 0.5
+    with torch.no_grad():
+        y = x @ W.t()
+        losses_clean = 0.5 * ((y - ystar) ** 2).sum(-1)
+        g_W = (y - ystar).t() @ x
+        Ks = [1, 2, 4, 8, 16, 32, 64, 128, 256]
+        reps = 16
+        cos_by_K = []
+        for K in Ks:
+            cs = []
+            for _ in range(reps):
+                a = torch.randn(K, T, dout)
+                losses = 0.5 * ((y[None] + sigma * a - ystar[None]) ** 2).sum(-1)
+                if K == 1:
+                    cred = losses_clean[None] - losses
+                else:
+                    cred = losses.mean(0, keepdim=True) - losses
+                ghat_y = -(cred[..., None] * a).sum(0) / (K * sigma)
+                Ghat = ghat_y.t() @ x
+                cs.append(float((Ghat.flatten() @ g_W.flatten()) /
+                                (Ghat.norm() * g_W.norm() + 1e-12)))
+            cos_by_K.append(float(np.mean(cs)))
+        Karr = np.array(Ks, dtype=float)
+        best = None
+        for cmax in np.linspace(0.5, 1.0, 26):
+            for c in np.exp(np.linspace(math.log(0.5), math.log(4096), 60)):
+                pred = cmax / np.sqrt(1.0 + c / Karr)
+                rmse = float(np.sqrt(np.mean((pred - np.array(cos_by_K)) ** 2)))
+                if best is None or rmse < best[0]:
+                    best = (rmse, float(cmax), float(c), pred)
+        rmse, cmax, cfit, pred = best
+        V = 8
+        tok = torch.randint(0, V, (T,))
+        ghat_emb = torch.randn(T, dout)
+        X1h = torch.zeros(T, V)
+        X1h[torch.arange(T), tok] = 1.0
+        G_matmul = ghat_emb.t() @ X1h
+        G_scatter = torch.zeros(dout, V)
+        for t in range(T):
+            G_scatter[:, tok[t]] += ghat_emb[t]
+        scatter_ok = bool(torch.allclose(G_matmul, G_scatter, atol=1e-6))
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(6.6, 4.0))
+    ax.semilogx(Ks, cos_by_K, "o-", color="#7b3294", label="probe: mean cosine over 16 draw sets")
+    ax.semilogx(Ks, pred, "--", color="#1c1917", label=f"Eq.5 fit: c_max={cmax:.3f}, c={cfit:.1f}")
+    ax.set_xlabel("population K (draws)")
+    ax.set_ylabel("cosine(estimate, exact gradient)")
+    ax.set_title("Eq.2/3 estimator probe, 16x32 linear layer (local, not paper scale)")
+    ax.legend(fontsize=8)
+    plot_ok = _save(fig, out / "eq23_estimator_probe.png")
+    return plot_ok, {
+        "layer": "W 16x32, 64 tokens, quadratic token loss, sigma=0.1",
+        "Ks": Ks,
+        "cos_by_K": cos_by_K,
+        "cos_at_K256": cos_by_K[-1],
+        "fit": {"c_max": cmax, "c": cfit, "rmse": rmse},
+        "cap_below_1": bool(cmax < 0.999),
+        "rises_with_K": bool(all(cos_by_K[i] <= cos_by_K[i + 1] + 0.02 for i in range(len(Ks) - 1))),
+        "embedding_scatter_add_ok": scatter_ok,
+        "estimator": "ghat_t = -(1/(K sigma)) sum_i r_t^(i) a_t^(i); G_W = sum_t ghat_t x_t^T",
+        "centering": "reward centered across draws; the one-draw case falls back to the one-sided drop (matches qlabs-eng/dust dust.py nrep=1 behavior)",
+        "note": "reference is the exact loss derivative of the same clean forward - the same outer product backprop forms; the estimator side never differentiates",
+    }
+
+
+def paper_dust_eq4_attention_scores():
+    """Equation 4: attention-internal jitters are scored by c_s = -<ghat_s, delta_o_s>, so a
+    jitter that moves the attention output along the descent direction earns a positive
+    score. Sign check on random vectors plus the magnitude identity for an aligned jitter."""
+    torch.manual_seed(4)
+    T, d = 12, 6
+    ghat = torch.randn(T, d)
+    eps = 0.05
+    c_aligned = -(ghat * (-eps * ghat)).sum(1)
+    c_anti = -(ghat * (eps * ghat)).sum(1)
+    return {
+        "aligned_positive": bool((c_aligned > 0).all()),
+        "anti_aligned_negative": bool((c_anti < 0).all()),
+        "magnitude_identity_ok": bool(torch.allclose(c_aligned, eps * (ghat ** 2).sum(1), atol=1e-6)),
+        "scope": "scores are computed per head; the reward is Eq. 1 with these scores in place of the loss reductions",
+        "sites": "query, key, value, gate and value embedding jitters, re-evaluating only their block's attention from the cached clean activations",
+    }
+
+
+def paper_dust_fig2_table1(arxiv_id="qlabs_dust"):
+    """Figure 2 / Table 1: test loss against population at 100k, 1M, 10M and 20M tokens for
+    Dust and EGGROLL-Transformer, with backprop tuned on the same grid. All cells are
+    paper-exact; the dashed curve in the 20M panel is the paper's fit 1.53 P^-0.145 + 4.43
+    with its stated 4.431 limit and 95% interval 3.89-4.58. Claims are recomputed from the
+    cells. Figure-only material (the plot has no additional numbers)."""
+    budgets = ["100k", "1M", "10M", "20M"]
+    pops = [64, 256, 1024, 4096, 16384]
+    dust = {"100k": [7.240, 7.165, 7.151, 7.164, 7.170],
+            "1M": [6.290, 6.067, 5.934, 5.911, 5.916],
+            "10M": [5.397, 5.231, 5.111, 5.072, 5.049],
+            "20M": [5.265, 5.139, 4.960, 4.912, 4.802]}
+    egg = {"100k": [7.961, 7.605, 7.386, 7.302, 7.263],
+           "1M": [7.428, 7.200, 7.046, 6.892, 6.708],
+           "10M": [7.056, 6.906, 6.692, 6.352, 6.033],
+           "20M": [6.987, 6.811, 6.517, 6.200, 5.865]}
+    fit_limit = {"100k": 7.161, "1M": 5.892, "10M": 5.013, "20M": 4.431}
+    bp = {"100k": 7.216, "1M": 5.959, "10M": 4.989, "20M": 4.633}
+    fit = lambda P: 1.53 * float(P) ** -0.145 + 4.43
+    fit_20M = [round(fit(P), 3) for P in pops]
+    fit_dev = [abs(fit_20M[i] - dust["20M"][i]) for i in range(len(pops))]
+    first_beat = {b: next((int(p) for p, v in zip(pops, dust[b]) if v < bp[b]), None) for b in budgets}
+    egg_gap = {b: round(egg[b][-1] - dust[b][0], 3) for b in budgets}
+    gap_10M = [round(dust["10M"][i] - bp["10M"], 3) for i in range(5)]
+    gap_20M = [round(dust["20M"][i] - bp["20M"], 3) for i in range(5)]
+    checks = {
+        "first_pop_below_backprop": first_beat,
+        "20M_still_falling_at_16k": bool(dust["20M"][-1] < dust["20M"][-2]),
+        "20M_ladder_monotone": bool(all(dust["20M"][i] > dust["20M"][i + 1] for i in range(4))),
+        "gap_shrinks_10M": bool(all(gap_10M[i] > gap_10M[i + 1] for i in range(4))),
+        "gap_shrinks_20M": bool(all(gap_20M[i] > gap_20M[i + 1] for i in range(4))),
+        "gap_to_backprop_10M": gap_10M,
+        "gap_to_backprop_20M": gap_20M,
+        "fit_max_abs_dev_vs_20M_cells": round(max(fit_dev), 4),
+        "fit_reproduces_limit": bool(abs(fit(1e12) - 4.43) < 1e-6),
+        "limit_below_backprop_20M": bool(fit_limit["20M"] < bp["20M"]),
+        "interval_contains_limit": bool(3.89 <= fit_limit["20M"] <= 4.58),
+        "10M_fit_vs_bp": round(fit_limit["10M"] - bp["10M"], 3),
+        "eggroll_16k_vs_dust64_gap": egg_gap,
+        "eggroll_never_reaches_dust64": bool(all(egg[b][-1] > dust[b][0] for b in budgets)),
+    }
+    _style()
+    out = _outdir(arxiv_id)
+    fig, axes = plt.subplots(1, 4, figsize=(15, 3.8), constrained_layout=True)
+    for ax, b in zip(axes, budgets):
+        ax.semilogx(pops, dust[b], "o-", color="#7b3294", label="Dust")
+        ax.semilogx(pops, egg[b], "s-", color="#8a8a8a", label="EGGROLL-Transformer")
+        ax.axhline(bp[b], color="k", ls=":", lw=1, label="backprop")
+        if b == "20M":
+            fx = np.exp(np.linspace(math.log(64.0), math.log(5e4), 80))
+            ax.semilogx(fx, [fit(P) for P in fx], "--", color="#4a1a66", lw=1.2, label="fit 1.53 P^-0.145 + 4.43")
+            ax.axhline(4.431, color="#4a1a66", ls="-.", lw=1)
+            ax.fill_between([64, 5e4], 3.89, 4.58, color="#4a1a66", alpha=0.08)
+        ax.set_title(f"{b} tokens")
+        ax.set_xlabel("population")
+    axes[0].set_ylabel("test loss")
+    axes[0].legend(fontsize=6)
+    plot_ok = _save(fig, out / "fig2_table1_panels.png")
+    return plot_ok, {
+        "budgets": budgets,
+        "populations": pops,
+        "dust": dust,
+        "eggroll": egg,
+        "backprop": bp,
+        "fit": {"form": "L(P) = 1.53 P^-0.145 + 4.43",
+                "limit_inf_row": fit_limit,
+                "limit_20M": 4.431,
+                "interval_95_20M": [3.89, 4.58],
+                "fit_pts_20M": fit_20M,
+                "max_abs_dev_20M": round(max(fit_dev), 4)},
+        "checks": checks,
+        "claim": "Dust below backprop at 100k and 1M; the gap shrinks with population at 10M and 20M; the still-falling 20M ladder fits a limit below backprop's 4.633, read as the gap closing rather than a measured limit",
+        "live_analog": "outputs/dust_results.json (clone smoke: Dust vs backprop loss curves, not paper scale)",
+    }
+
+
+def paper_dust_fig3_adam(arxiv_id="qlabs_dust"):
+    """Figure 3 / Section 3.3: the 1M-token Adam ladder. Its cells are figure-only in the text
+    layer; the recreatable numbers are the fit's limit 5.248 with its 95% bootstrap interval
+    5.17-5.30 versus backprop 5.361, drawn as a summary bar. Claims are recorded, not invented."""
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(4.8, 3.8))
+    ax.bar([0, 1], [5.248, 5.361], color=["#7b3294", "#1c1917"], width=0.5)
+    ax.errorbar([0], [5.248], yerr=[[5.248 - 5.17], [5.30 - 5.248]], fmt="none", ecolor="k", capsize=6)
+    ax.set_xticks([0, 1], ["Dust fit limit", "Backprop"])
+    ax.set_ylim(5.0, 5.45)
+    ax.set_ylabel("test loss at 1M tokens with Adam")
+    ax.set_title("Adam ladder limits (paper-reported; ladder cells are figure-only)")
+    plot_ok = _save(fig, out / "fig3_adam_limit.png")
+    return plot_ok, {
+        "dust_limit": 5.248,
+        "dust_limit_interval_95": [5.17, 5.30],
+        "backprop": 5.361,
+        "interval_below_backprop": bool(5.30 < 5.361),
+        "seeds": {"dust": 5, "backprop": 5, "eggroll": 3},
+        "adam_embedding_draws": "about 1.4x the listed population in total",
+        "eggroll_insensitivity": "EGGROLL gains almost nothing from Adam; its tuned Adam ladder lands within 0.01 of its SGD ladder in Table 1 at every population",
+        "adam_constants": {"beta2": 0.95, "eps": 1e-8, "weight_decay": 0},
+        "cells_published": False,
+        "claim": "Dust's estimate already works with modern optimizers tuned for backprop gradients",
+    }
+
+
+def paper_dust_fig4_overparam(arxiv_id="qlabs_dust"):
+    """Figure 4 / Section 4.1: four sizes (2.0M L2/d128, 7.3M L4/d256, 38M L8/d512,
+    243M L16/d1024) at a fixed 10M tokens across the population sweep. Every cell is
+    paper-exact; the row winners, the 120x claim, the ~30% extra gain past 1k draws and
+    the growing backprop gap are recomputed."""
+    sizes = ["2.0M", "7.3M", "38M", "243M"]
+    pops = [64, 256, 1024, 4096, 16384]
+    cells = {64: [5.705, 5.556, 5.558, 5.719],
+             256: [5.486, 5.362, 5.358, 5.419],
+             1024: [5.265, 5.161, 5.158, 5.214],
+             4096: [5.189, 5.095, 5.053, 5.124],
+             16384: [5.171, 5.065, 5.036, 5.086]}
+    bp = [5.180, 5.066, 5.015, 5.048]
+    gains = {s: round(cells[1024][i] - cells[16384][i], 3) for i, s in enumerate(sizes)}
+    ratios = {"38M_over_2.0M": round(gains["38M"] / gains["2.0M"], 3),
+              "243M_over_2.0M": round(gains["243M"] / gains["2.0M"], 3),
+              "38M_over_7.3M": round(gains["38M"] / gains["7.3M"], 3),
+              "243M_over_7.3M": round(gains["243M"] / gains["7.3M"], 3)}
+    gap_16k = [round(cells[16384][i] - bp[i], 3) for i in range(4)]
+    winners = {p: sizes[int(np.argmin(cells[p]))] for p in pops}
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(6.8, 4.2))
+    cols = ["#1f4e79", "#2e8b57", "#b05a1f", "#7b3294"]
+    for i, s in enumerate(sizes):
+        ax.semilogx(pops, [cells[p][i] for p in pops], "o-", color=cols[i], label=f"{s} params")
+        ax.scatter([5e4], [bp[i]], marker="*", s=90, color=cols[i], zorder=3)
+        ax.annotate("bp", (5e4, bp[i]), fontsize=7, xytext=(6, -2), textcoords="offset points")
+    ax.set_xlabel("population (draws)")
+    ax.set_ylabel("test loss at 10M tokens")
+    ax.set_title("Overparameterization: bigger models are more population-efficient\n(stars: backprop tuned at the same size)")
+    ax.legend(fontsize=8)
+    plot_ok = _save(fig, out / "fig4_overparam.png")
+    return plot_ok, {
+        "sizes": sizes,
+        "parameters": {"2.0M": "L2/d128", "7.3M": "L4/d256", "38M": "L8/d512", "243M": "L16/d1024"},
+        "populations": pops,
+        "cells": {str(k): v for k, v in cells.items()},
+        "backprop": dict(zip(sizes, bp)),
+        "bold_winners": winners,
+        "gains_1k_to_16k": gains,
+        "big_over_small_gain_ratios": ratios,
+        "about_30pct_more": bool(all(1.25 <= r <= 1.40 for r in ratios.values())),
+        "param_ratio_243_to_2": 243.0 / 2.0,
+        "smallest_pop_about_same": {"2.0M": cells[64][0], "243M": cells[64][3],
+                                    "delta": round(cells[64][3] - cells[64][0], 3)},
+        "243M_better_at_every_other_pop": bool(all(cells[p][3] < cells[p][0] for p in pops[1:])),
+        "falling_2M_to_7M_to_38M_from_256": bool(all(cells[p][0] > cells[p][1] > cells[p][2] for p in pops[1:])),
+        "243M_vs_38M_max_delta": max(round(cells[p][3] - cells[p][2], 3) for p in pops),
+        "gap_to_backprop_16k": gap_16k,
+        "gap_grows_with_size": bool(all(gap_16k[i] < gap_16k[i + 1] for i in range(3))),
+        "note": "the 38M row is the L8/d512 base model of Appendix A; this study predates the improved token-embedding learning rate (Appendix F)",
+        "claim": "larger models are often more population-efficient, not less, and keep improving with population where small ones flatten; model size as the size and geometry of the search space",
+    }
+
+
+def paper_dust_fig5_cosine_law(arxiv_id="qlabs_dust"):
+    """Figure 5 / Appendix G: cos(K) = c_max / sqrt(1 + c/K) fitted per layer type at the
+    final 100M-token checkpoint (Appendix Table 8). The ten published fits are redrawn
+    exactly; c is the population where the layer reaches c_max/sqrt(2) and RMSE is over the
+    seven fit budgets 64..131072. EGGROLL's same-budget measurements are recorded as claims."""
+    fits = [("MLP out", 0.8779, 31623, 0.0081),
+            ("MLP in", 0.8577, 48417, 0.0065),
+            ("Attn out", 0.8729, 21627, 0.0093),
+            ("Attn Q", 1.0000, 76736, 0.0356),
+            ("Attn K", 1.0000, 616595, 0.0191),
+            ("Attn V", 0.8776, 173780, 0.0269),
+            ("Value gate", 0.6657, 47863, 0.0367),
+            ("Value emb", 1.0000, 495450, 0.0247),
+            ("Token emb", 0.7318, 19498, 0.0083),
+            ("LM head", 1.0000, 759, 0.0032)]
+    budgets = [64, 256, 1024, 4096, 16384, 65536, 131072]
+    law = lambda cmax, c, K: cmax / np.sqrt(1.0 + np.asarray(K, dtype=float) / c)
+    half_ok = [bool(abs(float(law(cmax, c, c)) - cmax / math.sqrt(2)) < 1e-9)
+               for _, cmax, c, _ in fits]
+    rmse_vals = [r for _, _, _, r in fits]
+    _style()
+    out = _outdir(arxiv_id)
+    fig, ax = plt.subplots(figsize=(7.0, 4.4))
+    xs = np.exp(np.linspace(math.log(64.0), math.log(131072.0), 120))
+    for layer, cmax, c, rmse in fits:
+        ax.semilogx(xs, law(cmax, c, xs), lw=1.4, label=f"{layer} (c={c:g}, RMSE {rmse})")
+    ax.axvline(16384, color="k", ls=":", lw=1)
+    ax.set_xlabel("population K")
+    ax.set_ylabel("cosine to backprop gradient")
+    ax.set_title("Emergence of backprop-like gradients, 100M-token checkpoint\n(Eq. 5 fits, Appendix Table 8; dotted line: 16k training population)")
+    ax.legend(fontsize=6, ncol=2)
+    plot_ok = _save(fig, out / "fig5_cosine_law.png")
+    return plot_ok, {
+        "law": "cos(K) = c_max / sqrt(1 + c/K)",
+        "checkpoint": "100M tokens; fit budgets 64..131072 (seven points)",
+        "fits": [{"layer": l, "c_max": m, "c": c, "rmse": r} for l, m, c, r in fits],
+        "rmse_below_0.06": bool(max(rmse_vals) < 0.06),
+        "rmse_range_100M": [min(rmse_vals), max(rmse_vals)],
+        "half_max_at_K_equals_c": bool(all(half_ok)),
+        "c_max_capped_at_1": bool(all(m <= 1.0 for _, m, _, _ in fits)),
+        "checkpoint_coverage": {"10M": "appendix Fig.6 ladders", "100M": "Table 8 fits (drawn)", "1B": "measured ladders, Fig. 5"},
+        "eggroll_claim": "EGGROLL's estimate at the same number of forward passes is below 0.05 cosine at 128k for every type but the head",
+        "claim": "useful gradients emerge from the large population alone; alignment holds across two orders of magnitude in tokens",
+        "live_analog": "outputs/dust_results.json (cosine ladder over attention/mlp/embed/head groups on the compiled path)",
+    }
+
+
+def paper_dust_fig6_appendix_b():
+    """Appendix B / Figure 6: the cosine ladder at the remaining checkpoints (Dust at
+    initialization; EGGROLL at initialization and at 100M tokens, each on its own axis).
+    Published as an SVG image only - no cells in the text layer, so it is recorded as a
+    claim, not recreated."""
+    return {"status": "figure-only-in-text-layer",
+            "content": "cosine ladder of Fig.5 at the checkpoints not shown there: Dust at initialization; EGGROLL at initialization and at 100M tokens, each on its own axis",
+            "recreatable_numbers": None,
+            "reason": "SVG image only; no numeric cells published for these checkpoints",
+            "related": "Appendix G Table 8 covers the 100M-token checkpoint fits drawn in Fig.5"}
+
+
+def paper_dust_appendix_e_allocation():
+    """Appendix E / Tables 3-4: what one update jitters at K=16384, the per-block splits,
+    the 64-draw recipe, the batching schedule and the gamma values."""
+    table3 = [
+        {"site": "Writer pair", "reruns": "its block onward", "sgd": 7040, "adam": 4096, "noise_scale": "0.2"},
+        {"site": "MLP hidden layer", "reruns": "its block onward", "sgd": 7040, "adam": 4096, "noise_scale": "0.2"},
+        {"site": "Attention output", "reruns": "its block onward", "sgd": 1664, "adam": 6144, "noise_scale": "0.2, deeper half 0.4"},
+        {"site": "Token embedding", "reruns": "the whole network", "sgd": 640, "adam": 8192, "noise_scale": "0.2, Adam 0.4"},
+        {"site": "Query, per block", "reruns": "its block's attention", "sgd": 128, "adam": 128, "noise_scale": "0.05"},
+        {"site": "Value, per block", "reruns": "its block's attention", "sgd": 1280, "adam": 1280, "noise_scale": "0.05"},
+        {"site": "Gate, per block", "reruns": "its block's attention", "sgd": 384, "adam": 384, "noise_scale": "0.05"},
+        {"site": "Key, per block", "reruns": "its block's attention", "sgd": 768, "adam": 768, "noise_scale": "0.05"},
+        {"site": "Value embedding, per block", "reruns": "its block's attention", "sgd": 512, "adam": 512, "noise_scale": "0.05"},
+        {"site": "Head", "reruns": "one slab's cross-entropy", "sgd": 65536, "adam": 49152, "noise_scale": "0.05"},
+        {"site": "Residual scalars", "reruns": "the whole network, twice", "sgd": 8, "adam": 8, "noise_scale": "0.03"},
+    ]
+    sgd_token_loss = sum(r["sgd"] for r in table3[:4])
+    adam_token_loss = sum(r["adam"] for r in table3[:4])
+    writer = {"100k": [2048, 1792, 896, 640, 256, 256, 128, 128],
+              "1M_10M": [2432, 2048, 1024, 640, 384, 256, 128, 128],
+              "20M": [2816, 2432, 896, 256, 256, 128, 128, 128],
+              "10M_at_16k": [2176, 1792, 896, 512, 384, 256, 128, 128],
+              "20M_at_16k": [2304, 2048, 768, 256, 256, 128, 128, 128]}
+    attn_out = {"100k": [896, 768, 512, 384, 128, 128, 128, 128],
+                "all_others": [384, 384, 256, 128, 128, 128, 128, 128],
+                "10M_at_16k": [768, 640, 512, 256, 256, 256, 256, 256]}
+    claimed_totals = {"writer": {"100k": 6144, "1M_10M": 7040, "20M": 7040, "10M_at_16k": 6272, "20M_at_16k": 6016},
+                      "attn_out": {"100k": 3072, "all_others": 1664, "10M_at_16k": 3200}}
+    totals_ok = all(sum(writer[k]) == v for k, v in claimed_totals["writer"].items()) and \
+        all(sum(attn_out[k]) == v for k, v in claimed_totals["attn_out"].items())
+    recipe64 = {"writers": [8, 7, 4, 3, 1, 1, 1, 1], "mlp": [8, 7, 4, 3, 2, 1, 1, 1],
+                "attn_outputs": [1, 1, 1, 1, 1, 1, 1, 1], "embeddings": 3,
+                "internals": {"q": 1, "v": 5, "gate": 2, "k": 3, "value_emb": 2}}
+    recipe64_total = sum(recipe64["writers"]) + sum(recipe64["mlp"]) + sum(recipe64["attn_outputs"]) + recipe64["embeddings"]
+    return {
+        "K": 16384,
+        "table3": table3,
+        "table3_token_loss_rows_sum": {"sgd": sgd_token_loss, "adam": adam_token_loss},
+        "sgd_sums_to_K": bool(sgd_token_loss == 16384),
+        "adam_is_11K_over_8": bool(adam_token_loss == 11 * 16384 // 8),
+        "table4_writer_mlp_per_block": writer,
+        "table4_attn_output_per_block": attn_out,
+        "table4_totals_ok": bool(totals_ok),
+        "mlp_block2_100k_exception": 1664,
+        "recipe_64_draws": recipe64,
+        "recipe64_decomposes_to_K": {"total": recipe64_total, "ok": bool(recipe64_total == 64)},
+        "batch_fragments_n": {"64": 1, "256": 2, "1024": 8, "4096": 8, "16384": 16},
+        "gamma": {"direct_loss_estimates_and_queries": 0.0,
+                  "keys_values_gates_value_embeddings": "0.99 in the 10M/16k and 20M/16k runs; 0.98 in all other runs"},
+        "override_20M_16k": "k and v get 1536 and 2560 draws per block; the cell has 14,336 loss-rewarded draws at the compute of the other 16k cells",
+        "scaling_note": "populations from 256 up scale every count by K/16384; the 20M/16k attn-output column has allocation of its own",
+        "head_slab": "each head draw jitters one slab of 256 logits",
+        "deeper_half": "attention outputs of the deeper half use noise scale 0.4 because their loss changes are weak at 0.2",
+    }
+
+
+def paper_dust_appendix_d_eggroll():
+    """Appendix D / Table 2: the population EGGROLL would need to match Dust at 64 draws,
+    as multiples of 64, under three fit families (power law refits and straight lines in
+    log population over the top three / top two cells)."""
+    table = [
+        {"fit": "Power law, all five populations", "1M": "23,000x", "10M": "16,000x", "20M": "8,100x"},
+        {"fit": "Power law, one population left out", "1M": "11,000x to inf", "10M": "7,200x to 54,000x", "20M": "4,700x to 17,000x"},
+        {"fit": "Straight line in log population, top three (1k, 4k, 16k)", "1M": "8,200x", "10M": "3,700x", "20M": "3,300x"},
+        {"fit": "Straight line in log population, top two (4k, 16k)", "1M": "6,000x", "10M": "4,100x", "20M": "3,100x"},
+    ]
+    finite = [23000, 16000, 8100, 11000, 7200, 54000, 4700, 17000, 8200, 3700, 3300, 6000, 4100, 3100]
+    all_five = [23000, 16000, 8100]
+    return {
+        "table": table,
+        "finite_multiples_range": [min(finite), max(finite)],
+        "all_five_power_law_range": [min(all_five), max(all_five)],
+        "text_stat": {"min_finite": min(finite), "max_all_five": max(all_five),
+                      "paper_sentence": "The three fits put the multiple between about 3,000 and 23,000",
+                      "about_3k_lower_bound_tracks_min_finite": bool(min(finite) == 3100),
+                      "about_23k_upper_bound_tracks_all_five": bool(max(all_five) == 23000),
+                      "note": "the one-left-out power-law refits widen the 10M upper bound to 54,000x and can go to inf at 1M; the paper's summary sentence tracks the primary fits"},
+        "inf_marks": "a refit whose floor lies above the loss of Dust at 64 draws",
+        "method": "power law L(P) = A P^-alpha + E refit with each population left out in turn; straight-line fits use the top three and top two populations",
+        "claim": "EGGROLL's ladder extrapolates to several thousand to about 10^4 times the population to match Dust's smallest population",
+    }
+
+
+def paper_dust_appendix_f_tuning():
+    """Appendix F / Tables 5-7: the per-cell tuning protocol, the seed grid, the
+    per-parameter SGD learning-rate policy, the Adam settings and the rejection rules."""
+    grids = {"100k tokens": {"momentum": [0.2, 0.3, 0.5], "lr": [0.3, 0.4, 0.5, 0.6]},
+             "1M, 10M and 20M tokens": {"momentum": [0.9, 0.95, 0.98], "lr": [0.1, 0.15, 0.2, 0.25]},
+             "10M tokens at 64 draws": {"momentum": [0.95, 0.98, 0.99], "lr": [0.0125, 0.025, 0.05, 0.1]},
+             "20M tokens at 64 draws": {"momentum": [0.95, 0.98, 0.99], "lr": [0.00625, 0.0125, 0.025, 0.05]}}
+    lr_policy = {
+        "main_comparison": {
+            "Dust": {"token_embedding": 1000, "value_embeddings": 0.3, "residual_scalars": 0.03, "everything_else": "base"},
+            "Backprop": {"token_embedding": 1000, "value_embeddings": "base", "residual_scalars": "base", "everything_else": "base"},
+        },
+        "model_size_study": {
+            "Dust": {"key_projections": "4x base", "value_projections": "8x base", "token_embedding": 0.3,
+                     "value_embeddings": 0.3, "residual_scalars": 0.03, "everything_else": "base"},
+            "Backprop": {"key_projections": "4x base", "value_projections": "8x base", "token_embedding": "base",
+                         "value_embeddings": "base", "residual_scalars": "base", "everything_else": "base"},
+        },
+    }
+    adam = {"beta2": 0.95, "eps": 1e-8, "weight_decay": 0,
+            "dust_matrix_head": {"at 64 draws": 0.00175, "from 256 to 4k": 0.0015, "from 16k up": 0.002},
+            "backprop_matrix_head": 0.002, "eggroll_matrix_head": 0.003,
+            "dust_token_value_embeddings": "300x matrices", "dust_residual_scalars": "100x matrices",
+            "backprop_token_value_embeddings": 0.3, "backprop_residual_scalars": 0.2,
+            "beta1": {"dust": 0.7, "backprop": 0.8, "eggroll": 0.5},
+            "eggroll_fitness_shaping": "z-scored differences"}
+    return {
+        "grids": grids,
+        "grid_points": {k: len(v["momentum"]) * len(v["lr"]) for k, v in grids.items()},
+        "seeding": "seed 42 runs the grid; the best point and every point within 0.02 get seeds 43 and 44, as does any single-seed point beating the current three-seed best; edge bests extend the grid one step until interior",
+        "rejection_rules": ["final validation loss exceeding the run's best by more than 0.25",
+                            "validation loss ever exceeding the uniform-prediction loss ln V",
+                            "NaN"],
+        "selection": "lowest mean validation loss over three seeds; test loss reported at each seed's best-validation checkpoint",
+        "lr_policy": lr_policy,
+        "adam": adam,
+        "protocol_note": "the model-size study predates the improved token-embedding learning rate and keeps the earlier key/value rate policy, which explains its difference from the main results",
+        "tuning_levers_at_16k": "allocation across layer families, per-block tilt, noise scales, credit decay and head draws, run one at a time from the (momentum, rate) winner and stacked by seed-paired wins",
+        "cosine_diagnostic": "Dust's own constants are chosen by maximizing cosine to the backprop gradient on a single batch, confirmed in training (Section 2.3)",
+    }
+
+
+def paper_dust_repo_audit():
+    """Official code audit: qlabs-eng/dust is public (MIT). The constants in its dust.py
+    corroborate the appendix (noise scales, deeper-half 0.4, gamma 0.98, head slabs of 256,
+    capped logits, SGD 0.25/0.95); spot checks found no discrepancies."""
+    return {
+        "status": "official-code-audited",
+        "repo": "github.com/qlabs-eng/dust",
+        "license": "MIT",
+        "file": "dust.py",
+        "corroborated_constants": {
+            "gamma_default": 0.98,
+            "sigma_direct": 0.2, "sigma_deeper_half": 0.4, "sigma_head": 0.05,
+            "sigma_local_attention": 0.05, "sigma_residual_es": 0.03,
+            "head_slab_columns": 256, "logit_cap": "15 * tanh(raw / 15)",
+            "sgd": "lr 0.25, momentum 0.95 (paper's grid top region)",
+        },
+        "training_loop": "reward-weighted noise with centered one-sided loss drops; errors[site] -= einsum(reward, a)/sigma/draws; parameter.grad = gradient/valid_tokens; plain SGD step",
+        "discrepancies": [],
+    }
+
+
+def run_paper_dust() -> dict:
+    setup = paper_dust_setup()
+    eq1 = paper_dust_eq1_reward()
+    eq23_plot, eq23 = paper_dust_eq2_3_estimator()
+    eq4 = paper_dust_eq4_attention_scores()
+    f2_plot, f2 = paper_dust_fig2_table1()
+    f3_plot, f3 = paper_dust_fig3_adam()
+    f4_plot, f4 = paper_dust_fig4_overparam()
+    f5_plot, f5 = paper_dust_fig5_cosine_law()
+    f6 = paper_dust_fig6_appendix_b()
+    appE = paper_dust_appendix_e_allocation()
+    appD = paper_dust_appendix_d_eggroll()
+    appF = paper_dust_appendix_f_tuning()
+    repo = paper_dust_repo_audit()
+    results = {
+        "arxiv": None,
+        "source": "https://qlabs.sh/research/dust",
+        "title": "Dust: Pretraining Transformers Without Backpropagation",
+        "authors": "Samip Dahal, Bishwas Mandal, Serdar Gülbahar, Akshay Vegesna (QLabs), October 2026",
+        "setup": setup,
+        "eq1": eq1,
+        "eq23_plot": eq23_plot, "eq23": eq23,
+        "eq4": eq4,
+        "fig2_plot": f2_plot, "fig2_table1": f2,
+        "fig3_plot": f3_plot, "fig3_adam": f3,
+        "fig4_plot": f4_plot, "fig4_overparam": f4,
+        "fig5_plot": f5_plot, "fig5_cosine_law": f5,
+        "fig6_appendix_b": f6,
+        "appendixE_allocation": appE,
+        "appendixD_eggroll": appD,
+        "appendixF_tuning": appF,
+        "repo_status": "official-code-audited",
+        "repo_audit": repo,
+    }
+    out = _outdir("qlabs_dust") / "metrics.json"
+    out.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results

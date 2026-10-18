@@ -911,6 +911,35 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                      "RULER-style NIAH EM vs ctx len (single-pass, live)",
                      "ctx_len", "EM", f"{name}_em_vs_len")
 
+    if name == "dust":
+        lc = measurements.get("loss_curve") if isinstance(measurements, dict) else None
+        if isinstance(lc, dict) and lc.get("steps") and lc.get("dust"):
+            fig, ax = plt.subplots(figsize=(6.4, 3.6))
+            ax.plot(lc["steps"], lc["dust"], marker="o", color="#b05a1f",
+                    label="dust (forward-only)")
+            bp = lc.get("backprop") or []
+            if len(bp) == len(lc["steps"]):
+                ax.plot(lc["steps"], bp, marker="s", color="#1f4e79", label="backprop control")
+            ax.set_title("Dust live smoke: next-batch loss (compiled clone)")
+            ax.set_xlabel("step")
+            ax.set_ylabel("CE loss")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_loss"))
+        cos = measurements.get("cosine") if isinstance(measurements, dict) else None
+        if isinstance(cos, dict) and isinstance(cos.get("groups"), dict) and cos.get("populations"):
+            fig, ax = plt.subplots(figsize=(6.4, 3.6))
+            for g, ys in cos["groups"].items():
+                if not isinstance(ys, list) or len(ys) != len(cos["populations"]):
+                    continue
+                ax.plot(cos["populations"], [y if y is not None else float("nan") for y in ys],
+                        marker="o", label=g)
+            ax.set_xscale("log")
+            ax.set_title("Dust live: cosine(estimate, backprop) vs population (Fig. 5 diagnostic)")
+            ax.set_xlabel("population (draws)")
+            ax.set_ylabel("mean cosine")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_cosine_pop"))
+
     return paths
 
 

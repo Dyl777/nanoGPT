@@ -1,0 +1,103 @@
+@PL::Python
+@Task::QLabs_Dust_PretrainingWithoutBackprop
+@Modulu::QLabsDust
+
+@Technique::QLabsDust::[reproduce]
+
+@Comment::[Paper: Dust: Pretraining Transformers Without Backpropagation (Dahal, Mandal, Gülbahar, Vegesna 2026, QLabs technical report, qlabs.sh/research/dust, no arXiv id assigned). First zeroth-order method competitive with backprop at pretraining transformer language models: activations (node perturbation) are jittered independently at every token, so each token is a virtual population member and one forward pass evaluates the population in parallel; the reward-weighted noise average estimates the output error and its outer product with the cached input is the weight gradient. Graded scope: main text + appendix - Eq.1 credit decay, Eq.2/3 estimator identity (local probe against the exact loss derivative, Eq.5 law fit, embedding scatter-add check), Eq.4 attention-output scores, Fig.2/Table 1 ladder (exact cells + 20M power-law fit 1.53 P^-0.145 + 4.43), Fig.3 Adam limits, Fig.4 overparameterization table + claims (120x, ~30% extra gain), Fig.5/App.G cosine-law fits (Table 8), App.B Fig.6 (figure-only), App.D EGGROLL extrapolated populations (Table 2), App.E draw allocation (Tables 3/4), App.F tuning protocol (Tables 5/6/7), official-code audit (github.com/qlabs-eng/dust, MIT). No paper-scale training is re-run; reported tables are reproduced exactly and local probes check the same identities on tensors that fit this repo.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_dust_setup,
+    paper_dust_eq1_reward,
+    paper_dust_eq2_3_estimator,
+    paper_dust_eq4_attention_scores,
+    paper_dust_fig2_table1,
+    paper_dust_fig3_adam,
+    paper_dust_fig4_overparam,
+    paper_dust_fig5_cosine_law,
+    paper_dust_fig6_appendix_b,
+    paper_dust_appendix_e_allocation,
+    paper_dust_appendix_d_eggroll,
+    paper_dust_appendix_f_tuning,
+    paper_dust_repo_audit,
+    run_paper_dust,
+)
+
+@Impl::QLabsDust::reproduce{
+_ = "reproduce credit-decay/estimator identities + exact ladder/overparameterization/cosine tables + allocation and tuning appendix + repo audit"
+@}
+
+@Graded::Setup{
+# Section 3.1: FineWeb, 4096-BPE, 16k-token batch, one epoch, SGD+momentum, 8x512 base, 3 seeds, 544-seq val/test, draws-vs-forward-pass accounting.
+setup = paper_dust_setup()
+@}::endpoints::[setup=setup]
+
+@Graded::Eq1_Reward{
+# Eq.1: r_t = sum_{s>=t} gamma^(s-t) c_s; gamma=0 rewards the own token alone, gamma=1 is the suffix sum.
+eq1 = paper_dust_eq1_reward()
+@}::endpoints::[eq1=eq1]
+
+@Graded::Eq23_Estimator{
+# Eq.2/3: reward-weighted noise average estimates the output error; outer product with the cached input is the weight gradient (local probe vs the exact loss derivative; Eq.5 fit; embedding scatter-add check).
+plot_ok, eq23 = paper_dust_eq2_3_estimator()
+@}::endpoints::[plot_ok=plot_ok, eq23=eq23]
+
+@Graded::Eq4_Scores{
+# Eq.4: attention-internal jitters scored by -<ghat_s, delta_o_s>; sign and magnitude identities.
+eq4 = paper_dust_eq4_attention_scores()
+@}::endpoints::[eq4=eq4]
+
+@Graded::Fig2_Table1{
+# Fig.2/Table 1: four budget panels, Dust vs EGGROLL vs backprop; 20M fit 1.53 P^-0.145 + 4.43 with limit 4.431 (3.89-4.58); claims recomputed.
+plot_ok, f2 = paper_dust_fig2_table1()
+@}::endpoints::[plot_ok=plot_ok, f2=f2]
+
+@Graded::Fig3_Adam{
+# Fig.3/Sec 3.3: Adam 1M ladder - fit limit 5.248 (5.17-5.30) vs backprop 5.361; ladder cells are figure-only.
+plot_ok, f3 = paper_dust_fig3_adam()
+@}::endpoints::[plot_ok=plot_ok, f3=f3]
+
+@Graded::Fig4_Overparam{
+# Fig.4/Sec 4.1: 2.0M/7.3M/38M/243M at 10M tokens; exact cells; 120x claim, ~30% extra gain past 1k draws, growing backprop gap.
+plot_ok, f4 = paper_dust_fig4_overparam()
+@}::endpoints::[plot_ok=plot_ok, f4=f4]
+
+@Graded::Fig5_CosineLaw{
+# Fig.5/App.G: cos(K) = c_max/sqrt(1+c/K) per layer type (Table 8, 100M checkpoint); RMSE range and half-max property checked.
+plot_ok, f5 = paper_dust_fig5_cosine_law()
+@}::endpoints::[plot_ok=plot_ok, f5=f5]
+
+@Graded::Fig6_AppendixB{
+# App.B Fig.6: remaining-checkpoint cosine ladders - SVG-only, recorded as a claim.
+f6 = paper_dust_fig6_appendix_b()
+@}::endpoints::[f6=f6]
+
+@Graded::AppendixE_Allocation{
+# App.E Tables 3/4: K=16384 allocation (SGD sums to K; Adam 11K/8), per-block splits, 64-draw recipe (decomposes to 64), batching n, gamma values.
+appE = paper_dust_appendix_e_allocation()
+@}::endpoints::[appE=appE]
+
+@Graded::AppendixD_EGGROLL{
+# App.D Table 2: EGGROLL's extrapolated population multiples (primary fits 8.1k-23k; left-out refits to 54k/inf).
+appD = paper_dust_appendix_d_eggroll()
+@}::endpoints::[appD=appD]
+
+@Graded::AppendixF_Tuning{
+# App.F Tables 5/6/7: seed grid, per-parameter SGD LR policy, Adam settings, rejection rules.
+appF = paper_dust_appendix_f_tuning()
+@}::endpoints::[appF=appF]
+
+@Graded::RepoAudit{
+# Official code audited (github.com/qlabs-eng/dust, MIT); constants corroborate the appendix.
+repo = paper_dust_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::QLabsDustPaper::[Setup, Eq1_Reward, Eq23_Estimator, Eq4_Scores, Fig2_Table1, Fig3_Adam, Fig4_Overparam, Fig5_CosineLaw, Fig6_AppendixB, AppendixE_Allocation, AppendixD_EGGROLL, AppendixF_Tuning, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, setup, eq1, eq23, eq4, f2, f3, f4, f5, f6, appE, appD, appF, repo]
