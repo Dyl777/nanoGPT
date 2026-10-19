@@ -1,0 +1,958 @@
+{
+  "arxiv": "2610.22293",
+  "title": "Towards Continual Learning: Mitigating Forgetting With Subspace Tuning",
+  "authors": "Arnav Chavan, Kusha Sareen, Rishabh Tiwari, Abhranil Chandra, Johan Obando-Ceron, Kurt Keutzer, Scott Niekum, Inderjit S. Dhillon, Devvrit Khatri (Oct 2026)",
+  "setup": {
+    "source": "arXiv:2610.22293v1 (Chavan, Sareen, Tiwari, Chandra, Obando-Ceron, Keutzer, Niekum, Dhillon, Khatri; Oct 2026)",
+    "method": "SST: W <- W + Pi(dW), Pi(dW) = (I - Uk Uk^T) dW (I - Vk Vk^T); k = floor(r min(dout, din))",
+    "projection_site": "the optimizer's final APPLIED update (not the gradient)",
+    "optimizer_agnostic": "optimizer runs untouched; only the update it produces is edited (Alg.1)",
+    "rank_fraction_default": 0.99,
+    "rank_fraction_exception": "Qwen2.5-7B Science uses r=0.90 (only setting in the paper)",
+    "refresh_intervals": "R100 (every 100 steps), R10 (every 10); refresh re-anchors W_ref and recomputes the SVD (Alg.1 line 15-18, Gram eigendecomposition for rectangular weights)",
+    "target_matrices": "attention q, k, v, o and MLP gate, up, down (Appendix B.8)",
+    "models": [
+      "Qwen2.5-0.5B (controlled toy)",
+      "Qwen2.5-7B-Instruct (Table 1)",
+      "Qwen3-1.7B/4B/8B/14B (Table 2)",
+      "Qwen3-32B (Table 3)",
+      "Qwen3-8B (Tables 4-6, Figs 3-5, 15-18)"
+    ],
+    "recipes": [
+      "SFT",
+      "SDFT (self-distilled)",
+      "SFT+Muon",
+      "SFT+ReInvoke",
+      "OPLoRA baseline"
+    ],
+    "evaluation": "prior capability = average of GPQA-Diamond, MMLU-Pro, GSM8K, HumanEval, IFEval; ID = task's native answer extractor (vLLM)",
+    "training": "lr 5e-5, effective batch 16, full-parameter, DeepSpeed ZeRO-3 unless an official baseline recipe says otherwise (App. B.14)",
+    "toy_task_fixed_examples": [
+      "('The capital of France is', ' Paris.')",
+      "('2 plus 3 equals', ' 5.')",
+      "('The opposite of hot is', ' cold.')",
+      "('Water is made of hydrogen and', ' oxygen.')",
+      "('The first month of the year is', ' January.')",
+      "('A group of wolves is called a', ' pack.')",
+      "('The chemical symbol for gold is', ' Au.')",
+      "('Seven times eight is', ' 56.')"
+    ],
+    "toy_task_rule": "next-token CE on completion tokens only (prompt masked); every scheme drives task loss to approximately 0, so held-out forgetting is the discriminator (App. B.8)",
+    "toy_optimizer": "plain AdamW, lr 1e-4, weight decay 0 (unless stated)"
+  },
+  "alg1_plot": 1.0,
+  "alg1_probe": {
+    "probe": "24x24 linear W0, rank-2 shifted target (free vs mixed), stateful AdamW 300 steps lr=3e-2, r=0.9, k=21",
+    "scenarios": {
+      "free_target": {
+        "none": {
+          "task_loss": 0.0,
+          "drift_fro": 2.644727,
+          "leak": 0.0
+        },
+        "grad": {
+          "task_loss": 0.10523,
+          "drift_fro": 3.544991,
+          "leak": 0.12473
+        },
+        "update": {
+          "task_loss": 0.0,
+          "drift_fro": 2.644732,
+          "leak": 0.0
+        },
+        "cumulative": {
+          "task_loss": 0.0,
+          "drift_fro": 2.644729,
+          "leak": 0.0
+        }
+      },
+      "mixed_target": {
+        "none": {
+          "task_loss": 0.001463,
+          "drift_fro": 24.117874,
+          "leak": 0.721792
+        },
+        "grad": {
+          "task_loss": 11.585579,
+          "drift_fro": 3.719877,
+          "leak": 0.145984
+        },
+        "update": {
+          "task_loss": 11.60685,
+          "drift_fro": 2.040158,
+          "leak": 0.0
+        },
+        "cumulative": {
+          "task_loss": 11.606842,
+          "drift_fro": 2.040148,
+          "leak": 0.0
+        }
+      }
+    },
+    "checks": {
+      "pi_idempotent_f64": true,
+      "update_projection_leak_exact_zero_both_scenarios": true,
+      "cumulative_projection_leak_exact_zero_both_scenarios": true,
+      "grad_projection_leaks_under_adam_state": true,
+      "free_target_task_parity": true,
+      "mixed_target_forgetting_gap": true,
+      "protected_movement_ordering_mixed": true,
+      "constrained_schemes_cannot_fit_mixed_target": true
+    },
+    "optimizer_untouched": "the same AdamW object steps in every scheme; only the applied update (or grad) is edited afterwards",
+    "published_fig4": {
+      "nll_increase": {
+        "none": 13.0,
+        "grad": 0.72,
+        "cumulative": 3.28,
+        "update": 0.13
+      },
+      "leak_pct": {
+        "none": 98,
+        "grad": 69,
+        "cumulative": 0,
+        "update": 0
+      }
+    },
+    "note": "local probe on tensors that fit this repo; magnitudes are NOT paper scale (Qwen2.5-0.5B there)"
+  },
+  "fig4_plot": 1.0,
+  "fig4_controlled": {
+    "nll_increase": {
+      "unconstrained": 13.0,
+      "project_gradient": 0.72,
+      "re_project_cumulative": 3.28,
+      "project_update (SST)": 0.13
+    },
+    "leak_pct": {
+      "unconstrained": 98,
+      "project_gradient": 69,
+      "re_project_cumulative": 0,
+      "project_update (SST)": 0
+    },
+    "checks": {
+      "update_is_best_nll": true,
+      "grad_leak_much_above_zero": true,
+      "constrained_schemes_exact_zero_leak": true,
+      "cumulative_nll_above_update": true,
+      "unconstrained_worst_both_axes": true
+    },
+    "claim": "projecting the optimizer's applied update is the only scheme that is both exact (0% leak) and stable (NLL +0.13 vs +13.00 unconstrained)",
+    "live_analog": "outputs/sst_results.json (live runner: leak/none/grad/update/cumulative on a cloned compiled model)"
+  },
+  "fig1_plot": 1.0,
+  "fig1_geometry": {
+    "r": 0.99,
+    "k": 31,
+    "n": 32,
+    "sft_like_kept_pct": 0.0,
+    "rl_like_kept_pct": 0.006,
+    "claim_left": "SST freezes the top of each weight matrix's spectrum (Fig.1 left)",
+    "claim_right": "recipes move up and right with SST (better task + better retention); qualitative, Table 4 is the exact asset",
+    "paper_observations": [
+      "SFT updates live largely in the principal directions; RL/on-policy updates avoid them",
+      "SST induces 2-4x less KL divergence from the pretrained model than unconstrained recipes",
+      "a thinking model fine-tuned with SST keeps its reasoning length where SFT collapses it"
+    ],
+    "note": "local synthetic probe; the paper's own geometry is measured on Qwen checkpoints/updates"
+  },
+  "table1_plot": 1.0,
+  "table1_qwen25_7b": {
+    "baseline_lm": 68.5,
+    "domains": {
+      "ToolUse": {
+        "SFT": {
+          "id": 70.1,
+          "lm_avg": 57.2,
+          "delta": -11.3
+        },
+        "SFT+SST": {
+          "id": 70.1,
+          "lm_avg": 62.9,
+          "delta": -5.6
+        },
+        "SFT+SST+R100": {
+          "id": 69.1,
+          "lm_avg": 62.7,
+          "delta": -5.8
+        },
+        "SFT+SST+R10": {
+          "id": 71.1,
+          "lm_avg": 63.3,
+          "delta": -5.2
+        },
+        "SDFT": {
+          "id": 70.1,
+          "lm_avg": 63.5,
+          "delta": -5.0
+        },
+        "SDFT+SST": {
+          "id": 66.0,
+          "lm_avg": 62.9,
+          "delta": -5.6
+        },
+        "SDFT+SST+R100": {
+          "id": 64.9,
+          "lm_avg": 63.2,
+          "delta": -5.3
+        },
+        "SDFT+SST+R10": {
+          "id": 75.3,
+          "lm_avg": 63.9,
+          "delta": -4.6
+        }
+      },
+      "Medical": {
+        "SFT": {
+          "id": 20.5,
+          "lm_avg": 61.4,
+          "delta": -7.1
+        },
+        "SFT+SST": {
+          "id": 19.5,
+          "lm_avg": 63.8,
+          "delta": -4.7
+        },
+        "SFT+SST+R100": {
+          "id": 19.0,
+          "lm_avg": 63.5,
+          "delta": -5.0
+        },
+        "SFT+SST+R10": {
+          "id": 19.2,
+          "lm_avg": 63.7,
+          "delta": -4.8
+        },
+        "SDFT": {
+          "id": 29.7,
+          "lm_avg": 57.9,
+          "delta": -10.6
+        },
+        "SDFT+SST": {
+          "id": 26.9,
+          "lm_avg": 63.7,
+          "delta": -4.8
+        },
+        "SDFT+SST+R100": {
+          "id": 29.6,
+          "lm_avg": 63.8,
+          "delta": -4.7
+        },
+        "SDFT+SST+R10": {
+          "id": 28.0,
+          "lm_avg": 63.5,
+          "delta": -5.0
+        }
+      },
+      "Science": {
+        "SFT": {
+          "id": 68.6,
+          "lm_avg": 63.0,
+          "delta": -5.5
+        },
+        "SFT+SST": {
+          "id": 67.7,
+          "lm_avg": 62.8,
+          "delta": -5.7
+        },
+        "SFT+SST+R100": {
+          "id": 67.5,
+          "lm_avg": 62.8,
+          "delta": -5.7
+        },
+        "SFT+SST+R10": {
+          "id": 69.8,
+          "lm_avg": 61.2,
+          "delta": -7.3
+        },
+        "SDFT": {
+          "id": 69.0,
+          "lm_avg": 61.8,
+          "delta": -6.7
+        },
+        "SDFT+SST": {
+          "id": 67.1,
+          "lm_avg": 61.7,
+          "delta": -6.8
+        },
+        "SDFT+SST+R100": {
+          "id": 70.8,
+          "lm_avg": 62.1,
+          "delta": -6.4
+        },
+        "SDFT+SST+R10": {
+          "id": 70.0,
+          "lm_avg": 59.1,
+          "delta": -9.4
+        }
+      }
+    },
+    "checks": {
+      "ToolUse": {
+        "worst_lm_method": "SFT",
+        "best_lm_method": "Baseline",
+        "every_sst_variant_above_sft": true
+      },
+      "Medical": {
+        "worst_lm_method": "SDFT",
+        "best_lm_method": "Baseline",
+        "every_sst_variant_above_sft": true
+      },
+      "Science": {
+        "worst_lm_method": "SDFT+SST+R10",
+        "best_lm_method": "Baseline",
+        "every_sst_variant_above_sft": false
+      }
+    },
+    "claim": "SST recovers much of the lost prior capability on Tool Use and Medical at matched in-domain accuracy; Science is a narrower trade-off",
+    "note": "Table 1 exact cells; Science r=0.90 (paper's stated single exception)"
+  },
+  "fig2_plot": 1.0,
+  "fig2_scale": {
+    "sizes": [
+      "1.7B",
+      "4B",
+      "8B",
+      "14B"
+    ],
+    "base_lm": {
+      "1.7B": 68.4,
+      "4B": 78.8,
+      "8B": 81.0,
+      "14B": 82.6
+    },
+    "cells": {
+      "1.7B": {
+        "SFT": {
+          "id": 69.5,
+          "lm_avg": 38.0,
+          "delta": -30.4
+        },
+        "SFT+SST": {
+          "id": 67.1,
+          "lm_avg": 60.4,
+          "delta": -8.0
+        },
+        "SFT+SST+R10": {
+          "id": 70.4,
+          "lm_avg": 61.5,
+          "delta": -6.9
+        }
+      },
+      "4B": {
+        "SFT": {
+          "id": 73.4,
+          "lm_avg": 42.3,
+          "delta": -36.5
+        },
+        "SFT+SST": {
+          "id": 80.4,
+          "lm_avg": 75.2,
+          "delta": -3.6
+        },
+        "SFT+SST+R10": {
+          "id": 84.3,
+          "lm_avg": 75.4,
+          "delta": -3.4
+        }
+      },
+      "8B": {
+        "SFT": {
+          "id": 76.1,
+          "lm_avg": 47.1,
+          "delta": -33.9
+        },
+        "SFT+SST": {
+          "id": 85.4,
+          "lm_avg": 80.1,
+          "delta": -0.9
+        },
+        "SFT+SST+R10": {
+          "id": 85.3,
+          "lm_avg": 80.0,
+          "delta": -1.0
+        }
+      },
+      "14B": {
+        "SFT": {
+          "id": 78.0,
+          "lm_avg": 44.9,
+          "delta": -37.7
+        },
+        "SFT+SST": {
+          "id": 86.5,
+          "lm_avg": 81.7,
+          "delta": -0.9
+        },
+        "SFT+SST+R10": {
+          "id": 88.1,
+          "lm_avg": 81.0,
+          "delta": -1.6
+        }
+      }
+    },
+    "checks": {
+      "sft_forgets_at_every_size": true,
+      "sst_retains_at_every_size": true,
+      "sst_advantage_shrinks_with_scale": true,
+      "any_sst_variant_id_ge_sft_at_every_size": true,
+      "plain_sst_id_below_sft_at_1.7B": true
+    },
+    "claim": "SFT forgets heavily at every scale; SST forgetting shrinks as models grow and nearly vanishes from 8B onward"
+  },
+  "table3_plot": 1.0,
+  "table3_twoepoch": {
+    "blocks": {
+      "32B": {
+        "Baseline": {
+          "id": null,
+          "lm_avg": 82.6,
+          "delta": 0.0
+        },
+        "SFT": {
+          "id": 83.6,
+          "lm_avg": 67.0,
+          "delta": -15.6
+        },
+        "SFT+SST": {
+          "id": 84.1,
+          "lm_avg": 81.6,
+          "delta": -1.0
+        },
+        "SFT+SST+R100": {
+          "id": 85.6,
+          "lm_avg": 80.7,
+          "delta": -1.9
+        },
+        "SFT+SST+R10": {
+          "id": 87.3,
+          "lm_avg": 81.7,
+          "delta": -0.9
+        }
+      },
+      "14B": {
+        "Baseline": {
+          "id": null,
+          "lm_avg": 82.6,
+          "delta": 0.0
+        },
+        "SFT": {
+          "id": 82.3,
+          "lm_avg": 65.4,
+          "delta": -17.2
+        },
+        "SFT+SST": {
+          "id": 84.0,
+          "lm_avg": 82.6,
+          "delta": 0.0
+        },
+        "SFT+SST+R100": {
+          "id": 85.0,
+          "lm_avg": 81.9,
+          "delta": -0.7
+        },
+        "SFT+SST+R10": {
+          "id": 86.3,
+          "lm_avg": 80.8,
+          "delta": -1.8
+        },
+        "SDFT": {
+          "id": 85.2,
+          "lm_avg": 63.6,
+          "delta": -19.0
+        },
+        "SDFT+SST": {
+          "id": 83.7,
+          "lm_avg": 79.6,
+          "delta": -3.0
+        },
+        "SDFT+SST+R100": {
+          "id": 87.9,
+          "lm_avg": 80.1,
+          "delta": -2.5
+        },
+        "SDFT+SST+R10": {
+          "id": 88.1,
+          "lm_avg": 80.1,
+          "delta": -2.5
+        }
+      },
+      "8B": {
+        "Baseline": {
+          "id": null,
+          "lm_avg": 81.0,
+          "delta": 0.0
+        },
+        "SFT": {
+          "id": 77.6,
+          "lm_avg": 55.5,
+          "delta": -25.5
+        },
+        "SFT+SST": {
+          "id": 80.1,
+          "lm_avg": 78.9,
+          "delta": -2.1
+        },
+        "SFT+SST+R100": {
+          "id": 81.7,
+          "lm_avg": 79.7,
+          "delta": -1.3
+        },
+        "SFT+SST+R10": {
+          "id": 84.0,
+          "lm_avg": 80.2,
+          "delta": -0.8
+        },
+        "SDFT": {
+          "id": 88.1,
+          "lm_avg": 56.9,
+          "delta": -24.1
+        },
+        "SDFT+SST": {
+          "id": 82.9,
+          "lm_avg": 79.5,
+          "delta": -1.5
+        },
+        "SDFT+SST+R100": {
+          "id": 83.4,
+          "lm_avg": 80.7,
+          "delta": -0.3
+        },
+        "SDFT+SST+R10": {
+          "id": 85.8,
+          "lm_avg": 80.0,
+          "delta": -1.0
+        }
+      }
+    },
+    "checks": {
+      "sft_worst_in_every_block": false,
+      "sdft_sst_recovers_14b_chain": true,
+      "refresh_cost_small": true
+    },
+    "claim": "across both model-scale sweeps SST preserves substantially more prior capability than unconstrained tuning while remaining competitive on the target task"
+  },
+  "table4_plot": 1.0,
+  "table4_qwen3_8b": {
+    "base_lm": 81.0,
+    "science": {
+      "Baseline": {
+        "id": 60.2,
+        "lm_avg": 81.0,
+        "delta": 0.0
+      },
+      "SFT": {
+        "id": 77.6,
+        "lm_avg": 55.5,
+        "delta": -25.5
+      },
+      "SFT+SST": {
+        "id": 80.1,
+        "lm_avg": 80.0,
+        "delta": -1.0
+      },
+      "SFT+SST+R100": {
+        "id": 81.7,
+        "lm_avg": 80.0,
+        "delta": -1.0
+      },
+      "SFT+SST+R10": {
+        "id": 84.0,
+        "lm_avg": 80.2,
+        "delta": -0.8
+      },
+      "SDFT": {
+        "id": 88.1,
+        "lm_avg": 57.0,
+        "delta": -24.0
+      },
+      "SDFT+SST": {
+        "id": 82.9,
+        "lm_avg": 79.5,
+        "delta": -1.5
+      },
+      "SDFT+SST+R100": {
+        "id": 83.4,
+        "lm_avg": 80.7,
+        "delta": -0.3
+      },
+      "SDFT+SST+R10": {
+        "id": 85.8,
+        "lm_avg": 80.0,
+        "delta": -1.0
+      },
+      "SFT+Muon": {
+        "id": 80.2,
+        "lm_avg": 59.5,
+        "delta": -21.5
+      },
+      "SFT+Muon+SST": {
+        "id": 80.9,
+        "lm_avg": 79.7,
+        "delta": -1.3
+      },
+      "SFT+Muon+SST+R10": {
+        "id": 82.1,
+        "lm_avg": 79.4,
+        "delta": -1.6
+      },
+      "SFT+ReInvoke": {
+        "id": 68.4,
+        "lm_avg": 70.3,
+        "delta": -10.7
+      },
+      "OPLoRA (k=0.99d)": {
+        "id": 80.8,
+        "lm_avg": 79.2,
+        "delta": -1.8
+      }
+    },
+    "finqa": {
+      "Baseline": {
+        "id": 70.5,
+        "lm_avg": 81.0,
+        "delta": 0.0
+      },
+      "SFT": {
+        "id": 72.3,
+        "lm_avg": 23.7,
+        "delta": -57.3
+      },
+      "SFT+SST": {
+        "id": 73.0,
+        "lm_avg": 82.3,
+        "delta": 1.3
+      },
+      "SFT+SST+R100": {
+        "id": 73.1,
+        "lm_avg": 80.1,
+        "delta": -0.9
+      }
+    },
+    "checks": {
+      "every_sst_science_delta_at_least_minus_2": true,
+      "sft_muon_rescued_by_sst": true,
+      "oploramatch": true,
+      "reinvoke_weakest_baseline": true,
+      "finqa_sst_improves_prior": true
+    },
+    "claim": "SST keeps the model within ~2 points of the base on every recipe (Science) where unconstrained recipes lose 21.5-57.3; FinQA SST is actually above base"
+  },
+  "table5_plot": 1.0,
+  "table5_baselines": {
+    "domains": [
+      "Science",
+      "FinQA",
+      "Pathology",
+      "Medicine",
+      "Mean"
+    ],
+    "methods": {
+      "Baseline": {
+        "Science": {
+          "id": 60.2,
+          "lm": 81.0
+        },
+        "FinQA": {
+          "id": 70.5,
+          "lm": 81.0
+        },
+        "Pathology": {
+          "id": 78.3,
+          "lm": 81.0
+        },
+        "Medicine": {
+          "id": 74.8,
+          "lm": 81.0
+        },
+        "Mean": {
+          "id": 71.0,
+          "lm": 81.0
+        }
+      },
+      "SFT": {
+        "Science": {
+          "id": 77.6,
+          "lm": 55.5
+        },
+        "FinQA": {
+          "id": 72.3,
+          "lm": 23.7
+        },
+        "Pathology": {
+          "id": 80.4,
+          "lm": 34.7
+        },
+        "Medicine": {
+          "id": 72.9,
+          "lm": 36.3
+        },
+        "Mean": {
+          "id": 75.8,
+          "lm": 37.6
+        }
+      },
+      "Sculpting": {
+        "Science": {
+          "id": 83.2,
+          "lm": 77.2
+        },
+        "FinQA": {
+          "id": 74.5,
+          "lm": 57.7
+        },
+        "Pathology": {
+          "id": 79.4,
+          "lm": 43.5
+        },
+        "Medicine": {
+          "id": 74.6,
+          "lm": 41.3
+        },
+        "Mean": {
+          "id": 77.9,
+          "lm": 54.9
+        }
+      },
+      "OPLoRA": {
+        "Science": {
+          "id": 78.5,
+          "lm": 79.1
+        },
+        "FinQA": {
+          "id": 72.8,
+          "lm": 61.7
+        },
+        "Pathology": {
+          "id": 77.4,
+          "lm": 51.6
+        },
+        "Medicine": {
+          "id": 70.0,
+          "lm": 60.0
+        },
+        "Mean": {
+          "id": 74.7,
+          "lm": 63.1
+        }
+      },
+      "SFT+SST": {
+        "Science": {
+          "id": 80.1,
+          "lm": 80.0
+        },
+        "FinQA": {
+          "id": 73.0,
+          "lm": 82.3
+        },
+        "Pathology": {
+          "id": 77.3,
+          "lm": 77.2
+        },
+        "Medicine": {
+          "id": 72.4,
+          "lm": 78.9
+        },
+        "Mean": {
+          "id": 75.7,
+          "lm": 79.6
+        }
+      },
+      "SFT+SST+R100": {
+        "Science": {
+          "id": 81.7,
+          "lm": 80.0
+        },
+        "FinQA": {
+          "id": 73.1,
+          "lm": 80.1
+        },
+        "Pathology": {
+          "id": 77.6,
+          "lm": 78.5
+        },
+        "Medicine": {
+          "id": 74.3,
+          "lm": 78.3
+        },
+        "Mean": {
+          "id": 76.7,
+          "lm": 79.2
+        }
+      },
+      "SFT+SST+R10": {
+        "Science": {
+          "id": 84.0,
+          "lm": 80.2
+        },
+        "FinQA": {
+          "id": 75.3,
+          "lm": 75.7
+        },
+        "Pathology": {
+          "id": 82.1,
+          "lm": 72.3
+        },
+        "Medicine": {
+          "id": 76.6,
+          "lm": 71.2
+        },
+        "Mean": {
+          "id": 79.5,
+          "lm": 74.9
+        }
+      }
+    },
+    "checks": {
+      "mean_lm_ordering": true,
+      "sst_no_refresh_beats_all_baselines_on_mean_lm": true,
+      "mean_lm_values": {
+        "Baseline": 81.0,
+        "SFT": 37.6,
+        "Sculpting": 54.9,
+        "OPLoRA": 63.1,
+        "SFT+SST": 79.6,
+        "SFT+SST+R100": 79.2,
+        "SFT+SST+R10": 74.9
+      }
+    },
+    "claim": "SST preserves substantially more prior capability than Sculpting and OPLoRA on Medicine and Pathology; on FinQA no-refresh SST is closest to base while R10 learns more"
+  },
+  "table6_plot": 1.0,
+  "table6_reverse_kl": {
+    "base_prior": 78.0,
+    "finqa": {
+      "0.0": {
+        "id": 73.4,
+        "prior": 23.6
+      },
+      "0.001": {
+        "id": 73.4,
+        "prior": 23.2
+      },
+      "0.01": {
+        "id": 71.3,
+        "prior": 21.3
+      },
+      "0.1": {
+        "id": 66.0,
+        "prior": 10.6
+      }
+    },
+    "science": {
+      "0.001": {
+        "id": 81.7,
+        "prior": 62.5
+      },
+      "0.01": {
+        "id": 79.7,
+        "prior": 60.1
+      },
+      "0.1": {
+        "id": 75.9,
+        "prior": 64.3
+      }
+    },
+    "checks": {
+      "finqa_no_lambda_recovers_prior": true,
+      "science_prior_far_below_base_at_all_lambda": true,
+      "science_id_falls_with_lambda": true,
+      "far_below_sst_finqa_prior": true
+    },
+    "claim": "reverse-KL regularisation does not provide a reliable learning-retention trade-off: weak lambda leaves forgetting unchanged, strong lambda reduces target learning without restoring prior capability"
+  },
+  "fig17_plot": 1.0,
+  "fig17_rank_sweep": {
+    "r": [
+      0.0,
+      0.1,
+      0.5,
+      0.9,
+      0.99
+    ],
+    "prior_capability": [
+      23.6,
+      37.7,
+      63.6,
+      76.4,
+      82.3
+    ],
+    "id_accuracy": [
+      73.4,
+      74.7,
+      75.4,
+      76.9,
+      73.0
+    ],
+    "checks": {
+      "prior_monotone_in_r": true,
+      "prior_recovers_close_to_base": true,
+      "id_peaks_before_full_protection": true,
+      "id_declines_at_0.99": true
+    },
+    "claim": "rank controls retention: prior capability improves monotonically as a larger fraction is protected; protecting more only impacts in-domain accuracy at high ranks (r=0.99 declines after peaking at 0.9)"
+  },
+  "b13_plot": 1.0,
+  "b13_cost": {
+    "sft_step_ms": 1730.0,
+    "projection_ms": 26.2,
+    "refresh_extra_ms": {
+      "R100": 62.4,
+      "R10": 623.5
+    },
+    "overhead_pct": {
+      "projection": 1.5,
+      "R100_total": 5.1,
+      "R10_total": 37.6
+    },
+    "overhead_pct_svd_split": {
+      "R100": 0.6,
+      "R10": 4.7
+    },
+    "layers": 36,
+    "projected_matrices": 252,
+    "checks": {
+      "projection_1p5": true,
+      "r100_5p1": true,
+      "r10_37p6": true,
+      "no_new_parameters_no_inference_cost": true
+    },
+    "claim": "SST adds no trainable parameters or inference-time cost; projection is 1.5% of the step, refresh 5.1% (R100) / 37.6% (R10), down to 0.6%/4.7% with the SVD split across 8 GPUs"
+  },
+  "fig18_plot": 1.0,
+  "fig18_optimizer": {
+    "variances": {
+      "ID accuracy": {
+        "SFT": 127.0,
+        "SFT+SST": 6.9,
+        "SFT+SST+R10": 4.0
+      },
+      "OOD prior capability": {
+        "SFT": 689.9,
+        "SFT+SST": 38.9,
+        "SFT+SST+R10": 6.5
+      }
+    },
+    "configs": "lr in {1e-4, 5e-5, 1e-5} x {flat, cosine}",
+    "checks": {
+      "sst_id_var_much_lower": true,
+      "sst_ood_var_much_lower": true,
+      "r10_lowest_both_axes": true
+    },
+    "claim": "SST is substantially more robust to optimizer choices than unconstrained SFT; both SST variants exceed SFT in-domain in 4 of 6 matched configurations while retaining prior capabilities"
+  },
+  "repo_status": "no-verifiable-official-code",
+  "repo_audit": {
+    "official_repo_in_paper": null,
+    "evidence": "full-text scan for github/huggingface/code-url markers: only reference [17] 'Open r1' (third party, deepseek-r1 reproduction)",
+    "reproduction_basis": "PDF text layer (31 pp): main text + Appendices A-B",
+    "recorded_observations": [
+      "Algorithm 1 edits only the optimizer's produced update; the optimizer state is never re-parameterised",
+      "refresh uses Gram eigendecompositions using the smaller Gram matrix for rectangular weights (App. B.13)",
+      "the only rank-fraction exception in the paper is Qwen2.5-7B Science r=0.90 (App. B.4)",
+      "Figure 1 right panel aggregates Table 4 over four domains; both axes are percentage-point changes from base",
+      "App. B.11 notes a dated projection matrix can disrupt general behavior at r=0.99 on FinQA (response-length collapse) - motivation for refresh"
+    ],
+    "no_claims": "no issue/PR-level code audit is possible; all graded cells come from the paper's own tables/figures and repo-scale probes"
+  }
+}

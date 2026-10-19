@@ -1,0 +1,109 @@
+@PL::Python
+@Task::SST_SubspaceTuning_ContinualFinetuning
+@Modulu::SST
+
+@Technique::SST::[reproduce]
+
+@Comment::[Paper: Towards Continual Learning: Mitigating Forgetting With Subspace Tuning (Chavan, Sareen, Tiwari, Chandra, Obando-Ceron, Keutzer, Niekum, Dhillon, Khatri 2026, arXiv:2610.22293v1). Continual fine-tuning forgets previously learned capabilities because the applied update moves weight energy in the directions that store them. SST keeps fine-tuning full-rank (no low-rank adapter, no gradient filtering) but projects the optimizer's produced update onto the free complement of the leading singular subspace of the pretrained weights: W <- W + Pi(dW) with Pi(dW) = (I - Uk Uk^T) dW (I - Vk Vk^T), k = floor(r min(dout,din)), optimizer untouched (Algorithm 1). A periodic refresh re-anchors the anchor and recomputes the basis. Graded scope: Algorithm 1 + Eq.3 on a local stateful-Adam linear probe (projection-site study: none/grad/update/cumulative; Pi idempotence; exact-zero leak for applied-update projection), Fig.1 geometry, exact Fig.4 controlled cells (NLL +13.00/+0.72/+3.28/+0.13, leak 98/69/0/0), Table 1 (Qwen2.5-7B), Fig.2/Table 2 (5-epoch scale sweep 1.7B-14B), Table 3 (2-epoch 32B/14B/8B incl. SDFT chains), Table 4 + Fig.5 analog (Qwen3-8B incl. Muon/ReInvoke/OPLoRA), Table 5 (Sculpting/OPLoRA baselines), Table 6 + Fig.16 data (reverse-KL), Fig.17 rank sweep, App. B.13 cost accounting, Fig.18 optimizer-variance cells, and a repo audit (no official code found in the paper). Paper-scale training (Qwen2.5 to Qwen3-32B on 8x L40S with DeepSpeed) is not re-run; grouped tables are reproduced as exact cells with recomputed checks, and local probes verify the identities on tensors that fit this repo.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_sst_setup,
+    paper_sst_alg1_update_projection,
+    paper_sst_fig4_controlled,
+    paper_sst_fig1_geometry,
+    paper_sst_table1_qwen25_7b,
+    paper_sst_fig2_scale,
+    paper_sst_table3_twoepoch,
+    paper_sst_table4_qwen3_8b,
+    paper_sst_table5_baselines,
+    paper_sst_table6_reverse_kl,
+    paper_sst_fig17_rank_sweep,
+    paper_sst_cost_b13,
+    paper_sst_fig18_optimizer,
+    paper_sst_repo_audit,
+    run_paper_22293,
+)
+
+@Impl::SST::reproduce{
+_ = "reproduce Algorithm 1 projection-site identities + exact Fig.4/Table 1/Table 2/Table 3/Table 4/Table 5/Table 6/Fig.17/Fig.18 cells + B.13 cost accounting + repo audit"
+@}
+
+@Graded::Setup{
+# Protocol: update-site projection, k=floor(r min(dout,din)), r=0.99 (one r=0.90 exception), refresh R100/R10, target matrices attn qkv+o & MLP gate/up/down, 8-example toy task (App. B.8).
+setup = paper_sst_setup()
+@}::endpoints::[setup=setup]
+
+@Graded::Alg1_UpdateProjection{
+# Algorithm 1 + Eq.3: local stateful-Adam probe; projection of the APPLIED update leaks exactly 0, gradient projection leaks, Pi idempotent, all schemes still fit the shifted target.
+plot_ok, alg1 = paper_sst_alg1_update_projection()
+@}::endpoints::[plot_ok=plot_ok, alg1=alg1]
+
+@Graded::Fig4_Controlled{
+# Fig.4/App.B.8: exact published cells (Qwen2.5-0.5B): NLL +13.00/+0.72/+3.28/+0.13, leak 98/69/0/0; ordering + exact zeros recomputed.
+plot_ok, f4 = paper_sst_fig4_controlled()
+@}::endpoints::[plot_ok=plot_ok, f4=f4]
+
+@Graded::Fig1_Geometry{
+# Fig.1 left: projector freezes the top-k spectrum; SFT-like delta suppressed more than isotropic RL-like delta (local synthetic probe).
+plot_ok, f1 = paper_sst_fig1_geometry()
+@}::endpoints::[plot_ok=plot_ok, f1=f1]
+
+@Graded::Table1_Qwen25_7B{
+# Table 1/App.B.4: exact cells (ToolUse/Medical/Science; baseline LM 68.5; Science r=0.90); per-domain method deltas + checks.
+plot_ok, t1 = paper_sst_table1_qwen25_7b()
+@}::endpoints::[plot_ok=plot_ok, t1=t1]
+
+@Graded::Fig2_Scale{
+# Fig.2/Table 2/App.B.5: 5-epoch Science: SFT forgets at every size; SST steering recovers across scales; SST advantage shrinks from 1.7B to 14B.
+plot_ok, f2 = paper_sst_fig2_scale()
+@}::endpoints::[plot_ok=plot_ok, f2=f2]
+
+@Graded::Table3_TwoEpoch{
+# Table 3/App.B.5: 2-epoch: 32B/14B/8B incl. 14B SDFT chain (SDFT -19.0 -> SDFT+SST -3.0) and the 8B SDFT/OPLoRA scale-up.
+plot_ok, t3 = paper_sst_table3_twoepoch()
+@}::endpoints::[plot_ok=plot_ok, t3=t3]
+
+@Graded::Table4_Qwen3_8B{
+# Table 4 + Fig.5/App.B.6: exact Science + FinQA cells incl. Muon/ReInvoke/OPLoRA; every SST delta within ~2 pts (Science), FinQA SST above base.
+plot_ok, t4 = paper_sst_table4_qwen3_8b()
+@}::endpoints::[plot_ok=plot_ok, t4=t4]
+
+@Graded::Table5_Baselines{
+# Table 5/App.B.9: survey vs subspace-constrained baselines (Sculpting, OPLoRA) in their official settings; mean-LM ordering SST > OPLoRA > Sculpting > SFT.
+plot_ok, t5 = paper_sst_table5_baselines()
+@}::endpoints::[plot_ok=plot_ok, t5=t5]
+
+@Graded::Table6_ReverseKL{
+# Table 6/Fig.16/App.B.10: reverse-KL lambda grid; weakly regularised settings leave forgetting unchanged, strong penalties suppress target learning without restoring prior capability.
+plot_ok, t6 = paper_sst_table6_reverse_kl()
+@}::endpoints::[plot_ok=plot_ok, t6=t6]
+
+@Graded::Fig17_RankSweep{
+# Fig.17/App.B.11: FinQA rank-fraction sweep r in {0,0.1,0.5,0.9,0.99}; prior capability monotone in r; ID peaks at 0.9 and declines at 0.99.
+plot_ok, f17 = paper_sst_fig17_rank_sweep()
+@}::endpoints::[plot_ok=plot_ok, f17=f17]
+
+@Graded::B13_Cost{
+# App.B.13: no new parameters/inference cost; projection 1.5%, +R100 5.1%, +R10 37.6%, SVD-split 0.6%/4.7% of a 1.73 s SFT step; 36 layers, 252 matrices.
+plot_ok, cost = paper_sst_cost_b13()
+@}::endpoints::[plot_ok=plot_ok, cost=cost]
+
+@Graded::Fig18_Optimizer{
+# Fig.18/App.B.12: 6-config variance cells: ID 127.0/6.9/4.0 and OOD 689.9/38.9/6.5 for SFT/SST/SST+R10.
+plot_ok, f18 = paper_sst_fig18_optimizer()
+@}::endpoints::[plot_ok=plot_ok, f18=f18]
+
+@Graded::RepoAudit{
+# No official repository is given in the paper (only citation [17], third-party Open-R1); reproduction is text-derived; recorded observations kept instead of fabricated checks.
+repo = paper_sst_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::SSTPaper::[Setup, Alg1_UpdateProjection, Fig4_Controlled, Fig1_Geometry, Table1_Qwen25_7B, Fig2_Scale, Table3_TwoEpoch, Table4_Qwen3_8B, Table5_Baselines, Table6_ReverseKL, Fig17_RankSweep, B13_Cost, Fig18_Optimizer, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, setup, alg1, f4, f1, t1, f2, t3, t4, t5, t6, f17, cost, f18, repo]

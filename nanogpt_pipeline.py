@@ -940,6 +940,25 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.legend(fontsize=7)
             paths.append(_save_fig(fig, f"{name}_cosine_pop"))
 
+    if name == "sst":
+        schemes = measurements.get("schemes") if isinstance(measurements, dict) else None
+        if isinstance(schemes, dict) and schemes:
+            order = [s for s in ("none", "grad", "cumulative", "update")
+                     if isinstance(schemes.get(s), dict)]
+            order += [s for s in schemes if s not in order and isinstance(schemes.get(s), dict)]
+            leaks = [(s, finite(schemes[s].get("leak_last_step"))) for s in order]
+            leaks = [(s, v) for s, v in leaks if v is not None]
+            if leaks:
+                bars([s for s, _ in leaks], [v for _, v in leaks],
+                     "SST live: leak of the applied update vs projection site (Fig.4 cells)",
+                     "leak (fraction of update energy)", f"{name}_leak")
+            deltas = [(s, finite(schemes[s].get("heldout_ce_delta"))) for s in order]
+            deltas = [(s, v) for s, v in deltas if v is not None]
+            if deltas:
+                bars([s for s, _ in deltas], [v for _, v in deltas],
+                     "SST live: held-out CE delta after fine-tuning (retention)",
+                     "CE delta vs before", f"{name}_retention")
+
     return paths
 
 
