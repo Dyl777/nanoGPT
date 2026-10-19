@@ -9095,7 +9095,7 @@ def paper_dust_fig2_table1(arxiv_id="qlabs_dust"):
                 "max_abs_dev_20M": round(max(fit_dev), 4)},
         "checks": checks,
         "claim": "Dust below backprop at 100k and 1M; the gap shrinks with population at 10M and 20M; the still-falling 20M ladder fits a limit below backprop's 4.633, read as the gap closing rather than a measured limit",
-        "live_analog": "outputs/dust_results.json (clone smoke: Dust vs backprop loss curves, not paper scale)",
+        "live_analog": "outputs/dust_results.json (live Train::dust path: forward-only step loss on the live model, held-out CE, not paper scale)",
     }
 
 
@@ -9226,7 +9226,7 @@ def paper_dust_fig5_cosine_law(arxiv_id="qlabs_dust"):
         "checkpoint_coverage": {"10M": "appendix Fig.6 ladders", "100M": "Table 8 fits (drawn)", "1B": "measured ladders, Fig. 5"},
         "eggroll_claim": "EGGROLL's estimate at the same number of forward passes is below 0.05 cosine at 128k for every type but the head",
         "claim": "useful gradients emerge from the large population alone; alignment holds across two orders of magnitude in tokens",
-        "live_analog": "outputs/dust_results.json (cosine ladder over attention/mlp/embed/head groups on the compiled path)",
+        "live_analog": "outputs/dust_results.json (cosine ladder over attention/mlp/embed/head groups on the live Train::dust model)",
     }
 
 

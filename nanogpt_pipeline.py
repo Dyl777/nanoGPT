@@ -603,7 +603,7 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
     if name == "rilm" and all(k in res for k in ("linear", "geodesic")):
         bars(["linear", "geodesic"],
              [res["linear"].get("ppl", float("nan")), res["geodesic"].get("ppl", float("nan"))],
-             "RiLM smoke PPL (tied geodesic vs Wout)", "PPL", f"{name}_ppl")
+             "RiLM small-scale PPL (tied geodesic vs Wout)", "PPL", f"{name}_ppl")
 
     if name == "saber":
         labs, vals = [], []
@@ -614,7 +614,7 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                 labs.append(yl)
                 vals.append(v)
         if labs:
-            bars(labs, vals, "SABER early-exit smoke (mixed units: rates + ratio)", "value", f"{name}_exit")
+            bars(labs, vals, "SABER early-exit small-scale run (mixed units: rates + ratio)", "value", f"{name}_exit")
 
     if name == "wrp":
         base = res.get("base") if isinstance(res.get("base"), dict) else {}
@@ -640,7 +640,7 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                 labs.extend("%s.%s" % (tag.split("_")[0], k) for k in sorted(keyset))
                 vals.extend(finite(n[k]) for k in sorted(keyset))
             if labs:
-                bars(labs, vals, "WRP block-removal sets per criterion (smoke)", "removed", f"{name}_removal")
+                bars(labs, vals, "WRP block-removal sets per criterion (small scale)", "removed", f"{name}_removal")
 
     if name == "tasco":
         acc = res.get("acc")
@@ -727,12 +727,12 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
         if isinstance(parity, dict) and isinstance(parity.get("parity_ok"), bool):
             labs.append("parity_ok (%s)" % res.get("interface", "?"))
             vals.append(1.0 if parity["parity_ok"] else 0.0)
-        ce = finite((res.get("smoke") or {}).get("ce"))
+        ce = finite((res.get("small") or {}).get("ce"))
         if ce is not None:
-            labs.append("smoke_ce")
+            labs.append("small_ce")
             vals.append(ce)
         if labs:
-            bars(labs, vals, "LBI interface parity + smoke CE (single compiled path)", "value", f"{name}_interface")
+            bars(labs, vals, "LBI interface parity + small-scale CE (single compiled path)", "value", f"{name}_interface")
 
     if name == "kvcache":
         for sec, prefix in (("evict", "evict"), ("compress", "compress")):
@@ -760,7 +760,7 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             labs = [ln for ln, _, _ in labs_vals]
             vals = [v for _, _, v in labs_vals]
             if labs:
-                bars(labs, vals, "SpindleKV measurement sets: %s (live smoke)" % ylab, ylab, f"{name}_{tag}")
+                bars(labs, vals, "SpindleKV measurement sets: %s (live small-scale)" % ylab, ylab, f"{name}_{tag}")
 
     if name == "keepkv":
         for key, tag, ylab in (("out_err", "err", "output error"), ("sag_mean", "sag", "sag"),
@@ -769,7 +769,7 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             labs = [ln for ln, _, _ in labs_vals]
             vals = [v for _, _, v in labs_vals]
             if labs:
-                bars(labs, vals, "KeepKV measurement sets: %s (live smoke)" % ylab, ylab, f"{name}_{tag}")
+                bars(labs, vals, "KeepKV measurement sets: %s (live small-scale)" % ylab, ylab, f"{name}_{tag}")
 
     if name == "cq":
         for key, tag, ylab in (("out_err", "err", "output error"), ("ratio", "bytes", "bytes ratio"),
@@ -778,7 +778,7 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             labs = [ln for ln, _, _ in labs_vals]
             vals = [v for _, _, v in labs_vals]
             if labs:
-                bars(labs, vals, "CoupledQuant measurement sets: %s (live smoke)" % ylab, ylab, f"{name}_{tag}")
+                bars(labs, vals, "CoupledQuant measurement sets: %s (live small-scale)" % ylab, ylab, f"{name}_{tag}")
 
     if name == "epicache":
         for key, tag, ylab in (("mass", "mass", "retained mass"), ("out_err", "err", "output error"),
@@ -787,7 +787,7 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             labs = [ln for ln, _, _ in labs_vals]
             vals = [v for _, _, v in labs_vals]
             if labs:
-                bars(labs, vals, "EpiCache measurement sets: %s (live smoke)" % ylab, ylab, f"{name}_{tag}")
+                bars(labs, vals, "EpiCache measurement sets: %s (live small-scale)" % ylab, ylab, f"{name}_{tag}")
         sens = measurements.get("sensitivity") if isinstance(measurements, dict) else None
         sens = sens.get("sensitivities") if isinstance(sens, dict) else None
         if isinstance(sens, list) and sens:
@@ -920,7 +920,7 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             bp = lc.get("backprop") or []
             if len(bp) == len(lc["steps"]):
                 ax.plot(lc["steps"], bp, marker="s", color="#1f4e79", label="backprop control")
-            ax.set_title("Dust live smoke: next-batch loss (compiled clone)")
+            ax.set_title("Dust live: Train::dust step loss (live model, forward-only)")
             ax.set_xlabel("step")
             ax.set_ylabel("CE loss")
             ax.legend(fontsize=7)
@@ -1091,7 +1091,7 @@ def generation_bleu(model, ids, int_to_token, n_sents=12, sent_len=24, seed=1706
             refs.append(" ".join(str(tok(j)) for j in ref_ids))
     res = corpus_bleu(hyps, refs) if hyps else {"bleu": float("nan")}
     res["n_sents"] = len(hyps)
-    res["note"] = "smoke-model BLEU is the metric code path, not WMT14"
+    res["note"] = "BLEU is the metric code path on this small compiled model, not WMT14"
     return res
 
 
@@ -1383,9 +1383,9 @@ def run_grokking_live(make_model_fn, ns, P=113, op="add", Ds=(0.3, 0.5, 0.7, 0.9
 
 
 def run_rilm_live(make_model_fn, get_batch_fn, ns, steps=50, out_path="outputs/rilm_results.json", **_):
-    fn = ns.get("run_rilm_smoke_comparison")
+    fn = ns.get("run_rilm_small_comparison")
     if fn is None:
-        raise RuntimeError("RiLM smoke runner not in this notebook path")
+        raise RuntimeError("RiLM small-scale runner not in this notebook path")
     factory = clone_factory(compat_model(make_model_fn()))
     rec = fn(factory, get_batch_fn, steps=steps, out_path=out_path)
     plot_result("rilm", rec)

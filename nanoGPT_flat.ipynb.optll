@@ -17,6 +17,7 @@
 @Technique::LoopMode::[blockmode, layermode]
 @Technique::LoopCache::[none, first, last]
 @Technique::LoopDecode::[bypass, full, firstn]
+@Technique::Train::[backprop, dust]
 
 {
   "cells": [
@@ -184,8 +185,8 @@
         "",
         "For 2D: extract patches via `unfold`, then L1-distance. For 1D linear projections: 1\u00d71 adder conv."
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::addernetmatmul{
     {
       "cell_type": "code",
@@ -269,8 +270,8 @@
         "            out = out + self.bias\n",
         "        return out\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::matmul{
     {
       "cell_type": "markdown",
@@ -288,8 +289,8 @@
       "source": [
         "query = nn.Linear(emb_dim, head_sz, bias=False)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::addernetmatmul{
     {
       "cell_type": "markdown",
@@ -307,8 +308,8 @@
       "source": [
         "query = AdderConvLinear(emb_dim, head_sz, bias=False)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::matmul{
     {
       "cell_type": "markdown",
@@ -326,8 +327,8 @@
       "source": [
         "key = nn.Linear(emb_dim, head_sz, bias=False)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::addernetmatmul{
     {
       "cell_type": "markdown",
@@ -345,8 +346,8 @@
       "source": [
         "key = AdderConvLinear(emb_dim, head_sz, bias=False)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::matmul{
     {
       "cell_type": "markdown",
@@ -364,8 +365,8 @@
       "source": [
         "value = nn.Linear(emb_dim, head_sz, bias=False)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::addernetmatmul{
     {
       "cell_type": "markdown",
@@ -383,8 +384,8 @@
       "source": [
         "value = AdderConvLinear(emb_dim, head_sz, bias=False)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -415,8 +416,8 @@
         "k_q_sim = q @ k.transpose(2, 1) / np.sqrt(head_sz)\n",
         "print(f\"{k_q_sim.shape=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::addernetmatmul{
     {
       "cell_type": "markdown",
@@ -435,8 +436,8 @@
         "k_q_sim = -(q.unsqueeze(2) - k.unsqueeze(1)).abs().sum(-1) / np.sqrt(head_sz)\n",
         "print(f\"{k_q_sim.shape=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -467,8 +468,8 @@
         "attn_out = attn_weights @ v\n",
         "print(f\"{attn_out.shape=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::addernetmatmul{
     {
       "cell_type": "markdown",
@@ -487,8 +488,8 @@
         "attn_out = -(attn_weights.unsqueeze(-1) - v.unsqueeze(2)).abs().sum(dim=2)\n",
         "print(f\"{attn_out.shape=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -505,8 +506,8 @@
         "### Standard self-attention",
         "Scaled dot-product attention with a causal mask: each position attends to itself and earlier positions."
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Attn::mqa{
     {
       "cell_type": "markdown",
@@ -516,8 +517,8 @@
         "All query heads share a single key/value head, so the KV cache shrinks by the number of heads.",
         "Each head below accepts an optional shared `kv`; the sharing itself is wired up in `MultiHead`."
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Attn::gqa{
     {
       "cell_type": "markdown",
@@ -527,8 +528,8 @@
         "Query heads are split into groups that share key/value heads: fewer KVs than full multi-head attention,",
         "more than single-query attention. Group routing is wired up in `MultiHead`."
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Attn::mla{
     {
       "cell_type": "markdown",
@@ -538,8 +539,8 @@
         "Keys and values are low-rank: inputs are compressed to a small latent vector that is cached,",
         "then projected back up per head. Queries stay full-rank."
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Attn::dsa{
     {
       "cell_type": "markdown",
@@ -549,8 +550,8 @@
         "On top of the causal mask, each query keeps a local window plus strided distant positions,",
         "then filters to the top-k scores before the softmax. Near-dense on tiny contexts; pays off at long ones."
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Attn::tokenformer{
     {
       "cell_type": "markdown",
@@ -561,8 +562,8 @@
         "while parameters serve as keys and values. Capacity grows by adding new key-value parameter pairs,",
         "so the model scales without retraining from scratch."
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Attn::tpa{
     {
       "cell_type": "markdown",
@@ -573,8 +574,8 @@
         "token features. Only the small factors need caching, and the factorization composes with rotary",
         "position embeddings, unlike KV-compression approaches."
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -597,8 +598,8 @@
         "def attn_combine(wei, v):\n",
         "    return wei @ v\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::addernetmatmul{
     {
       "cell_type": "code",
@@ -613,8 +614,8 @@
         "def attn_combine(wei, v):\n",
         "    return -(wei.unsqueeze(-1) - v.unsqueeze(-2)).abs().sum(-2)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -804,11 +805,11 @@
         "query-dependent kernel weights w_ij = exp(q_i.k_j / h), h = sqrt(d)\n",
         "(softmax-analog bandwidth; fully causal range - the paper's sliding\n",
         "windows are future work, its Sec.5). Implementation follows the matrix\n",
-        "form Eq.14-16 with the matrix-free CG solve of Eq.13 (small smoke scale,\n",
+        "form Eq.14-16 with the matrix-free CG solve of Eq.13 (small scale,\n",
         "dense-prototype intend): W = tril(exp(QK^T/h)); M = WK - brsum(W).Q (mu);\n",
         "R = CGSolve(M, Q, K, lambda) (rho); delta = omega - rsum(M.R);\n",
         "O = ((1 - relmm(R,Q,K)) / bcast(delta) . W) V with relmm = RK^T - brsum(R.Q).\n",
-        "Smoke cost: expected - heavier than softmax per head (no FLOP claim).\"\"\"\n",
+        "Cost: expected - heavier than softmax per head (no FLOP claim).\"\"\"\n",
         "class LocalLinearAttnHead(Head):\n",
         "    def _cgsolve(self, W, M, Q, K, lam, iters=12):\n",
         "        \"\"\"Matrix-free CG on Sigma_i p (Eq.13), batched over (B, T).\"\"\"\n",
@@ -866,7 +867,7 @@
         "Subclass of the existing Head: reuses key/query/value projections and adds\n",
         "ONLY the two small gating nets (forget gate alpha, update rate beta). Memory:\n",
         "S_t = (I - b_t k_t k_t^T) Diag(a_t) S_{t-1} + b_t k_t v_t^T; o_t = S_t^T q_t.\n",
-        "Gates are untrained at smoke scale (the paper trains them) - documented;\n",
+        "Gates are untrained at small scale (the paper trains them) - documented;\n",
         "the recurrence, chunking note, and 3:1 KDA/full hybrid ratio are recorded in\n",
         "\u00a727 reasoning. Per-step O(d^2), O(1) state (Table 5).\"\"\"\n",
         "class KimiLinearHead(Head):\n",
@@ -904,8 +905,7 @@
       "source": [
         "## 4. Multi-Head Self-Attention Demo"
       ]
-    }
-    }@},
+    },
     @Impl::Attn::vanillaatten{
     {
       "cell_type": "code",
@@ -919,8 +919,8 @@
         "attn_outs = [head(x) for head in heads]\n",
         "attn_out = torch.cat(attn_outs, dim=2)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Attn::vanillaatten{
     {
       "cell_type": "markdown",
@@ -938,8 +938,8 @@
       "source": [
         "proj = QKVLinear(n_heads * head_sz, emb_dim)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Attn::vanillaatten{
     {
       "cell_type": "code",
@@ -950,8 +950,8 @@
         "multi_attn_out = proj(attn_out)\n",
         "print(f\"{multi_attn_out.shape=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -1106,8 +1106,8 @@
         "    def forward(self, x):\n",
         "        return self.net(x)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Model::addernetmatmul{
     {
       "cell_type": "code",
@@ -1128,8 +1128,8 @@
         "    def forward(self, x):\n",
         "        return self.net(x)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -1176,8 +1176,8 @@
         "    def get_regularisation(self):\n",
         "        return self._reg_loss\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::State::layernorm{
     {
       "cell_type": "code",
@@ -1203,8 +1203,8 @@
         "        x = x + self.ffwd(self.ln2(x))\n",
         "        return x\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::State::regularisedbn{
     {
       "cell_type": "code",
@@ -1228,8 +1228,8 @@
         "        x = x + self.ffwd(self.ln2(x))\n",
         "        return x\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Arch::decoderonly{
     {
       "cell_type": "markdown",
@@ -1237,8 +1237,8 @@
       "source": [
         "## 8. NanoGPT \u2013 Full Decoder-only Transformer"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Arch::encoderdecoder{
     {
       "cell_type": "markdown",
@@ -1425,6 +1425,8 @@
         "        out = wei @ v\n",
         "        return out\n",
         "\n",
+        "def _attn_scores(q, k, scale):\n",
+        "    return q @ k.transpose(-2, -1) * scale\n",
         "\n",
         "\"\"\"CrossHead: cross-attention head, queries from decoder, keys/values from encoder (matmul).\"\"\"\n",
         "class CrossHead(nn.Module):\n",
@@ -1463,6 +1465,22 @@
         "        x = x + self.ffwd(self.ln2(x))\n",
         "        return x\n",
         "\n",
+        "def _train_reg_loss(model):\n",
+        "    return sum(m.get_regularisation() for m in model.modules()\n",
+        "               if hasattr(m, 'get_regularisation'))\n"
+      ]
+    },
+    }@}
+    @Impl::Interface::dense{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Interface helpers (dense variant): no-op wiring hooks; the base class stays byte-identical.\"\"\"\n",
+        "def _iface_init(model, n_layers, emb_dim):\n",
+        "    pass\n",
         "\n",
         "\"\"\"CrossBlock: causal self-attn + cross-attn to encoder + FFN (matmul, layernorm).\"\"\"\n",
         "class CrossBlock(nn.Module):\n",
@@ -1868,7 +1886,7 @@
         "n_params_tot = sum(p.numel() for p in model.parameters())\n",
         "print(f\"\\n{n_params_tot / 1e6:.2f} M parameters\\n\")\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -1879,7 +1897,7 @@
         "compat_model(model)\n"
       ]
     },
-    }@},
+    }@}
     @Impl::Arch::encoderdecoder{
     {
       "cell_type": "code",
@@ -1892,7 +1910,7 @@
         "n_params_tot = sum(p.numel() for p in model.parameters())\n",
         "print(f\"\\n{n_params_tot / 1e6:.2f} M parameters\\n\")\n"
       ]
-    }
+    },
     {
       "cell_type": "code",
       "execution_count": null,
@@ -1902,8 +1920,8 @@
         "\"\"\"Attach the compat stack (bench_utils + nanogpt_pipeline already loaded in the header).\"\"\"\n",
         "compat_model(model)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::State::regularisedbn{
     {
       "cell_type": "code",
@@ -1915,8 +1933,8 @@
         "model.ln_final = RegularisedBN(emb_dim)\n",
         "print(\"  ln_final replaced with RegularisedBN\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -2089,8 +2107,8 @@
       "source": [
         "# ALWAYS-PRESENT estimator: Dust (QLabs 2026) forward-only node perturbation estimator + SGD step.\n",
         "# Adapts the paper's minimal implementation (github.com/qlabs-eng/dust, MIT) to the compiled NanoGPT\n",
-        "# (simplifications listed in its docstrings). No .backward() anywhere in this cell; backward appears\n",
-        "# only in the runner's cosine reference + control arm - the paper's own Fig. 5 measurement choice.\n",
+        "# Used by the s9 Train::dust impl and by s33's diagnostics - same functions, never copies.\n",
+        "# No .backward() anywhere in this cell; the s33 reference gradient is torch.autograd.grad.\n",
         "\"\"\"Dust: pretraining transformers without backpropagation (QLabs 2026).\"\"\"\n",
         "\"\"\"Per-token node perturbation: every Linear/Embedding output is jittered.\"\"\"\n",
         "\"\"\"Rewards are per-token loss drops, centered across each draw chunk; the\"\"\"\n",
@@ -2363,7 +2381,159 @@
         "                                  gamma=gamma, chunk=chunk)\n",
         "    _dust_apply_grads(model, grads)\n",
         "    optimizer.step()\n",
-        "    return meta"
+        "    return meta\n",
+        "\n",
+        "\n",
+        "def _dust_fineweb_ids(model, docs=64, max_chars=4_000_000):\n",
+        "    \"\"\"FineWeb (HuggingFaceFW/fineweb, sample-10BT) slice for Dust pretraining.\"\"\"\n",
+        "    \"\"\"The paper pretrains on FineWeb; this streams a bounded slice at\"\"\"\n",
+        "    \"\"\"execution time only (Hub fetch, cached under data/external/hf like\"\"\"\n",
+        "    \"\"\"the external suites). Returns (ids, provenance) or (None, reason);\"\"\"\n",
+        "    \"\"\"the ids are tiktoken gpt2 token ids and are usable only when the\"\"\"\n",
+        "    \"\"\"compiled vocab is gpt2bpe (50257); otherwise the loop keeps the\"\"\"\n",
+        "    \"\"\"in-repo corpus and records the exact reason (never faked numbers).\"\"\"\n",
+        "    V = int(model.token_embedding.num_embeddings)\n",
+        "    if V != 50257:\n",
+        "        return None, \"compiled vocab is %d, not gpt2bpe (50257); token ids would be out of range\" % V\n",
+        "    try:\n",
+        "        import tiktoken as _tkt\n",
+        "        from datasets import load_dataset as _lds\n",
+        "    except Exception as e:  # noqa: BLE001\n",
+        "        return None, \"tiktoken/datasets unavailable: %s\" % e\n",
+        "    try:\n",
+        "        ds = _lds(\"HuggingFaceFW/fineweb\", \"sample-10BT\", split=\"train\", streaming=True,\n",
+        "                  cache_dir=\"data/external/hf\")\n",
+        "        parts, total = [], 0\n",
+        "        for row in ds:\n",
+        "            t = row.get(\"text\") or \"\"\n",
+        "            parts.append(t)\n",
+        "            total += len(t)\n",
+        "            if len(parts) >= int(docs) or total >= int(max_chars):\n",
+        "                break\n",
+        "        text = \"\\n\".join(parts)\n",
+        "        ids = _tkt.get_encoding(\"gpt2\").encode(text, allowed_special=set())\n",
+        "        return ids, (\"FineWeb sample-10BT streaming (%d docs, %d chars -> %d gpt2-BPE tokens)\"\n",
+        "                     % (len(parts), len(text), len(ids)))\n",
+        "    except Exception as e:  # noqa: BLE001 - fail-soft: the runner keeps the local corpus\n",
+        "        return None, \"fineweb fetch failed: %s\" % str(e)[:200]"
+      ]
+    },
+    @Impl::Train::backprop{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Training loop (Train::backprop variant).\"\"\"\n",
+        "loss_fn = nn.CrossEntropyLoss()\n",
+        "optimizer = optim.AdamW(model.parameters(), lr=3e-4)\n",
+        "n_epochs = 3\n",
+        "batch_lim = 50\n",
+        "for epoch in range(n_epochs):\n",
+        "    model.train()\n",
+        "    losses = []\n",
+        "    for batch_idx in range(batch_lim):\n",
+        "        xb, yb = get_batch(\"train\")\n",
+        "        xb, yb = xb.to(device), yb.to(device)\n",
+        "        logits = model(xb)\n",
+        "        loss = loss_fn(logits.view(-1, logits.size(-1)), yb.view(-1))\n",
+        "        loss = loss + _train_reg_loss(model)\n",
+        "        optimizer.zero_grad()\n",
+        "        loss.backward()\n",
+        "        optimizer.step()\n",
+        "        losses.append(loss.item())\n",
+        "    avg_loss = np.mean(losses).item()\n",
+        "    print(f\"Epoch {epoch+1}/{n_epochs}  loss={avg_loss:.4f}\")\n",
+        "print(\"Training complete!\")\n"
+      ]
+    },
+    }@}
+    @Impl::Train::dust{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Training loop (Train::dust variant): Dust (QLabs 2026) forward-only pretraining.\"\"\"\n",
+        "# The paper's zeroth-order algorithm replaces the backward pass here: the same\n",
+        "# schedule and logging as the Train::backprop loop, but the update comes from the\n",
+        "# estimator (population rewards; no .backward() anywhere on this path). One step\n",
+        "# costs ~(population/chunk) copies of the batch forward - the paper's own tradeoff,\n",
+        "# so pick Train::dust for the result, not for speed.\n",
+        "loss_fn = nn.CrossEntropyLoss()\n",
+        "optimizer = optim.SGD(model.parameters(), lr=0.25, momentum=0.95)\n",
+        "n_epochs = 3\n",
+        "batch_lim = 50\n",
+        "dust_population = 64\n",
+        "dust_gamma = 0.98\n",
+        "dust_chunk = 8\n",
+        "dust_train_history = []\n",
+        "_fw_ids, _fw_note = _dust_fineweb_ids(model)\n",
+        "if _fw_ids is not None:\n",
+        "    dust_data_source = _fw_note\n",
+        "    _fw = torch.as_tensor(_fw_ids, dtype=torch.long)\n",
+        "else:\n",
+        "    dust_data_source = \"in-repo corpus (data/tiny_shakespeare.txt); FineWeb not used: %s\" % _fw_note\n",
+        "    _fw = None\n",
+        "_dctx = int(globals().get(\"block_size\", 64))\n",
+        "_dbs = int(globals().get(\"batch_size\", 32))\n",
+        "\n",
+        "\n",
+        "def _dust_batch():\n",
+        "    \"\"\"Minibatch for a Dust step: FineWeb windows when available, else s7's loader.\"\"\"\n",
+        "    if _fw is not None:\n",
+        "        ix = torch.randint(max(len(_fw) - _dctx - 1, 1), (_dbs,))\n",
+        "        rows = torch.stack([_fw[i:i + _dctx + 1] for i in ix])\n",
+        "        return rows[:, :-1].to(device), rows[:, 1:].to(device)\n",
+        "    xb, yb = get_batch(\"train\")\n",
+        "    return xb.to(device), yb.to(device)\n",
+        "\n",
+        "\n",
+        "for epoch in range(n_epochs):\n",
+        "    model.train()\n",
+        "    losses = []\n",
+        "    for batch_idx in range(batch_lim):\n",
+        "        xb, yb = _dust_batch()\n",
+        "        with torch.no_grad():\n",
+        "            _l = _dust_token_ce(_dust_logits(model, xb), yb)\n",
+        "        _m = yb != -1\n",
+        "        losses.append(float(_l[_m].mean()) if bool(_m.any()) else float(\"nan\"))\n",
+        "        _dust_train_step(model, xb, yb, optimizer, dust_population,\n",
+        "                         33 + len(dust_train_history), dust_gamma, dust_chunk)\n",
+        "        dust_train_history.append(losses[-1])\n",
+        "    avg_loss = np.mean(losses).item()\n",
+        "    print(f\"Epoch {epoch+1}/{n_epochs}  loss={avg_loss:.4f}  (Dust forward-only, population {dust_population})\")\n",
+        "print(\"Dust training complete!\")"
+      ]
+    },
+    }@}
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "\"\"\"Generate text and save/load model.\"\"\"\n",
+        "start = torch.zeros((1, 1), dtype=torch.long)\n",
+        "gen = model.generate(start, max_new_tokens=100)\n",
+        "gen = decode(gen[0].tolist())\n",
+        "print(f\"\\nGenerated text:\\n{gen}\")\n",
+        "print(\"Done!\")\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 33. Dust \u2013 Pretraining Transformers Without Backpropagation (Dahal, Mandal, G\u00fclbahar, Vegesna 2026, QLabs report)\n",
+        "\n",
+        "Source: qlabs.sh/research/dust (Oct 2026, no arXiv id assigned yet); code: github.com/qlabs-eng/dust (MIT). Claim: the first zeroth-order method competitive with backprop at pretraining transformer language models - Dust perturbs activations (node perturbation) independently at every token, so each token is a virtual population member and one forward pass evaluates the whole population in parallel.\n",
+        "\n",
+        "**What the paper does.** Add Gaussian noise to every linear layer's output independently per token; reward each token's noise by the loss drop it produced (centered across draws); the reward-weighted noise averaged over draws estimates the error at that layer's output (Eq. 2), and its outer product with the cached layer input is the weight gradient (Eq. 3) - the same outer product backprop forms at every Linear; only the error source differs (population reward vs chain rule). Attention internals (keys/values) are credited through the attention output over current and future tokens with decay gamma instead of the token's own loss. Interference control: separate passes per layer type, cached clean forward, the head jittered on cached logits. Reported results: tuned backprop matched/exceeded from a few hundred draws at 100k tokens and ~1k draws at 1M tokens; a power-law fit puts the 20M-token limit at 4.431 vs backprop's 4.633 (loosely constrained - the ladder is still falling); ~10^3-10^4x more compute-efficient than weight-space ES (EGGROLL) from 1M tokens (extrapolated); a 243M-parameter model outperforms a 120x smaller one at most population sizes; cosine(estimate, backprop) rises with population and stays aligned up to 1B tokens (fitted cos(K) = c/(1 + c/K)).\n",
+        "\n",
+        "**What runs here.** Dust is a training algorithm, so it lives where training lives: the s9 loop is an OPTAL pick - `Train::backprop` (default; byte-identical to the loop before this section existed) or `Train::dust` (this paper: the same schedule trained forward-only - the estimator sets `p.grad` from population rewards and the optimizer steps; no `.backward()` anywhere on that path, grep-able). It composes with every compiled selection: the estimator walks whatever modules the path defines, and with a gpt2bpe (50257) vocab the s9 Dust loop pretrains on a FineWeb slice (the paper's corpus, streamed at execution time; otherwise it keeps the section-7 corpus and records the exact why in the result JSON). This section then measures, on the live path and without mutating it: (1) the cosine ladder - mean cosine between the Dust estimate and the true backward gradient per layer type at populations 16/64/256 on one batch (the paper's Fig. 5 diagnostic; the reference comes from `torch.autograd.grad`, so neither weights nor `.grad` are touched and nothing is cloned); (2) held-out CE of the trained model - the paper's Table-1 test-loss metric - plus the s9 Dust training history when `Train::dust` produced this model. Simplifications vs the paper's tuned estimator - no 256-column head slabs, no per-block attention re-execution scoring (a decayed direct-loss credit instead), no residual-mixing scalar ES (this model has none), no multi-GPU population - are recorded in the code docstrings and in outputs/dust_results.json. Graded recreation (corpus entry 20, `graded/figures/qlabs_dust/`): every published table reproduced exactly - Fig.2/Table 1 ladder cells, Fig.4 overparameterization cells, Fig.5/App.G cosine-law fits, App.D/E/F tables - as 5 PNGs + metrics.json, with local Eq.1/2/3/4 probes (the Eq.2/3 probe fits Eq.5's law at RMSE 0.03)."
       ]
     },
     {
@@ -2372,15 +2542,15 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT runner: Dust (QLabs 2026) forward-only smoke on model clones | plain codeblock, no Impl tag by design.\n",
-        "\"\"\"Dust smoke on clones of the compiled model: forward-only training curve,\"\"\"\n",
-        "\"\"\"population ladder of cosine(estimate, backprop) on one batch, and a\"\"\"\n",
-        "\"\"\"backprop control arm on the same windows. The live model is never touched;\"\"\"\n",
-        "\"\"\"paper-scale claims (FineWeb 8x512, 16k draws, EGGROLL efficiency) are\"\"\"\n",
-        "\"\"\"cited, not rerun - the exact tuned estimator is qlabs-eng/dust dust.py.\"\"\"\n",
-        "def run_dust_benchmark(model, ids, steps=20, population=64, batch=4, ctx=None, lr=0.25,\n",
-        "                       momentum=0.95, gamma=0.98, chunk=8, seed=33,\n",
-        "                       cosine_populations=(16, 64, 256), with_backprop=True, bp_lr=3e-3,\n",
+        "# ALWAYS-PRESENT runner: Dust (QLabs 2026) diagnostics on the live path | plain codeblock, no Impl tag by design.\n",
+        "\"\"\"Dust live: estimator cosine ladder (Fig. 5) + held-out CE of the trained model.\"\"\"\n",
+        "\"\"\"Measurement only - no clones, no weight updates: training is the s9 Train::dust\"\"\"\n",
+        "\"\"\"impl (pick Train::dust to pretrain with Dust; Train::backprop stays the default);\"\"\"\n",
+        "\"\"\"the reference gradient here comes from torch.autograd.grad, so neither the live\"\"\"\n",
+        "\"\"\"weights nor .grad are touched. Paper-scale claims are cited, not rerun - exact\"\"\"\n",
+        "\"\"\"tuned estimator: qlabs-eng/dust dust.py.\"\"\"\n",
+        "def run_dust_benchmark(model, ids, batch=4, ctx=None, gamma=0.98, chunk=8, seed=33,\n",
+        "                       cosine_populations=(16, 64, 256),\n",
         "                       out_path=\"outputs/dust_results.json\", **_):\n",
         "    from pathlib import Path as _P33\n",
         "    dev = next(model.parameters()).device\n",
@@ -2390,27 +2560,43 @@
         "        ids = _t33.cat([ids, ids])\n",
         "    nwin = ids.numel() // (ctx + 1)\n",
         "    wins = ids[: nwin * (ctx + 1)].view(nwin, ctx + 1)\n",
+        "    n_eval = max(batch, nwin // 4)\n",
+        "    train_wins, eval_wins = wins[: nwin - n_eval], wins[nwin - n_eval:]\n",
         "\n",
         "    def batch_at(i):\n",
-        "        rows = _t33.stack([wins[(i * batch + b) % nwin] for b in range(batch)])\n",
+        "        rows = _t33.stack([train_wins[(i * batch + b) % len(train_wins)] for b in range(batch)])\n",
         "        return rows[:, :-1].contiguous(), rows[:, 1:].contiguous()\n",
         "\n",
-        "    t0 = _time33.time()\n",
+        "    def eval_batch(i):\n",
+        "        rows = _t33.stack([eval_wins[(i * batch + b) % len(eval_wins)] for b in range(batch)])\n",
+        "        xb, yb = rows[:, :-1].contiguous(), rows[:, 1:].contiguous()\n",
+        "        with _t33.no_grad():\n",
+        "            l = _dust_token_ce(_dust_logits(model, xb), yb)\n",
+        "        mask = yb != -1\n",
+        "        return float(l[mask].mean()) if bool(mask.any()) else None\n",
         "\n",
-        "    # 1) cosine to the true backprop gradient, per population (reference only)\n",
-        "    ref = _c33.deepcopy(model).to(dev)\n",
-        "    ref.eval()\n",
+        "    t0 = _time33.time()\n",
+        "    was_training = model.training\n",
+        "    model.eval()\n",
+        "\n",
+        "    # 1) reference gradient via torch.autograd.grad (no .grad writes, no clone)\n",
         "    x0, y0 = batch_at(0)\n",
-        "    ref.zero_grad(set_to_none=True)\n",
-        "    loss0 = _dust_token_ce(_dust_logits(ref, x0), y0)\n",
-        "    loss0[(y0 != -1)].mean().backward()\n",
-        "    true = {n: p.grad.detach().float().clone()\n",
-        "            for n, p in ref.named_parameters(remove_duplicate=False) if p.grad is not None}\n",
-        "    ref.zero_grad(set_to_none=True)\n",
+        "    true = {}\n",
+        "    try:\n",
+        "        uniq = list({id(p): p for p in model.parameters()}.values())\n",
+        "        with _t33.enable_grad():\n",
+        "            loss0 = _dust_token_ce(_dust_logits(model, x0), y0)\n",
+        "        refs = _t33.autograd.grad(loss0[(y0 != -1)].mean(), uniq, allow_unused=True)\n",
+        "        gmap = {id(p): g.detach().float() for p, g in zip(uniq, refs) if g is not None}\n",
+        "        true = {n: gmap[id(p)] for n, p in model.named_parameters(remove_duplicate=False) if id(p) in gmap}\n",
+        "    except Exception:  # noqa: BLE001 - diagnostic only, never fatal\n",
+        "        true = {}\n",
+        "\n",
+        "    # 2) cosine ladder: estimator vs the reference, per layer group (paper Fig. 5)\n",
         "    cosine = {\"populations\": [int(p) for p in cosine_populations],\n",
         "              \"groups\": {}, \"per_pop\": {}, \"skipped_sites\": []}\n",
         "    for pop in cosine_populations:\n",
-        "        grads, meta = _dust_gradients(ref, x0, y0, population=int(pop),\n",
+        "        grads, meta = _dust_gradients(model, x0, y0, population=int(pop),\n",
         "                                      seed=seed + int(pop), gamma=gamma, chunk=chunk)\n",
         "        cosine[\"skipped_sites\"] = sorted(set(cosine[\"skipped_sites\"]) | set(meta[\"skipped_sites\"]))\n",
         "        per = {}\n",
@@ -2427,54 +2613,43 @@
         "        if len(v) < len(cosine[\"populations\"]):\n",
         "            cosine[\"groups\"][k] = v + [None] * (len(cosine[\"populations\"]) - len(v))\n",
         "\n",
-        "    # 2) dust training curve (forward-only arm)\n",
-        "    def eval_batch(m, i):\n",
-        "        xb, yb = batch_at(i)\n",
-        "        with _t33.no_grad():\n",
-        "            l = _dust_token_ce(_dust_logits(m, xb), yb)\n",
-        "        mask = yb != -1\n",
-        "        return round(float(l[mask].mean()), 4) if bool(mask.any()) else None\n",
+        "    # 3) held-out CE of the live model (the paper's Table-1 test-loss metric)\n",
+        "    held = [eval_batch(i) for i in range(min(n_eval, 8))]\n",
+        "    held = [h for h in held if h is not None]\n",
+        "    heldout = {\"windows\": len(held), \"ce\": round(sum(held) / len(held), 4) if held else None,\n",
+        "               \"metric\": \"mean CE on held-out windows of the measurement corpus (paper Table-1 test-loss metric)\"}\n",
         "\n",
-        "    dust = _c33.deepcopy(model).to(dev)\n",
-        "    dust.eval()\n",
-        "    opt = _t33.optim.SGD(list(dust.parameters()), lr=lr, momentum=momentum)\n",
-        "    curve = {\"steps\": list(range(steps + 1)), \"dust\": [eval_batch(dust, 0)], \"backprop\": []}\n",
-        "    for i in range(steps):\n",
-        "        xb, yb = batch_at(i)\n",
-        "        _dust_train_step(dust, xb, yb, opt, population, seed + i, gamma, chunk)\n",
-        "        curve[\"dust\"].append(eval_batch(dust, i + 1))\n",
+        "    # 4) s9's Train::dust history, when that impl trained this model\n",
+        "    hist = globals().get(\"dust_train_history\") or []\n",
+        "    curve = {\"steps\": list(range(len(hist))), \"dust\": [round(float(x), 4) for x in hist],\n",
+        "             \"backprop\": []}\n",
+        "    if hist:\n",
+        "        scope = (\"small scale only: s9 Train::dust (%d epochs x %d batches, population %d) + cosine ladder + held-out CE on the live model; paper-scale claims are cited, not rerun\"\n",
+        "                 % (int(globals().get(\"n_epochs\", 0)), int(globals().get(\"batch_lim\", 0)),\n",
+        "                    int(globals().get(\"dust_population\", 0))))\n",
+        "    else:\n",
+        "        scope = \"small scale only: no Dust training in this selection (Train::backprop); cosine ladder + held-out CE on the live model; paper-scale claims are cited, not rerun\"\n",
         "\n",
-        "    # 3) backprop control arm (same clones/windows; the only backward in a step)\n",
-        "    if with_backprop:\n",
-        "        bp = _c33.deepcopy(model).to(dev)\n",
-        "        bp.eval()\n",
-        "        bopt = _t33.optim.AdamW(list(bp.parameters()), lr=bp_lr)\n",
-        "        curve[\"backprop\"] = [eval_batch(bp, 0)]\n",
-        "        for i in range(steps):\n",
-        "            xb, yb = batch_at(i)\n",
-        "            bopt.zero_grad(set_to_none=True)\n",
-        "            loss = _dust_token_ce(_dust_logits(bp, xb), yb)\n",
-        "            mask = yb != -1\n",
-        "            loss[mask].mean().backward()\n",
-        "            _t33.nn.utils.clip_grad_norm_(bp.parameters(), 1.0)\n",
-        "            bopt.step()\n",
-        "            curve[\"backprop\"].append(eval_batch(bp, i + 1))\n",
-        "\n",
+        "    model.train(was_training)\n",
+        "    data_src = globals().get(\"dust_data_source\",\n",
+        "                             \"no Dust training in this selection (Train::backprop is the default)\")\n",
         "    measurements = {\n",
         "        \"loss_curve\": curve,\n",
+        "        \"heldout\": heldout,\n",
+        "        \"data\": {\"source\": data_src, \"tokens\": int(ids.numel()),\n",
+        "                 \"vocab\": int(model.token_embedding.num_embeddings)},\n",
         "        \"cosine\": cosine,\n",
-        "        \"estimator\": {\"population\": population, \"chunk\": chunk, \"gamma\": gamma,\n",
-        "                      \"lr\": lr, \"momentum\": momentum,\n",
+        "        \"estimator\": {\"populations\": [int(p) for p in cosine_populations],\n",
+        "                      \"chunk\": chunk, \"gamma\": gamma,\n",
         "                      \"sigma\": {\"direct\": 0.2, \"kv\": 0.1, \"head\": 0.05},\n",
-        "                      \"backprop_in_runner\": \"reference measurement (cosine) + optional control arm only\"},\n",
+        "                      \"reference\": \"torch.autograd.grad on one batch (never .grad; no clone, no backward on the live path)\"},\n",
         "        \"paper_claims\": {\n",
         "            \"estimator\": \"paper: reward-weighted per-token noise averaged over draws estimates backprop's weight gradient\",\n",
         "            \"population\": \"paper: cosine(estimate, backprop) rises with population; Dust at 1k-16k draws matches tuned backprop at 1M-10M tokens\",\n",
         "            \"efficiency\": \"paper: ~10^3-10^4x more compute-efficient than weight-space ES (EGGROLL) from 1M tokens (extrapolated)\",\n",
         "            \"overparameterization\": \"paper: a 243M model outperforms a 120x smaller one at most population sizes\",\n",
         "        },\n",
-        "        \"scope\": \"smoke scale only: compiled-path clone, %d steps x %d rows x %d ctx tokens; never paper-scale\"\n",
-        "                 % (steps, batch, ctx),\n",
+        "        \"scope\": scope,\n",
         "    }\n",
         "    res = {\"paper\": \"qlabs.sh/research/dust (QLabs technical report 2026; code github.com/qlabs-eng/dust, MIT)\",\n",
         "           \"runner\": \"run_dust_benchmark\", \"seed\": seed,\n",
@@ -2498,28 +2673,28 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Compatibility: Dust (QLabs 2026, qlabs.sh/research/dust; first backprop-free trainer in the file)\n",
+        "### Compatibility: Dust (QLabs 2026, qlabs.sh/research/dust; s9's selectable training algorithm - the file's first backprop-free path)\n",
         "\n",
-        "- **STACK:** the runner clones whatever path compiled (any Vocab/Scale/Context/Attn/PosEnc/Interface + KV @Impl state active during its forwards); every eval/probe/KV section, because the live model is never mutated (three disposable deepcopies are trained/measured instead); any ctx length (runner windows cap at `ctx=64` by default, wider via the `ctx=` kwarg).\n",
-        "- **ALTERNATIVE (pick 1 per run):** training algorithm for a rollout - Dust (forward-only) vs the s9 backprop loop vs s16's own trainer; arms never share one model instance (per-arm deepcopy is enforced by the runner).\n",
-        "- **NEVER-SAME-PATH:** calling a Dust clone \"the compiled model\" (discarded copies); citing paper-scale numbers (FineWeb, 8x512, 16k draws, EGGROLL comparisons) as measurements of this notebook; presenting the simplified estimator as the paper's tuned one (exact: qlabs-eng/dust dust.py); the live model's weights are never modified by this section.\n",
+        "**STACK:** the Train::dust impl of s9 runs over whatever path compiled (any Vocab/Scale/Context/Attn/PosEnc/Interface + KV @Impl active during its forwards); every eval/probe/KV section, because it trains the live model in place exactly as Train::backprop does - the model the suites see is the model s9 produced, not a copy; any ctx length (the s9 loop uses the compiled block_size; this section's window cap is ctx=64 by default, wider via the ctx= kwarg).\n",
+        "**ALTERNATIVE (pick 1 per run):** training algorithm for the s9 loop - Train::dust (forward-only, this paper's algorithm) vs Train::backprop (default, byte-identical to the loop before this section existed) vs s16's own trainer; one Train value per run (OPTAL axis), arms never merged.\n",
+        "**NEVER-SAME-PATH:** calling Train::dust a separate model (it is the compiled path, trained in place, forward-only); citing paper-scale protocol numbers (8x512 windows, 16k draws, EGGROLL comparisons) as measurements of this notebook - the FineWeb slice used here is the paper's corpus at notebook scale, never their 100M-parameter training; presenting the simplified estimator as the paper's tuned one (exact: qlabs-eng/dust dust.py).\n",
         "\n",
         "### Relations: Dust (QLabs 2026, s33) x All Previous Papers (standing rule)\n",
         "\n",
-        "- **vs LayerMix (arXiv:2608.28930, s10-12): STACK (untouched).** Probe heads read frozen states; Dust's clones are throwaway - the live model every probe sees is unchanged.\n",
-        "- **vs SABER (arXiv:2608.27963, s13): STACK (untested).** Exit gating and forward-only training act at different times; a Dust-trained clone could feed the same exit loop.\n",
-        "- **vs Grokking (arXiv:2609.10657, s14/s16): STACK (closest training kin).** The only other section that trains weights; s16 trains its own small models with full-batch recipes, Dust trains clones of the compiled path without backprop - same rollout discipline, disjoint model instances, never merged.\n",
-        "- **vs ConvMem (arXiv:2609.10441, s15): STACK (untested).** NIAH recall could benchmark a Dust-trained clone; the hierarchy math is inference-only.\n",
+        "**vs LayerMix (arXiv:2608.28930, s10-12): STACK (untouched).** Probe heads read frozen states; Train::dust only changes the weights those probes read (in place, like backprop) - no other section's code path is touched.\n",
+        "**vs SABER (arXiv:2608.27963, s13): STACK (untested).** Exit gating and forward-only training act at different times; a Train::dust pretrained model could feed the same exit loop.\n",
+        "**vs Grokking (arXiv:2609.10657, s14/s16): STACK (closest training kin).** Both train weights during the run; s16 trains its own small models with full-batch recipes, s9's Train::dust trains the compiled model forward-only - same rollout discipline, disjoint code paths, never merged.\n",
+        "**vs ConvMem (arXiv:2609.10441, s15): STACK (untested).** NIAH recall could benchmark a Train::dust pretrained model; the hierarchy math is inference-only.\n",
         "- **vs RiLM (arXiv:2609.10305, s19): STACK (readout only).** The Mobius readout applies to any head weights; Dust merely produces different ones.\n",
         "- **vs WRP (arXiv:2609.09883, s20): STACK (the other half of forward-free training).** WRP removes dimensions a forward pass says are absorbable; Dust trains weights a forward pass rewards - prune-after-dust and dust-after-prune both run, and the joint result (a pruned detector of its own gradient signal) is untested.\n",
         "- **vs TASCO (arXiv:2609.11393, s21): STACK in principle, different sites (name which moved).** TASCO is gradient-free prefix adaptation with weights frozen; Dust is backprop-free weight adaptation with the prefix frozen - the file's two \"no-backprop\" families. A head-to-head accuracy claim must name the site (prefix vs weights).\n",
-        "- **vs Ignorance (arXiv:2609.02959, s22): STACK (readout only).** Temperature priors on a Dust-trained clone are a valid measurement; no shared code path.\n",
+        "**vs Ignorance (arXiv:2609.02959, s22): STACK (readout only).** Temperature priors on a Train::dust pretrained model are a valid measurement; no shared code path.\n",
         "- **vs SharedCircuits (arXiv:2609.04463, s23): STACK (diagnostic).** AP gradients select circuits via backprop on the live model; Dust's estimate is a backprop-free attribution candidate for the same selection - do population rewards find the same circuit? A genuinely new comparison.\n",
         "- **vs CitationGraph (s24): NONE.** Meta-section.\n",
         "- **vs ImplicitPatch (arXiv:2511.17864, s25): STACK (different update algebras).** ImplicitPatch compiles context into rank-1 weight updates; Dust estimates weight updates from rewards. Both change weights outside backprop; neither replaces the other's site.\n",
         "- **vs LBI (arXiv:2605.09204, s26): the file's direct contrast pair (never same-site).** LBI parallelizes backprop's backward scan; Dust deletes the backward entirely - same objective (cheap gradients to all layers), opposite mechanisms. The cosine-to-backprop ladder of this section is the bridge metric LBI never needed.\n",
         "- **vs KVCache survey + SpindleKV/KeepKV/CQ/EpiCache (arXiv:2603.20397, s27-31): STACK with a shared knob.** Dust reads rewards from whatever forward ran - under a KV policy the reward signal is exactly the policy's belief, so the cosine ladder under each @Impl is a cheap selector for which compressions stay trainable. Pick one policy per run as usual; nothing conflicts.\n",
-        "- **vs Loop decode (arXiv:2605.23872, s32): STACK (the paper's own future-work hook).** Dust defers to \"transformers looped over many steps that backpropagation through time struggles to train\"; the notebook has s32's LoopWrapper and s26's gradient-region partition - Dust clones over a looped forward is the experiment both papers ask for and neither ran.\n",
+        "**vs Loop decode (arXiv:2605.23872, s32): STACK (the paper's own future-work hook).** Dust defers to \"transformers looped over many steps that backpropagation through time struggles to train\"; the notebook has s32's LoopWrapper and s26's gradient-region partition - Train::dust over a looped forward is the experiment both papers ask for and neither ran.\n",
         "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): the crown relation, detailed in the foundation note below.** Dust consumes the first paper's forward and never builds its backward."
       ]
     },
@@ -2531,8 +2706,8 @@
         "\n",
         "- **The strongest possible relation, and it is adversarial: Dust is the first section that runs the first paper's forward and refuses to build its backward.** Everything the estimator touches is a first-paper primitive - `attn_scores`/`attn_combine` under the causal tril mask, the `QKVLinear` projections, the log-softmax head (per-token CE is a gather over it), and the position table. Backprop's chain rule through that exact graph is what the paper deletes; the outer-product form `error x input` (the same product backprop forms at every Linear) survives, fed by population rewards instead of derivatives. From the first paper's perspective: every prior section consumed its forward - this one consumes it twice as hard and throws away the backward.\n",
         "- **What can be changed considering both (levers; additive, none claimed as run):** (1) this section's cosine ladder is the paper's Fig. 5 run on the first paper's compiled blocks; extending the ladder to every Attn/PosEnc @Impl turns it into a per-path \"backprop-freeness\" readout the paper only has for one architecture. (2) the KV sections (s27-31) define alternative forwards whose rewards are read from compressed beliefs; the same ladder under each policy selects compressions that stay trainable - a joint knob neither paper had alone. (3) s32's LoopWrapper and s26's LBI are the two backprop-pressure surfaces (BPTT, backward scans); Dust-over-loop removes BPTT from that experiment entirely.\n",
-        "- **Future directions to make them more compatible:** a `dust_step` variant reusing cached logits to skip the extra clean forward (the eval path already caches); the paper's exact attention-internal scoring (re-run the block, score delta-o against the estimated output error, Eq. 4) to lift the attention-group cosine; 256-column slab jitter for the head at gpt2bpe scale (the paper's exact head treatment for large vocab); drive s28 suite accuracy from a Dust-trained gpt2_124m chain to price \"population sufficiency\" in benchmark points instead of loss.\n",
-        "- **Boundary kept:** the estimator never calls `.backward()` and never touches the live model; clones only. The cosine measurement uses backward deliberately - it is the paper's own chosen reference (Fig. 5), and the control arm is what \"without backpropagation\" is measured against.\n",
+        "**Future directions to make them more compatible:** a `dust_step` variant reusing cached logits to skip the extra clean forward (the eval path already caches); the paper's exact attention-internal scoring (re-run the block, score delta-o against the estimated output error, Eq. 4) to lift the attention-group cosine; 256-column slab jitter for the head at gpt2bpe scale (the paper's exact head treatment for large vocab); drive s28 suite accuracy from the Train::dust gpt2_124m chain to price \"population sufficiency\" in benchmark points instead of loss.\n",
+        "**Boundary kept:** the Train::dust path never calls `.backward()` (the estimator cell is AST-clean); the measurement path's reference gradient uses `torch.autograd.grad` (never `.grad`, never a clone) - it is the paper's own chosen reference (Fig. 5), and s33 mutates nothing.\n",
         "\n",
         "Ref-graph line (independent citation check): zero shared references - 1706.03762 is absent from Dust's ~30-entry reference list (Rumelhart 1986, LeCun 1988, Salimans 2017, Nesterov 2017, Malladi 2023, Sarkar 2025 EGGROLL, Sutton 2019's bitter lesson, the authors' own Vegesna & Dahal 2025), i.e. Dust cites the backprop/zeroth-order lineage, not the attention lineage. The missing edge is the substrate itself: a training algorithm for the architecture the first paper defines, scheduled for the compute-rich regime. Rewritten for the foundation lens: backprop-free search as the first paper's training story after the chain rule.\n",
         ""
@@ -3223,8 +3398,8 @@
         "decode = lambda ids: \"\".join([int_to_token[i] for i in ids])\n",
         "print(f\"char64 {vocab_sz=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Vocab::word1k{
     {
       "cell_type": "code",
@@ -3246,8 +3421,8 @@
         "decode = lambda ids: \" \".join([int_to_token[i] for i in ids])\n",
         "print(f\"word1k {vocab_sz=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Vocab::word10k{
     {
       "cell_type": "code",
@@ -3269,8 +3444,8 @@
         "decode = lambda ids: \" \".join([int_to_token[i] for i in ids])\n",
         "print(f\"word10k {vocab_sz=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Vocab::word20k{
     {
       "cell_type": "code",
@@ -3292,8 +3467,8 @@
         "decode = lambda ids: \" \".join([int_to_token[i] for i in ids])\n",
         "print(f\"word20k {vocab_sz=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Vocab::word40k{
     {
       "cell_type": "code",
@@ -3315,8 +3490,8 @@
         "decode = lambda ids: \" \".join([int_to_token[i] for i in ids])\n",
         "print(f\"word40k {vocab_sz=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Vocab::word50k{
     {
       "cell_type": "code",
@@ -3338,8 +3513,8 @@
         "decode = lambda ids: \" \".join([int_to_token[i] for i in ids])\n",
         "print(f\"word50k {vocab_sz=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Vocab::gpt2bpe{
     {
       "cell_type": "code",
@@ -3361,8 +3536,8 @@
         "decode = lambda ids: _bpe.decode([int(i) for i in ids if 0 <= int(i) < vocab_sz])\n",
         "print(f\"gpt2bpe {vocab_sz=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Scale::tiny64{
     {
       "cell_type": "code",
@@ -3377,8 +3552,8 @@
         "n_params_tot = sum(p.numel() for p in model.parameters())\n",
         "print(f\"tiny64 {n_params_tot / 1e6:.2f} M parameters\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Scale::small256{
     {
       "cell_type": "code",
@@ -3394,8 +3569,8 @@
         "n_params_tot = sum(p.numel() for p in model.parameters())\n",
         "print(f\"small256 {n_params_tot / 1e6:.2f} M parameters\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Scale::faithful512{
     {
       "cell_type": "code",
@@ -3411,8 +3586,8 @@
         "n_params_tot = sum(p.numel() for p in model.parameters())\n",
         "print(f\"faithful512 {n_params_tot / 1e6:.2f} M parameters\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Scale::gpt2_124m{
     {
       "cell_type": "code",
@@ -3459,8 +3634,8 @@
         "_model_provenance = \"self-trained via \u00a79 for the selected path; no external checkpoint loaded\"\n",
         "print(_model_provenance)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -3498,8 +3673,8 @@
         "model.ctx_len = ctx_len\n",
         "print(f\"ctx64 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx256{
     {
       "cell_type": "code",
@@ -3513,8 +3688,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx256 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx512{
     {
       "cell_type": "code",
@@ -3531,8 +3706,8 @@
         "    keep_q = max(0, ctx_len - len(a_ids))\n",
         "    return (q_ids[:keep_q] + a_ids)[-ctx_len:]\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx1024{
     {
       "cell_type": "code",
@@ -3548,8 +3723,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx1024 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx2048{
     {
       "cell_type": "code",
@@ -3565,8 +3740,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx2048 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx8192{
     {
       "cell_type": "code",
@@ -3582,8 +3757,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx8192 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx16384{
     {
       "cell_type": "code",
@@ -3598,8 +3773,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx16384 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx32768{
     {
       "cell_type": "code",
@@ -3615,8 +3790,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx32768 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx65536{
     {
       "cell_type": "code",
@@ -3632,8 +3807,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx65536 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx131072{
     {
       "cell_type": "code",
@@ -3649,8 +3824,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx131072 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx262144{
     {
       "cell_type": "code",
@@ -3666,8 +3841,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx262144 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx524288{
     {
       "cell_type": "code",
@@ -3683,8 +3858,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx524288 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Context::ctx896000{
     {
       "cell_type": "code",
@@ -3701,8 +3876,8 @@
         "reseat_ctx(model, ctx_len)\n",
         "print(f\"ctx896000 {ctx_len=}\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -3751,8 +3926,8 @@
         "    def __init__(self, ctx_len, emb_dim, **hp):\n",
         "        super().__init__(ctx_len, emb_dim)"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::PosEnc::sinusoidal{
     {
       "cell_type": "code",
@@ -3787,8 +3962,8 @@
         "        idx = pos if pos.dim() > 1 else pos.view(1, -1)\n",
         "        return self.pe.to(idx.device)[idx]"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "markdown",
       "metadata": {},
@@ -5050,7 +5225,7 @@
         "\"\"\"Sweeps D fractions on the SAME model; compares measured Tgrok ratios to predicted.\"\"\"\n",
         "\"\"\"A D-driven speedup near 4x per doubling on a transformer = the paper's structural \"\"\"\n",
         "\"\"\"prediction confirmed outside MLPs; phase gate + norm band checked per run. Small P \"\"\"\n",
-        "\"\"\"(e.g. mod 7/13) keeps this CPU-feasible as a smoke test before full mod-113 runs.\"\"\"\n",
+        "\"\"\"(e.g. mod 7/13) keeps this CPU-feasible as a small-scale check before full mod-113 runs.\"\"\"\n",
         "def wired_d_sweep(make_model_fn, P=13, op=\"add\", Ds=(0.3, 0.5, 0.7, 0.97), eta=0.003, lam=0.3, steps=2000, seed=0):\n",
         "    rows = []\n",
         "    for D in Ds:\n",
@@ -5073,7 +5248,7 @@
         "",
         "- **STACK:** Tmem/Tgrok clocks + checkpoint probing (same-loop observers); scaling predictor + any (H,D,eta,lam) config incl. s11 Scale variants; seed/threshold/LOLO harnesses + any run; norm tracker + any training loop.",
         "- **ALTERNATIVE (pick 1 object per claim):** MLP-lab (§14, reproduces paper numbers) vs wired-transformer (§16, tests the s7 open question) - run both, never mix their numbers in one comparison; D fraction per sweep leg (looped, not pathed); full-batch recipe vs minibatch loop (documented deviation, higher seed variance expected).",
-        "- **NEVER-SAME-PATH:** MLP-lab Tgrok values presented as transformer evidence (different objects - methodological ban); minibatch-loop numbers compared against paper constants without the variance caveat; small-P smoke configs cited as full mod-113 results.",
+        "- **NEVER-SAME-PATH:** MLP-lab Tgrok values presented as transformer evidence (different objects - methodological ban); minibatch-loop numbers compared against paper constants without the variance caveat; small-P configs cited as full mod-113 results.",
         ""
       ]
     },
@@ -5355,18 +5530,18 @@
         "n_params_tot = sum(p.numel() for p in model.parameters())\n",
         "print(f\"geodesicflat: Wout params removed={n_wout}, total now={n_params_tot} (Table I analog)\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT RiLM budget + smoke comparison | Paper Table I (param ledger), Table II (ctx64/bs128/ep10 schedule), sIV baselines | graded 07_Table1_Budget | plain codeblock (orchestrator), no Impl tag by design.\n",
+        "# ALWAYS-PRESENT RiLM budget + small-scale comparison | Paper Table I (param ledger), Table II (ctx64/bs128/ep10 schedule), sIV baselines | graded 07_Table1_Budget | plain codeblock (orchestrator), no Impl tag by design.\n",
         "\"\"\"Param ledger for the live model (emb/Wout/core split) + tiny train-briefly-and-compare \"\"\"\n",
         "\"\"\"harness: same data/steps for linear-head vs geodesic-head paths, reports val PPL + \"\"\"\n",
-        "\"\"\"params. Smoke-scale only (not the paper's 10-epoch protocol); decides whether the \"\"\"\n",
+        "\"\"\"params. Small-scale only (not the paper's 10-epoch protocol); decides whether the \"\"\"\n",
         "\"\"\"geodesic claim visibly holds on nanoGPT before any serious budget is spent.\"\"\"\n",
         "def rilm_budget(model, vocab_sz):\n",
         "    d = model.token_embedding.weight.shape[1]\n",
@@ -5375,7 +5550,7 @@
         "    return {\"emb\": emb, \"wout\": 0 if isinstance(model.lm_head, GeodesicHead) else emb,\n",
         "            \"total\": tot, \"wout_frac\": (0.0 if isinstance(model.lm_head, GeodesicHead) else emb / max(1, tot))}\n",
         "\n",
-        "def run_rilm_smoke_comparison(make_model_fn, get_batch_fn, steps=300, out_path=\"outputs/rilm_results.json\"):\n",
+        "def run_rilm_small_comparison(make_model_fn, get_batch_fn, steps=300, out_path=\"outputs/rilm_results.json\"):\n",
         "    import json as _json5\n",
         "    from pathlib import Path as _P\n",
         "    rec = {}\n",
@@ -5407,9 +5582,9 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### RiLM live geodesic vs linear smoke + PPL curve\n",
+        "### RiLM live geodesic vs linear small-scale + PPL curve\n",
         "\n",
-        "Paper Table I: delete Wout, tie the geodesic head to the embedding table. Incompatible with a separate untied copy (NEVER). `GeodesicHead` has no `out_features`; the smoke runner already uses `vocab_sz` as the compatible stand-in.\n"
+        "Paper Table I: delete Wout, tie the geodesic head to the embedding table. Incompatible with a separate untied copy (NEVER). `GeodesicHead` has no `out_features`; the small-scale runner already uses `vocab_sz` as the compatible stand-in.\n"
       ]
     },
     {
@@ -5429,7 +5604,7 @@
       "source": [
         "### Compatibility: RiLM: Parameter-Efficient Language Modeling via Geodesic Decoding (Li 2026, arXiv:2609.10305)",
         "",
-        "- **STACK:** geodesic head + every Vocab (savings grow with |V|; head shares the table by construction) / Scale / Context / State / Arch / Attn path; budget cell + any live model; smoke runner + any get_batch; checkpoint probing tracks PPL either way.",
+        "- **STACK:** geodesic head + every Vocab (savings grow with |V|; head shares the table by construction) / Scale / Context / State / Arch / Attn path; budget cell + any live model; small-scale runner + any get_batch; checkpoint probing tracks PPL either way.",
         "- **ALTERNATIVE (pick 1):** lm_head Linear (matmul) | AdderConvLinear (addernetmatmul) | GeodesicHead (geodesicflat) - same site, same shapes; flat | hyp (hyp unimplemented: needs Mobius stack, ball projection, c=1.0/lr 3e-3/clip; Table IX collapse is the failure mode to re-test when built).",
         "- **NEVER-SAME-PATH:** separate (untied) embedding copy alongside GeodesicHead (doubles params, breaks tying-constraint design); hyp Mobius ops applied to Euclidean states; Table VIII-style full-vocab leaderboard claims from 2k-vocab runs (paper's own warning).",
         "",
@@ -8365,7 +8540,7 @@
         "\n",
         "**Integration reasoning (s17 rule): Interface becomes a Technique (corrected).** The scan harness stays plain orchestrator code (an alternative backward invoked explicitly, like runners - no compiled artifact changes). The bounded-interface ARCHITECTURE is new compiled structure: region boundaries that route r-dim states instead of full hidden states, mutually exclusive with dense wiring at every boundary, so it compiles as @Technique::Interface::[dense, bounded] with one Impl per value. Dense keeps current behavior byte-identical; bounded adds Enc/Dec/canvas/interface-chain natively. The earlier no-new-Technique call is superseded for this paper because its central empirical claim (quality preserved under a native bottleneck) cannot be tested by a wrapper around a dense model - only by a model that natively bottlenecks.\n",
         "\n",
-        "**Adaptations with consequences (documented, kept):** (1) Jacobian construction via torch.autograd.functional.jacobian (paper: custom kernels + VJP batch expansion; same r x r result, CPU-tractable at tiny dims). (2) Canvas from DETACHED embeddings (paper: raw token embeddings) so shared-table grads do not confound the parity check - embedding grads are compared as zeros on both paths by construction. (3) m0 from a small initial encoder on pooled canvas (paper + repo initial_encoder). (4) Smoke training only (tiny model, ~100 steps): harness + gap recorded, never paper magnitudes. (5) Dense-model scan harness runs the full-rank (r=d) regime: BPPSA recovered as the r=d special case, exactly as the paper states.\n",
+        "**Adaptations with consequences (documented, kept):** (1) Jacobian construction via torch.autograd.functional.jacobian (paper: custom kernels + VJP batch expansion; same r x r result, CPU-tractable at tiny dims). (2) Canvas from DETACHED embeddings (paper: raw token embeddings) so shared-table grads do not confound the parity check - embedding grads are compared as zeros on both paths by construction. (3) m0 from a small initial encoder on pooled canvas (paper + repo initial_encoder). (4) Small-scale training only (tiny model, ~100 steps): harness + gap recorded, never paper magnitudes. (5) Dense-model scan harness runs the full-rank (r=d) regime: BPPSA recovered as the r=d special case, exactly as the paper states.\n",
         "\n"
       ]
     },
@@ -8577,7 +8752,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT LBI cost accounting + training smoke | Paper Table 1 at live dims + s4 smoke (dense vs LBI CE after N steps; harness + gap recorded, never paper magnitudes) | graded 13_Table1_Transport/13_Table2_Main | plain codeblock, no Impl tag by design.\n",
+        "# ALWAYS-PRESENT LBI cost accounting + training run | Paper Table 1 at live dims + s4 small-scale (dense vs LBI CE after N steps; harness + gap recorded, never paper magnitudes) | graded 13_Table1_Transport/13_Table2_Main | plain codeblock, no Impl tag by design.\n",
         "def lbi_cost_table(B=1, T=16, D=32, K=2, r=4, nbytes=4):\n",
         "    \"\"\"Table-1 analog: sequential vs full-scan vs LBI per-combine + payload KB.\"\"\"\n",
         "    d = B * T * D\n",
@@ -8588,8 +8763,8 @@
         "            \"reduction_vs_full\": d ** 3 / max(r ** 3, 1),\n",
         "            \"payload_KB\": K * r * r * nbytes / 1024.0}\n",
         "\n",
-        "def lbi_smoke_train(make_model_fn, ids_fn, steps=100, batch=8, r=4, seed=0):\n",
-        "    \"\"\"Brief dense-vs-LBI training smoke on live text; reports CEs + gap (harness check).\"\"\"\n",
+        "def lbi_small_train(make_model_fn, ids_fn, steps=100, batch=8, r=4, seed=0):\n",
+        "    \"\"\"Brief dense-vs-LBI training run on live text; reports CEs + gap (harness check).\"\"\"\n",
         "    import torch as _t\n",
         "    _t.manual_seed(seed)\n",
         "    model = make_model_fn()\n",
@@ -8616,10 +8791,10 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT runner: LBI end-to-end | Wires s26 cells B-D: dense parity + LBI parity + cost table + smoke CEs | emits outputs/lbi_results.json | plain codeblock, no Impl tag by design.\n",
+        "# ALWAYS-PRESENT runner: LBI end-to-end | Wires s26 cells B-D: dense parity + LBI parity + cost table + small-scale CEs | emits outputs/lbi_results.json | plain codeblock, no Impl tag by design.\n",
         "def run_lbi_benchmark(make_model_fn, ids, target_id, r=4, per_region=2, seed=0,\n",
         "                      out_path=\"outputs/lbi_results.json\"):\n",
-        "    \"\"\"Claim test: scan backward == autograd (dense full-rank + LBI r-dim); costs; smoke.\"\"\"\n",
+        "    \"\"\"Claim test: scan backward == autograd (dense full-rank + LBI r-dim); costs; small-scale run.\"\"\"\n",
         "    import json as _j\n",
         "    import time as _t\n",
         "    from pathlib import Path as _P\n",
@@ -8659,9 +8834,9 @@
       "source": [
         "### Compatibility: LBI: Parallel Scan Backpropagation via Latent Bounded Interfaces (Lee, Jyothi 2026, arXiv:2605.09204)\n",
         "\n",
-        "- **STACK:** scan harness on any live path (matmul/addernet, layernorm/regularisedbn, decoder/encdec, all Attn impls - regions are block groups, Jacobians read whatever backbone computes); parity harness as a gradient auditor for every training loop in the file (grokking s16, exposure s23, smoke s26 - same comparison, different loop); interface Jacobians as tracked diagnostics beside norm trackers (s14/s16); region partition as the unit WRP prunes (block groups) and ConvMem windows (channels); scan payload accounting beside SABER overhead tables.\n",
-        "- **ALTERNATIVE (pick 1 per run):** dense full-rank scan (BPPSA regime, exact, O(d^3)) vs LBI r-dim scan per parity run (looped configs, never pathed); region size (layers per region) per sweep; interface width r per smoke leg; fused vs chunked Jacobian construction (Eq.12 vs Eq.13 trade, documented per run).\n",
-        "- **NEVER-SAME-PATH:** scan-path grads presented as autograd grads without the parity check (parity-gated reporting: numbers ship only beside their max-abs/cosine); LBI smoke CEs cited as paper-magnitude evidence (smoke only - harness + gap recorded); canvas treated as an inter-region channel (it depends on inputs only - the paper's own no-bypass argument, enforced by detaching it); wall-clock speedup claims from algorithmic span alone (kernels/fusion outstanding - paper s6 limit, inherited here).\n",
+        "- **STACK:** scan harness on any live path (matmul/addernet, layernorm/regularisedbn, decoder/encdec, all Attn impls - regions are block groups, Jacobians read whatever backbone computes); parity harness as a gradient auditor for every training loop in the file (grokking s16, exposure s23, LBI s26 - same comparison, different loop); interface Jacobians as tracked diagnostics beside norm trackers (s14/s16); region partition as the unit WRP prunes (block groups) and ConvMem windows (channels); scan payload accounting beside SABER overhead tables.\n",
+        "- **ALTERNATIVE (pick 1 per run):** dense full-rank scan (BPPSA regime, exact, O(d^3)) vs LBI r-dim scan per parity run (looped configs, never pathed); region size (layers per region) per sweep; interface width r per small-scale leg; fused vs chunked Jacobian construction (Eq.12 vs Eq.13 trade, documented per run).\n",
+        "- **NEVER-SAME-PATH:** scan-path grads presented as autograd grads without the parity check (parity-gated reporting: numbers ship only beside their max-abs/cosine); LBI small-scale CEs cited as paper-magnitude evidence (small-scale only - harness + gap recorded); canvas treated as an inter-region channel (it depends on inputs only - the paper's own no-bypass argument, enforced by detaching it); wall-clock speedup claims from algorithmic span alone (kernels/fusion outstanding - paper s6 limit, inherited here).\n",
         "\n",
         "### Relations: LBI (arXiv:2605.09204) x All Previous Papers (standing rule)\n",
         "\n",
@@ -8691,8 +8866,8 @@
         "- The scan-backward harness runs the full-rank (BPPSA) regime on dense paths; parity vs autograd is the dense-path acceptance check (Table-5 analog, exact).\n",
         "- Dense keeps all existing combos byte-identical; bounded is the opt-in alternative (next cells).\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Interface::bounded{
     {
       "cell_type": "markdown",
@@ -8703,8 +8878,8 @@
         "- The interface chain (Enc/Dec/canvas/LN/alpha/E0/terminal tap), the r-dim region grouping, and the region-wired forward are spliced INTO `NanoGPT` itself under this selection (no sibling class; the one-model rule). Embeddings/blocks/head/generate stay the base class.\n",
         "- Native parity reads `model._iface` + the same interface modules from the one class (next cell).\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::Interface::bounded{
     {
       "cell_type": "code",
@@ -8819,24 +8994,24 @@
         "    return {\"K\": K, \"r\": r, \"max_abs\": max(errs) if errs else None,\n",
         "            \"parity_ok\": bool(errs and max(errs) < 1e-4)}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT runner: LBI interface path on the ONE compiled model | runs the parity leg the compiled Interface provides (dense: BPPSA full-rank; bounded: native r-dim) + one smoke step-train leg with weights restored afterwards | the OTHER interface is a cross-path run (SKIP-once-per-path note, not a fake gap) | emits outputs/lbi_interface_results.json | plain codeblock, no Impl tag by design.\n",
+        "# ALWAYS-PRESENT runner: LBI interface path on the ONE compiled model | runs the parity leg the compiled Interface provides (dense: BPPSA full-rank; bounded: native r-dim) + one small-scale step-train leg with weights restored afterwards | the OTHER interface is a cross-path run (SKIP-once-per-path note, not a fake gap) | emits outputs/lbi_interface_results.json | plain codeblock, no Impl tag by design.\n",
         "\"\"\"Benchmarks state what each path is FOR and what the paper expects it to DO.\"\"\"\n",
-        "def run_lbi_interface_benchmark(make_model, ids, target_id, r=4, per_region=2, seed=0, smoke_steps=50, out_path=\"outputs/lbi_interface_results.json\"):\n",
+        "def run_lbi_interface_benchmark(make_model, ids, target_id, r=4, per_region=2, seed=0, small_steps=50, out_path=\"outputs/lbi_interface_results.json\"):\n",
         "    import json as _j\n",
         "    import time as _t\n",
         "    import torch as _tt\n",
         "    from pathlib import Path as _P\n",
         "    t0 = _t.time()\n",
         "    _tt.manual_seed(seed)\n",
-        "    purpose = {\"dense_path\": \"BPPSA-regime exactness: scan backward == autograd on full boundary states; O(d^3) cost recorded, never run for speed\", \"bounded_path\": \"native bottleneck: r-dim scan; parity exact with interface params covered by VJPs\", \"claims_from_paper\": {\"parity\": \"scan grads == autograd grads (Table 5: f32 cos>0.99999, rel<2e-7)\", \"quality\": \"LBI within 0.16-0.35 CE of dense at paper scale (Table 2; smoke scale here is the compiled path only - the cross-path gap is recorded, not simulated)\"}, \"reproducibility\": \"runner seeds its own draws; the shared model gets state_dict restore after smoke so later runners see pristine weights\"}\n",
+        "    purpose = {\"dense_path\": \"BPPSA-regime exactness: scan backward == autograd on full boundary states; O(d^3) cost recorded, never run for speed\", \"bounded_path\": \"native bottleneck: r-dim scan; parity exact with interface params covered by VJPs\", \"claims_from_paper\": {\"parity\": \"scan grads == autograd grads (Table 5: f32 cos>0.99999, rel<2e-7)\", \"quality\": \"LBI within 0.16-0.35 CE of dense at paper scale (Table 2; small scale here is the compiled path only - the cross-path gap is recorded, not simulated)\"}, \"reproducibility\": \"runner seeds its own draws; the shared model gets state_dict restore after the small-scale leg so later runners see pristine weights\"}\n",
         "    model = make_model()\n",
         "    bounded = hasattr(model, \"region_groups\")\n",
         "    iface = \"bounded\" if bounded else \"dense\"\n",
@@ -8845,7 +9020,7 @@
         "    other = ({\"status\": \"not-on-path\",\n",
         "              \"reason\": \"the %s interface is not compiled in this run; run the notebook with Interface::%s for its parity leg\" % (\"dense\" if bounded else \"bounded\", \"dense\" if bounded else \"bounded\")})\n",
         "    dev = next(model.parameters()).device\n",
-        "    def smoke(m, steps):\n",
+        "    def _brief_check(m, steps):\n",
         "        sd = {k: v.detach().clone() for k, v in m.state_dict().items()}\n",
         "        m.train()\n",
         "        opt = _tt.optim.AdamW(m.parameters(), lr=3e-3)\n",
@@ -8865,9 +9040,9 @@
         "        m.load_state_dict(sd)\n",
         "        m.eval()\n",
         "        return last\n",
-        "    ce = smoke(model, smoke_steps)\n",
+        "    ce = _brief_check(model, small_steps)\n",
         "    res = {\"paper\": \"arXiv:2605.09204\", \"seed\": seed, \"interface\": iface, \"r\": r, \"purpose\": purpose,\n",
-        "           \"parity\": parity, \"other_interface\": other, \"smoke\": {\"ce\": ce},\n",
+        "           \"parity\": parity, \"other_interface\": other, \"small\": {\"ce\": ce},\n",
         "           \"seconds\": round(_t.time() - t0, 1)}\n",
         "    _P(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P(out_path).write_text(_j.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
@@ -9020,7 +9195,7 @@
         "\n",
         "**Scenario picks carried over (\u00a75):** long-context single requests -> eviction/compression + KIMI; minimal modification -> Ada-KV/SnapKV/KIVI; high throughput -> PagedAttention/Oneiros/ShadowKV/FlexGen/Q-Hitter; edge -> InfiniPot/TailorKV; multi-turn -> RocketKV-MT/KVzip/ShadowKV (NOT H2O/FlexGen); prefill-heavy -> NACL/HashEvict/LayerKV/MiniCache/CLO; accuracy-critical -> hybrid memory (lossless); hardware-specific -> Oneiros/CLO (GH200 PCIe), INF2 (CSD), FlexGen (GPU+CPU+disk).\n",
         "\n",
-        "**Adaptations with consequences (documented, kept):** (1) harness captures Head.key/Head.value projection outputs; for Attn values whose final k/v diverge from those projections (mla, tpa, tokenformer) the captures are projection-level and the runner records that fidelity note; default-path (vanillaatten-class) captures are exact; (2) recent-window protection in H2O realizes the survey's stated recent+H2 balance; (3) InfiniPot CCD is keep-top-K by CaP+NuC at enforcement; (4) PALU weight factorization is modeled at cache level via SVD; (5) KVQuant NUQ levels are data quantiles; (6) LLA regression is the centered ridge form; the survey prints no LLA equations; (7) KIMI gates are untrained at smoke scale (paper trains them); the 3:1 hybrid and chunking are recorded, not run; (8) placer timing/rate constants are stand-ins; (9) harness has no RoPE: ShadowKV landmarks and KVQuant pre-RoPE notes use captured keys directly.\n"
+        "**Adaptations with consequences (documented, kept):** (1) harness captures Head.key/Head.value projection outputs; for Attn values whose final k/v diverge from those projections (mla, tpa, tokenformer) the captures are projection-level and the runner records that fidelity note; default-path (vanillaatten-class) captures are exact; (2) recent-window protection in H2O realizes the survey's stated recent+H2 balance; (3) InfiniPot CCD is keep-top-K by CaP+NuC at enforcement; (4) PALU weight factorization is modeled at cache level via SVD; (5) KVQuant NUQ levels are data quantiles; (6) LLA regression is the centered ridge form; the survey prints no LLA equations; (7) KIMI gates are untrained at small scale (paper trains them); the 3:1 hybrid and chunking are recorded, not run; (8) placer timing/rate constants are stand-ins; (9) harness has no RoPE: ShadowKV landmarks and KVQuant pre-RoPE notes use captured keys directly.\n"
       ]
     },
     {
@@ -9140,7 +9315,7 @@
         "    mag = 0.5 * (u.norm() + v.norm())\n",
         "    return mag * (w0 * un + w1 * vn), float(th)\n"
       ]
-    }
+    },
     @Impl::KVCacheEvict::none{
     {
       "cell_type": "code",
@@ -9156,8 +9331,8 @@
         "        T = int(scores.numel())\n",
         "        return _t27.arange(T)  # no eviction: the full-cache baseline\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::h2o{
     {
       "cell_type": "code",
@@ -9186,8 +9361,8 @@
         "        keep = _t27.cat([pool[top], recent])\n",
         "        return _t27.sort(keep).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::snapkv{
     {
       "cell_type": "code",
@@ -9222,8 +9397,8 @@
         "        ranked = sorted(keep, key=lambda i: (-float(votes[i]), i))\n",
         "        return _t27.sort(_t27.tensor(ranked[:budget], dtype=_t27.long)).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::nacl{
     {
       "cell_type": "code",
@@ -9253,8 +9428,8 @@
         "        pick = rest[_t27.randperm(rest.numel(), generator=g)[:n_rand]] if n_rand > 0 else rest[:0]\n",
         "        return _t27.sort(_t27.cat([top, pick])).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::infinipot{
     {
       "cell_type": "code",
@@ -9281,8 +9456,8 @@
         "        comb = acc + cap_lambda * nov\n",
         "        return _t27.sort(_t27.topk(comb, budget).indices).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::hashevict{
     {
       "cell_type": "code",
@@ -9311,8 +9486,8 @@
         "            ham = ham + (Hk != Hq).sum(-1)\n",
         "        return _t27.sort(_t27.topk(-ham.to(_t27.float), budget).indices).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::morphkv{
     {
       "cell_type": "code",
@@ -9339,8 +9514,8 @@
         "        keep = _t27.cat([top, _t27.arange(T - W, T)])\n",
         "        return _t27.sort(keep).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::rocketkv{
     {
       "cell_type": "code",
@@ -9385,8 +9560,8 @@
         "        keep = keep[:budget]\n",
         "        return _t27.sort(_t27.tensor(keep, dtype=_t27.long)).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::kvzip{
     {
       "cell_type": "code",
@@ -9409,8 +9584,8 @@
         "        imp = Smat.max(0).values if Smat is not None else scores\n",
         "        return _t27.sort(_t27.topk(imp, budget).indices).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheEvict::adakv{
     {
       "cell_type": "code",
@@ -9452,8 +9627,8 @@
         "    def select(self, scores, budget, **kw):\n",
         "        return self.select_layer([scores], budget, **kw)[0]\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheCompress::none{
     {
       "cell_type": "code",
@@ -9469,8 +9644,8 @@
         "        n = int(K.numel() + V.numel())\n",
         "        return K, V, {\"bytes\": n * 4, \"bits_per_elem\": 32, \"recon_k\": 0.0, \"recon_v\": 0.0}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheCompress::kivi{
     {
       "cell_type": "code",
@@ -9506,8 +9681,8 @@
         "        return Kh, Vh, {\"bytes\": nb, \"bits_per_elem\": bits, \"residual_frac\": W / max(1, T),\n",
         "                        \"recon_k\": rk, \"recon_v\": rv}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheCompress::kvquant{
     {
       "cell_type": "code",
@@ -9554,8 +9729,8 @@
         "                        \"sink_elems\": sink, \"recon_k\": float((K - Kh).norm() / (K.norm() + 1e-12)),\n",
         "                        \"recon_v\": float((V - Vh).norm() / (V.norm() + 1e-12))}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheCompress::minicache{
     {
       "cell_type": "code",
@@ -9600,8 +9775,8 @@
         "        return (K1h, V1h), (K2h, V2h), {\"bytes\": nb, \"merged_tokens\": n_merge,\n",
         "                \"merge_frac\": n_merge / max(1, T), \"recon_k\": rk, \"recon_v\": rv}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheCompress::palu{
     {
       "cell_type": "code",
@@ -9630,8 +9805,8 @@
         "                        \"recon_k\": float((K - Kh).norm() / (K.norm() + 1e-12)),\n",
         "                        \"recon_v\": float((V - Vh).norm() / (V.norm() + 1e-12))}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCachePlace::resident{
     {
       "cell_type": "code",
@@ -9649,8 +9824,8 @@
         "        full = 2 * spec[\"T\"] * spec[\"H\"] * spec[\"hs\"] * spec[\"bpe\"] * spec[\"L\"]\n",
         "        return {\"gpu_bytes\": full, \"cpu_bytes\": 0, \"xfer_bytes\": 0, \"ttft_factor\": 1.0}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCachePlace::paged{
     {
       "cell_type": "code",
@@ -9676,8 +9851,8 @@
         "                \"frag_ratio\": frag / max(1, alloc), \"table_bytes\": nb * per * table_entry,\n",
         "                \"gpu_bytes\": used, \"sharing\": \"copy-on-write block sharing enabled (policy flag)\"}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCachePlace::infinigen{
     {
       "cell_type": "code",
@@ -9713,8 +9888,8 @@
         "                \"oracle_recall\": rec, \"prefetched_mass\": mass,\n",
         "                \"gpu_bytes\": 0, \"cpu_bytes\": full}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCachePlace::layerkv{
     {
       "cell_type": "code",
@@ -9744,8 +9919,8 @@
         "                \"cpu_bytes\": (L - k) * layer_bytes, \"ttft\": ttft,\n",
         "                \"ttft_factor\": base / max(ttft, 1e-12), \"xfer_bytes\": (L - k) * layer_bytes}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCachePlace::inf2{
     {
       "cell_type": "code",
@@ -9768,8 +9943,8 @@
         "        return {\"kv_bytes\": kv, \"xfer_bytes\": moved, \"gpu_bytes\": moved,\n",
         "                \"kv_io_reduction\": 1.0 - moved / max(1, kv), \"storage\": \"CSD-resident KV (simulated)\"}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCachePlace::kvpr{
     {
       "cell_type": "code",
@@ -9794,8 +9969,8 @@
         "                \"stall_reduction\": 1.0 - leg / max(base, 1e-12),\n",
         "                \"gpu_bytes\": int(kv * (1.0 - b)), \"recomputed_bytes\": int(kv * b)}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCachePlace::oneiros{
     {
       "cell_type": "code",
@@ -9816,8 +9991,8 @@
         "        return {\"gpu_bytes\": kv, \"remapped_bytes\": int(extra),\n",
         "                \"capacity_gain\": extra / max(1, kv), \"effective_budget_mult\": 1.0 + extra / max(1, kv)}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCachePlace::clo{
     {
       "cell_type": "code",
@@ -9852,8 +10027,8 @@
         "                \"saving\": 1.0 - kept / max(1, full), \"xfer_bytes\": int(full - kept),\n",
         "                \"engine\": \"zero-copy (simulated, pcie_eff=%.2f)\" % pcie_eff}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -9982,7 +10157,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT runner: KV-cache end-to-end | Prefills ONE harness, then exercises every compiled-path policy it can find (registries auto-collected from globals so partial paths report skips instead of crashing) + the 4 attention heads vs softmax + 4 combination presets | emits outputs/kvcache_results.json | plain orchestrator cell, no Impl tag by design | Smoke-scale mechanism metrics (Eq.1-2 bytes, retained mass, output error, recon, policy stats); Table-6 magnitudes are recorded as paper-reported claims, never as smoke results.\n",
+        "# ALWAYS-PRESENT runner: KV-cache end-to-end | Prefills ONE harness, then exercises every compiled-path policy it can find (registries auto-collected from globals so partial paths report skips instead of crashing) + the 4 attention heads vs softmax + 4 combination presets | emits outputs/kvcache_results.json | plain orchestrator cell, no Impl tag by design | Small-scale mechanism metrics (Eq.1-2 bytes, retained mass, output error, recon, policy stats); Table-6 magnitudes are recorded as paper-reported claims, never as small-scale results.\n",
         "import torch as _t27\n",
         "import json as _j27\n",
         "import time as _time27\n",
@@ -10055,7 +10230,7 @@
         "    H = KVCacheHarness(model, budget=budget).prefill(ids)\n",
         "    acc = {k: c[\"S\"].sum(0) for k, c in H.cache.items()}\n",
         "    res = {\"paper\": \"arXiv:2603.20397\", \"seed\": seed, \"T\": H.T, \"budget\": budget,\n",
-        "           \"purpose\": \"smoke-scale mechanism metrics per policy (Eq.1-2 bytes, retained mass, \"\n",
+        "           \"purpose\": \"small-scale mechanism metrics per policy (Eq.1-2 bytes, retained mass, \"\n",
         "           \"output error, recon, policy stats); Table-6 magnitudes recorded as paper-reported \"\n",
         "           \"claims only\", \"skipped_not_in_path\": skipped}\n",
         "    erows = {}\n",
@@ -10237,7 +10412,7 @@
         "\n",
         "- **STACK:** Evict x Compress x Place compose freely (pipeline order evict->compress->place); any evictor/compressor/placer with any backbone, any vocab/scale/context, dense or bounded wiring (hooks read whatever the compiled Heads compute); attention Impls compose with every non-Attn axis (subclasses reuse the compiled projections).\n",
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run; one compressor per run; one placer per run; one Attn kernel per run (the four new values join vanillaatten/mqa/gqa/mla/dsa/tokenformer/tpa at the same Head site); encoder-decoder Arch crossed with the new Attn Impls has no Impl provided and is out of scope here.\n",
-        "- **NEVER-SAME-PATH:** eviction discards presented as lossless (every evictor reports retained mass AND output error; lossless claims belong to placers only, per Table 4); Table-6 magnitudes cited as smoke-scale evidence (smoke reports mechanism metrics; paper numbers are labeled claims); wall-clock speedups derived from placer stand-in constants (policy simulation, declared); compression quality at smoke scale presented as paper-scale accuracy (recon/output-error only).\n"
+        "- **NEVER-SAME-PATH:** eviction discards presented as lossless (every evictor reports retained mass AND output error; lossless claims belong to placers only, per Table 4); Table-6 magnitudes cited as small-scale evidence (the small-scale run reports mechanism metrics; paper numbers are labeled claims); wall-clock speedups derived from placer stand-in constants (policy simulation, declared); compression quality at small scale presented as paper-scale accuracy (recon/output-error only).\n"
       ]
     },
     {
@@ -10371,7 +10546,7 @@
         "\n",
         "**Adaptations with consequences (documented, kept):** (1) batch greedy max-degree codebook (paper Alg.1) instead of the repo's online pool; (2) Table-3 single thresholds, not per-layer schedules; (3) GQA-averaged scores (Eq.3) computed live on the gqa path; unfolding repeats KV h_n times before the codebook; (4) harness has no RoPE: codebook runs on captured projections directly (same note as \u00a727); (5) Eq.5 upper branch (alpha,1] recorded verbatim with its negative-retain anomaly flagged in graded; experiments use r<=0.45; (6) Eq.2 denominator (l-a) and Eq.3 (n-a) kept verbatim with notation notes.\n"
       ]
-    }
+    },
     @Impl::KVCacheEvict::spindlepyr{
     {
       "cell_type": "code",
@@ -10412,8 +10587,8 @@
         "        keep = _t27.cat([top, _t27.arange(lc, T)])\n",
         "        return _t27.sort(keep).values\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::KVCacheCompress::spindlecodebook{
     {
       "cell_type": "code",
@@ -10461,8 +10636,8 @@
         "                        \"recon_k\": float((K - Kh).norm() / (K.norm() + 1e-12)),\n",
         "                        \"recon_v\": float((V - Vh).norm() / (V.norm() + 1e-12))}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -10627,7 +10802,7 @@
         "    measurements[\"spindle\"][\"per_layer_r\"] = {str(k): v[\"r\"] for k, v in sp[\"per_head\"].items()}\n",
         "    gqa = spindle_gqa_check(gqa_model, ids, seed=seed) if gqa_model is not None else {\"skipped\": \"no gqa model passed\"}\n",
         "    res = {\"paper\": \"arXiv:2507.06517\", \"seed\": seed, \"T\": H.T, \"r\": r,\n",
-        "           \"purpose\": \"smoke-scale mechanism measurement sets (mass/error/bytes/Eq.15 rows); paper magnitudes are reported claims only\",\n",
+        "           \"purpose\": \"small-scale mechanism measurement sets (mass/error/bytes/Eq.15 rows); paper magnitudes are reported claims only\",\n",
         "           \"measurements\": measurements, \"gqa\": gqa, \"seconds\": round(_time28.time() - t0, 1)}\n",
         "    _P28(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P28(out_path).write_text(_j28.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
@@ -10671,7 +10846,7 @@
         "\n",
         "- **STACK:** spindlepyr with any backbone/vocab/scale/context/interface wiring (hooks read whatever the compiled Heads compute); spindlecodebook after any evictor (operates on survivors); preset composes both per layer; gqa check beside (not inside) the harness.\n",
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run (spindlepyr joins the \u00a727 Evict axis); one compressor per run (spindlecodebook joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impls has no Impl provided and is out of scope here.\n",
-        "- **NEVER-SAME-PATH:** codebook recon presented as lossless (recon error always reported; magnitudes are the exactness mechanism); LongBench/needle magnitudes cited as smoke-scale evidence (smoke reports mass/error/bytes; paper numbers are labeled claims); Eq.5 upper-branch schedule used as-is (experiments stay in the lower branch; the anomaly is flagged, not patched).\n"
+        "- **NEVER-SAME-PATH:** codebook recon presented as lossless (recon error always reported; magnitudes are the exactness mechanism); LongBench/needle magnitudes cited as small-scale evidence (the small-scale run reports mass/error/bytes; paper numbers are labeled claims); Eq.5 upper-branch schedule used as-is (experiments stay in the lower branch; the anomaly is flagged, not patched).\n"
       ]
     },
     {
@@ -10739,7 +10914,7 @@
         "\n",
         "**Adaptations with consequences (documented, kept):** (1) batch ZIP merging with explicit vote vectors (paper Alg.1 loop) instead of the repo's sketch-attention fork; (2) EMA predicted scores arrive as an argument (harness scores), the alpha/window as parameters; exact-score calls reproduce Thm.3 losslessness; (3) periodic external-store bytes counted exactly, reload timing labeled stand-in; (4) harness has no RoPE: merging runs on captured projections directly (same note as \u00a727/28); (5) CaM comparison (App C.2) recorded in relations, not reimplemented.\n"
       ]
-    }
+    },
     @Impl::KVCacheCompress::keepkv{
     {
       "cell_type": "code",
@@ -10818,8 +10993,8 @@
         "                        \"recon_k\": float((K - Khf).norm() / (K.norm() + 1e-12)),\n",
         "                        \"recon_v\": float((V - Vhf).norm() / (V.norm() + 1e-12))}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -10977,7 +11152,7 @@
         "    measurements[\"periodic\"] = dict({\"paper_claim\": \"headline scheme: external full store + reloads (policy simulation)\"},\n",
         "                            **keepkv_periodic_plan(spec))\n",
         "    res = {\"paper\": \"arXiv:2504.09936\", \"seed\": seed, \"T\": H.T, \"budget\": budget,\n",
-        "           \"purpose\": \"smoke-scale mechanism measurement sets (mass/error/bytes/sag); paper magnitudes are reported claims only\",\n",
+        "           \"purpose\": \"small-scale mechanism measurement sets (mass/error/bytes/sag); paper magnitudes are reported claims only\",\n",
         "           \"measurements\": measurements, \"seconds\": round(_time29.time() - t0, 1)}\n",
         "    _P29(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P29(out_path).write_text(_j29.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
@@ -11022,7 +11197,7 @@
         "\n",
         "- **STACK:** keepkv after any evictor (takes keep/evict sets as input); with any backbone/vocab/scale/context/interface wiring; periodic plan beside any placer (external vs tiered residency are different stores).\n",
         "- **ALTERNATIVE (pick 1 per run):** one compressor per run (keepkv joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
-        "- **NEVER-SAME-PATH:** merged cache presented as lossless without the vote-weighted scoring (losslessness holds under p-weighted attention only; plain recon error is reported alongside); Table-1/2 magnitudes cited as smoke-scale evidence (smoke reports mass/error/bytes/sag; paper numbers are labeled claims); bound cited as a live guarantee (measured Theta under the computed bound, not paper-scale coverage).\n"
+        "- **NEVER-SAME-PATH:** merged cache presented as lossless without the vote-weighted scoring (losslessness holds under p-weighted attention only; plain recon error is reported alongside); Table-1/2 magnitudes cited as small-scale evidence (the small-scale run reports mass/error/bytes/sag; paper numbers are labeled claims); bound cited as a live guarantee (measured Theta under the computed bound, not paper-scale coverage).\n"
       ]
     },
     {
@@ -11105,9 +11280,9 @@
         "| Sliding-window composition (Table 4) | arXiv:2405.03917 \u00a74.2 | plain runner leg (no axis) | none |\n",
         "| BPA accounting (App F) | arXiv:2405.03917 App F | plain byte math (no axis) | none |\n",
         "\n",
-        "**Adaptations with consequences (documented, kept):** (1) Lloyd k-means (uniform/Fisher) instead of the paper's GPU k-means++100-iter runs - same objectives, smoke iteration counts; (2) Fisher grads from one last-token backward on harness captures (paper: calibration-set Fisher); (3) BPA table term uses the live context length (paper amortizes at T=65536); (4) harness has no RoPE: coupled groups run on captured projections directly; (5) kernel-fusion/shared-memory throughput claims stay paper-reported (policy note, not measured).\n"
+        "**Adaptations with consequences (documented, kept):** (1) Lloyd k-means (uniform/Fisher) instead of the paper's GPU k-means++100-iter runs - same objectives, reduced iteration counts; (2) Fisher grads from one last-token backward on harness captures (paper: calibration-set Fisher); (3) BPA table term uses the live context length (paper amortizes at T=65536); (4) harness has no RoPE: coupled groups run on captured projections directly; (5) kernel-fusion/shared-memory throughput claims stay paper-reported (policy note, not measured).\n"
       ]
-    }
+    },
     @Impl::KVCacheCompress::coupledquant{
     {
       "cell_type": "code",
@@ -11186,8 +11361,8 @@
       "                        \"recon_k\": float((K - Kh).norm() / (K.norm() + 1e-12)),\n",
       "                        \"recon_v\": float((V - Vh).norm() / (V.norm() + 1e-12))}\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -11310,7 +11485,7 @@
       "                             \"codes_used\": float(sum(cu) / max(1, len(cu))),\n",
       "                             \"out_err\": float(sum(oerr) / max(1, len(oerr)))}\n",
       "    res = {\"paper\": \"arXiv:2405.03917\", \"seed\": seed, \"T\": H.T,\n",
-      "           \"purpose\": \"smoke-scale mechanism measurement sets (recon/bytes/BPA); paper magnitudes are reported claims only\",\n",
+      "           \"purpose\": \"small-scale mechanism measurement sets (recon/bytes/BPA); paper magnitudes are reported claims only\",\n",
       "           \"measurements\": measurements, \"seconds\": round(_time30.time() - t0, 1)}\n",
       "    _P30(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
       "    _P30(out_path).write_text(_j30.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
@@ -11355,7 +11530,7 @@
         "\n",
         "- **STACK:** coupledquant after any evictor (operates on survivors); with any backbone/vocab/scale/context/interface wiring; Fisher grads from any backward; sliding-window leg beside any placer.\n",
         "- **ALTERNATIVE (pick 1 per run):** one compressor per run (coupledquant joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
-        "- **NEVER-SAME-PATH:** centroid tables presented as free (table bytes always counted; App-F term uses live context); paper PPL/accuracy cited as smoke-scale evidence (smoke reports recon/bytes/BPA; paper numbers are labeled claims); Fisher live gain presented as paper-scale PPL gain (smoke reports weighted-objective convergence + recon deltas).\n"
+        "- **NEVER-SAME-PATH:** centroid tables presented as free (table bytes always counted; App-F term uses live context); paper PPL/accuracy cited as small-scale evidence (the small-scale run reports recon/bytes/BPA; paper numbers are labeled claims); Fisher live gain presented as paper-scale PPL gain (the small-scale run reports weighted-objective convergence + recon deltas).\n"
       ]
     },
     {
@@ -11444,7 +11619,7 @@
         "\n",
         "**Adaptations with consequences (documented, kept):** (1) key-state cosine proxy for segment/query embeddings (paper: Qwen3-0.6B fembed); Eq.6 medoid exact on the proxy; (2) sensitivity from capture-recomputed budget-masked attention drift, not custom-mask forwards (paper Eq.8); same Eq.9-10 math; (3) block loop replays positions through recorded scores (peak M+Mblock exact by construction); (4) harness has no RoPE: episode means use captured keys directly.\n"
       ]
-    }
+    },
     @Impl::KVCacheEvict::episodic{
     {
       "cell_type": "code",
@@ -11482,8 +11657,8 @@
         "            return [M] * L\n",
         "        return [x / tot * L * M for x in w]\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -11619,7 +11794,7 @@
         "                           \"sensitivities\": sens, \"allocation\": alloc,\n",
         "                           \"sums_ok\": bool(abs(sum(alloc) - H.n_layers * budget) < 1e-6)}\n",
         "    res = {\"paper\": \"arXiv:2509.17396\", \"seed\": seed, \"T\": H.T, \"budget\": budget,\n",
-        "           \"purpose\": \"smoke-scale mechanism measurement sets (mass/error/bytes/peak/allocation); paper magnitudes are reported claims only\",\n",
+        "           \"purpose\": \"small-scale mechanism measurement sets (mass/error/bytes/peak/allocation); paper magnitudes are reported claims only\",\n",
         "           \"measurements\": measurements, \"seconds\": round(_time31.time() - t0, 1)}\n",
         "    _P31(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P31(out_path).write_text(_j31.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
@@ -11666,7 +11841,7 @@
         "\n",
         "- **STACK:** episodic after any backbone/vocab/scale/context/interface wiring (hooks read whatever the compiled Heads compute); block loop around any evictor (peak bound is structural); sensitivity allocation over any layer count; episode caches beside any placer (resident vs offloaded are different stores).\n",
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run (episodic joins the \u00a727 Evict axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
-        "- **NEVER-SAME-PATH:** episode caches presented as lossless (matched mass + output error always reported; full-cache parity belongs to the none baseline); LongConvQA magnitudes cited as smoke-scale evidence (smoke reports mass/error/bytes/peak; paper numbers are labeled claims); key-similarity proxy presented as fembed equivalence (proxy documented as stand-in, medoid math exact).\n"
+        "- **NEVER-SAME-PATH:** episode caches presented as lossless (matched mass + output error always reported; full-cache parity belongs to the none baseline); LongConvQA magnitudes cited as small-scale evidence (the small-scale run reports mass/error/bytes/peak; paper numbers are labeled claims); key-similarity proxy presented as fembed equivalence (proxy documented as stand-in, medoid math exact).\n"
       ]
     },
     {
@@ -11976,7 +12151,7 @@
         "    cls = loop_registry().get(name)\n",
         "    return cls(**hp) if cls is not None else None\n"
       ]
-    }
+    },
     @Impl::DepthLoop::none{
     {
       "cell_type": "code",
@@ -11998,8 +12173,8 @@
         "    def update(self, w, x, y):\n",
         "        return y\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::naiveloop{
     {
       "cell_type": "code",
@@ -12022,8 +12197,8 @@
         "    def update(self, w, x, y):\n",
         "        return y\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::dampedeuler{
     {
       "cell_type": "code",
@@ -12048,8 +12223,8 @@
         "        step = w.h / max(1, w.K)\n",
         "        return x + step * (y - x)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::rkmidpoint{
     {
       "cell_type": "code",
@@ -12072,8 +12247,8 @@
         "        mid = x + 0.5 * w.h * (y - x)\n",
         "        return x + w.h * (w.g(mid) - mid)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::rkheun{
     {
       "cell_type": "code",
@@ -12099,8 +12274,8 @@
         "        k2 = w.g(xp) - xp\n",
         "        return x + 0.5 * w.h * (k1 + k2)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::rk4{
     {
       "cell_type": "code",
@@ -12131,8 +12306,8 @@
         "        k4 = w.g(x4) - x4\n",
         "        return x + (h / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::heavygball{
     {
       "cell_type": "code",
@@ -12164,8 +12339,8 @@
         "        self.prev = x\n",
         "        return nxt\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::anderson{
     {
       "cell_type": "code",
@@ -12207,8 +12382,8 @@
         "        return ((1 - self.beta) * (x - (fX @ gam).reshape(x.shape))\n",
         "                + self.beta * (y - (fF @ gam).reshape(x.shape)))\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::aitken{
     {
       "cell_type": "code",
@@ -12237,8 +12412,8 @@
         "        xn = x - (d1 * d1) / den\n",
         "        return _t32.minimum(_t32.maximum(xn, x - d1), x + d1)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::normstab{
     {
       "cell_type": "code",
@@ -12269,8 +12444,8 @@
         "        cur = float(xn.norm()) / max(1, xn.numel())\n",
         "        return xn * (tgt / cur) if cur > 0 else xn\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::polyblend{
     {
       "cell_type": "code",
@@ -12302,8 +12477,8 @@
         "        ww = self.weights[k] if k < len(self.weights) else self.weights[-1]\n",
         "        return x + float(ww) * (y - x)\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::DepthLoop::blockanchored{
     {
       "cell_type": "code",
@@ -12344,8 +12519,8 @@
         "            return self.beta * self.anchor + (1.0 - self.beta) * self.acc\n",
         "        return self.acc\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::LoopMode::blockmode{
     {
       "cell_type": "code",
@@ -12366,8 +12541,8 @@
         "    def gate_per_iteration(self):\n",
         "        return True\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::LoopMode::layermode{
     {
       "cell_type": "code",
@@ -12390,8 +12565,8 @@
         "    def gate_per_iteration(self):\n",
         "        return False\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::LoopCache::none{
     {
       "cell_type": "code",
@@ -12414,8 +12589,8 @@
         "    def apply(self, sim, a, b):\n",
         "        return sim.stash(a, b, \"none\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::LoopCache::first{
     {
       "cell_type": "code",
@@ -12436,8 +12611,8 @@
         "    def apply(self, sim, a, b):\n",
         "        return sim.stash(a, b, \"first\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::LoopCache::last{
     {
       "cell_type": "code",
@@ -12457,8 +12632,8 @@
         "    def apply(self, sim, a, b):\n",
         "        return sim.stash(a, b, \"last\")\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::LoopDecode::bypass{
     {
       "cell_type": "code",
@@ -12479,8 +12654,8 @@
         "    def should_loop(self, seq_len, step):\n",
         "        return seq_len > 1\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::LoopDecode::full{
     {
       "cell_type": "code",
@@ -12501,8 +12676,8 @@
         "    def should_loop(self, seq_len, step):\n",
         "        return True\n"
       ]
-    }
-    }@},
+    },
+    }@}
     @Impl::LoopDecode::firstn{
     {
       "cell_type": "code",
@@ -12524,8 +12699,8 @@
         "    def should_loop(self, seq_len, step):\n",
         "        return seq_len > 1 or step < self.n_first\n"
       ]
-    }
-    }@},
+    },
+    }@}
     {
       "cell_type": "code",
       "execution_count": null,
@@ -12738,7 +12913,7 @@
         "           \"strategy\": strategy, \"mode\": mode, \"cache\": cache, \"decode\": decode,\n",
         "           \"window\": [a, b], \"center_frac\": round((a + b) / 2.0 / n, 4),\n",
         "           \"n_layers\": n,\n",
-        "           \"purpose\": \"smoke-scale mechanism measurement sets (parity/identity/trajectory/deviation/routing/KV/geometry); paper magnitudes are reported claims only\",\n",
+        "           \"purpose\": \"small-scale mechanism measurement sets (parity/identity/trajectory/deviation/routing/KV/geometry); paper magnitudes are reported claims only\",\n",
         "           \"measurements\": measurements, \"seconds\": round(_t32t.time() - t0, 1)}\n",
         "    _P32(out_path).parent.mkdir(parents=True, exist_ok=True)\n",
         "    _P32(out_path).write_text(_j32.dumps(res, indent=2, default=str), encoding=\"utf-8\")\n",
@@ -12785,7 +12960,7 @@
         "\n",
         "- **STACK:** the loop wrapper after any backbone/vocab/scale/context/interface wiring (it re-runs whatever blocks the compiled path built); any DepthLoop value with either LoopMode; either LoopMode with any window width and any K; any KV-cache policy underneath a LoopCache::first/last wrapper (the stash pass is where those writes happen); any placer (resident vs paged is orthogonal to a call schedule).\n",
         "- **ALTERNATIVE (pick 1 per run):** one DepthLoop value per run (all 12 join the new axis); one LoopMode per run; either K=1 (parity) or a looped run; cache=none is an ablation and never a deployment choice.\n",
-        "- **NEVER-SAME-PATH:** a looped forward described as trained or fine-tuned (no parameter changes anywhere in this section); paper accuracy deltas cited as smoke-scale evidence (smoke reports logit deviation, routing churn, KV accounting and call counts); LoopMode::layermode claimed to equal block-mode at window width > 1 (they coincide only at width 1); the snapshot/restore protocol claimed to be free (it is allocation-free but not free of compute); the paper's Alg.3 as printed treated as identical to Eq. (16) (K-1 vs K sub-steps, recorded in graded 19)."
+        "- **NEVER-SAME-PATH:** a looped forward described as trained or fine-tuned (no parameter changes anywhere in this section); paper accuracy deltas cited as small-scale evidence (the small-scale run reports logit deviation, routing churn, KV accounting and call counts); LoopMode::layermode claimed to equal block-mode at window width > 1 (they coincide only at width 1); the snapshot/restore protocol claimed to be free (it is allocation-free but not free of compute); the paper's Alg.3 as printed treated as identical to Eq. (16) (K-1 vs K sub-steps, recorded in graded 19)."
       ]
     },
     {

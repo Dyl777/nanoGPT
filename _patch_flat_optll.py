@@ -304,7 +304,7 @@ insert = (
 s = s[:cell_start] + insert + s[cell_start:]
 print("inserted grokking call")
 
-# RiLM call after run_rilm_smoke_comparison cell (before compatibility markdown)
+# RiLM call after run_rilm_small_comparison cell (before compatibility markdown)
 rilm_mark = '        "### Compatibility: RiLM:'
 idx = s.find(rilm_mark)
 if idx < 0:
@@ -312,11 +312,11 @@ if idx < 0:
 cell_start = s.rfind("    {\n      \"cell_type\": \"markdown\"", 0, idx)
 insert = (
     md_cell(
-        "### RiLM live geodesic vs linear smoke + PPL curve\n"
+        "### RiLM live geodesic vs linear small-scale + PPL curve\n"
         "\n"
         "Paper Table I: delete Wout, tie the geodesic head to the embedding table. "
         "Incompatible with a separate untied copy (NEVER). `GeodesicHead` has no `out_features`; "
-        "the smoke runner already uses `vocab_sz` as the compatible stand-in."
+        "the small-scale runner already uses `vocab_sz` as the compatible stand-in."
     )
     + ",\n"
     + code_cell(
