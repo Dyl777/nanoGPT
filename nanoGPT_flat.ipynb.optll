@@ -2764,7 +2764,8 @@
         "- **vs KVCache survey + SpindleKV/KeepKV/CQ/EpiCache (arXiv:2603.20397, s27-31): STACK with a shared knob.** Dust reads rewards from whatever forward ran - under a KV policy the reward signal is exactly the policy's belief, so the cosine ladder under each @Impl is a cheap selector for which compressions stay trainable. Pick one policy per run as usual; nothing conflicts.\n",
         "**vs Loop decode (arXiv:2605.23872, s32): STACK (the paper's own future-work hook).** Dust defers to \"transformers looped over many steps that backpropagation through time struggles to train\"; the notebook has s32's LoopWrapper and s26's gradient-region partition - Train::dust over a looped forward is the experiment both papers ask for and neither ran.\n",
         "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): the crown relation, detailed in the foundation note below.** Dust consumes the first paper's forward and never builds its backward.",
-        "- **vs Subspace Tuning (arXiv:2610.22293, s34): the file's second direct contrast pair, now wired.** Dust deletes the backward; SST keeps it and edits the produced update. Update::sst now follows the Train axis at the live cell (backprop, or Dust's estimator), so Train::dust + Update::sst is a compiled path - forward-only pretraining plus forgetting-proof fine-tuning - and stays untested at paper scale by design.\n"
+        "- **vs Subspace Tuning (arXiv:2610.22293, s34): the file's second direct contrast pair, now wired.** Dust deletes the backward; SST keeps it and edits the produced update. Update::sst now follows the Train axis at the live cell (backprop, or Dust's estimator), so Train::dust + Update::sst is a compiled path - forward-only pretraining plus forgetting-proof fine-tuning - and stays untested at paper scale by design.\n",
+        "- **vs Mehri (arXiv:2610.22300, s35): Mehri fine-tunes all weights with standard backprop; Dust replaces the backward with a forward-only gradient estimator - Mehri relabel-and-generalize protocol is gradient-agnostic: its fine-tuning step re-runs on Train::dust with only the estimator swapped, and Mehri held-out generalization stays gradient-free at measurement time.**\\n"
       ]
     },
     {
@@ -3875,7 +3876,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: LayerMix (arXiv:2608.28930, s10-12) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: LayerMix (arXiv:2608.28930, s10-12) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Probe directions get an update-axis audit.** The probes read frozen states; Update::sst edits weights in place and its leak metric reports how much of the applied step leaves the protected subspace - re-probe after fine-tune asks whether the directions the probes rely on survived.\n",
         "\n",
@@ -4529,6 +4530,7 @@
         "\n",
         "Eq.(1) is already `Attn::vanillaatten`. This cell **calls** `nanogpt_pipeline.run_attention_pipeline` (not `graded/arxiv_llm_lib`): Eq.(3) LR curve, Table-1 cost on live dims, Table-3 head/depth PPL, Sec.3.5 sinusoidal vs learned PE, label smoothing, generation BLEU on Shakespeare. WMT BLEU stays a labeled claim.\n",
         "\n",
+        "Additive s35 note (arXiv:2610.22300): Mehri Pre-linearity probe reads relational answers linearly from transformer subject states - the linear-decodability premise Attention-era probing assumes; Mehri shows it predicts generalization after fine-tuning, not just recall, turning the first paper's maps into a predictability measurement.\\n"
         "Additive s34 note (arXiv:2610.22293): from this paper's perspective, Subspace Tuning projects exactly the Linears defined here (q/k/v, attn c_proj, MLP fc1/fc2), so the first paper's maps can now be fine-tuned without moving their leading singular directions; with the LayerMix/SharedCircuits probes and the per-Impl leak metric, the collective turns 'did fine-tuning keep these maps intact?' into a measurement.\n"
       ]
     },
@@ -4552,6 +4554,7 @@
         "\n",
         "GLUE/SQuAD numbers stay in `graded/`. Here we measure the identity BERT added on this architecture: bidirectional encoder self-attn sees future tokens; the causal decoder does not. On `Arch::encoderdecoder` the encoder stack is the BERT-like path; on decoder-only the comparison is the causal mask vs an unmasked softmax of the same scores.\n",
         "\n",
+        "Additive s35 note (arXiv:2610.22300): Mehri Pretrained-relation recall is candidate accuracy on masked factual knowledge - BERT's pretrain-then-recall paradigm extended: whether BERT recalled facts can be built on into new relations, measured by held-out generalization after fine-tuning on relabeled answers.\\n"
         "Additive s34 note (arXiv:2610.22293): BERT's pretrain-then-finetune paradigm is where forgetting bites; Update::sst makes encoder fine-tuning (MLM/NSP to GLUE) forgetting-proof with no architecture change, and BERT (Devlin et al. [16]) remains SST's only in-repo foundation citation - the Attention maps above stay the substrate every projection touches.\n"
       ]
     },
@@ -5128,7 +5131,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: SABER (arXiv:2608.27963, s13) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: SABER (arXiv:2608.27963, s13) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Exit signals become a protected site.** Update::sst can fine-tune the model behind the exit while the protected top-r subspace covers the early-exit signals - exit stability before/after is a well-posed test the paper never had.\n",
         "\n",
@@ -5660,7 +5663,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: ConvMem (arXiv:2609.10441, s15) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: ConvMem (arXiv:2609.10441, s15) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Recall survives adaptation by design.** NIAH recall is inference-only over the hierarchy; a forgetting-proof fine-tune (Update::sst) plus the retention delta answers the paper's open 'does recall survive adaptation' question.\n",
         "\n",
@@ -5955,7 +5958,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: Grokking (arXiv:2609.10657, s14/s16) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: Grokking (arXiv:2609.10657, s14/s16) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **The generalizing circuit gets a measuring stick.** Running s16's full-batch recipes under Update::sst + Pi reads whether the generalizing circuit lives in the protected top-r subspace; s23's AP selection before/after makes the claim causal.\n",
         "\n",
@@ -6371,7 +6374,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: RiLM (arXiv:2609.10305, s19) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: RiLM (arXiv:2609.10305, s19) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **The readout inherits a stable subspace.** sst_sites excludes head/embedding weights, so a fine-tune under Update::sst leaves the geodesic readout's matrices untouched - free stability for the decoding path.\n",
         "\n",
@@ -6728,7 +6731,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: WRP (arXiv:2609.09883, s20) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: WRP (arXiv:2609.09883, s20) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **The protected basis is a pruning criterion.** WRP's forward-free redundancy and s34's energy-outside-top-r ordering rank the same matrices' directions; prune-then-SST and SST-then-prune are both well-defined and unclaimed.\n",
         "\n",
@@ -7130,7 +7133,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: TASCO (arXiv:2609.11393, s21) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: TASCO (arXiv:2609.11393, s21) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Weights can move without the prefix.** Update::sst adapts weights while the prefix stays whatever the path defines; a TASCO-adapted prefix plus an SST-projected update is the natural two-site recipe - name the moving site per run.\n",
         "\n",
@@ -7437,7 +7440,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: Ignorance (arXiv:2609.02959, s22) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: Ignorance (arXiv:2609.02959, s22) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Calibration survival becomes predictable.** The SST retention delta predicts how much of the temperature/calibration structure survives fine-tuning - a direct cross-check neither section had.\n",
         "\n",
@@ -8538,7 +8541,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: SharedCircuits (arXiv:2609.04463, s23) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: SharedCircuits (arXiv:2609.04463, s23) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **The observational claim becomes an intervention.** Run the same AP selection before/after Update::sst: does the projected update leave the selected circuit's weights intact? Pi is the intervention AP gradients only observe.\n",
         "\n",
@@ -8901,7 +8904,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: ImplicitPatch (arXiv:2511.17864, s25) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: ImplicitPatch (arXiv:2511.17864, s25) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Patch inside the free complement.** Each implicit rank-1 patch (compile-time reparameterization + runtime merge) can be projected with Pi so context-as-update spends energy only outside the protected subspace - context fine-tuning that does not forget.\n",
         "\n",
@@ -9821,7 +9824,7 @@
       "cell_type": "markdown",
       "metadata": {},
       "source": [
-        "### Backprop: LBI (arXiv:2605.09204, s26) x later papers up to 2610.22293 (additive back-links; no prior lines changed)\n",
+        "### Backprop: LBI (arXiv:2605.09204, s26) x later papers up to 2610.22300 (additive back-links; no prior lines changed)\n",
         "\n",
         "- **Same backward, extra protection.** LBI parallelizes the scan through latent bounded interfaces; SST leaves the scan alone and projects the step - and the bounded-interface chain's matrices are a natural extra sst_sites region.\n",
         "\n",
@@ -11091,6 +11094,7 @@
         "- **vs LBI (arXiv:2605.09204, s26): STACK (kept).** s26 groups layers into regions for scan-parallel backward; LayerKV tiers layers for residency - regions and tiers are the same grouping instinct applied to gradients vs memory [see backprop: region-partitioned budgets].\n",
         "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** Vaswani 2017 is cited by the survey itself (foundation, not a runtime surface); Eq.3-5 are its scaled dot-product form.\n",
         "- **vs Subspace Tuning (arXiv:2610.22293, s34): STACK (shared knob).** KV policies compress the generated forward; SST edits the training update. Fine-tuning under each @Impl changes the forward the projections see, so leak/retention per policy is a compression/trainability selector; the pipeline order (evict->compress->place) becomes a per-path readout with Pi.\n",
+        "- **vs Mehri (arXiv:2610.22300, s35): Mehri fine-tunes every weight; KV policies compress inference state without touching weights - Mehri active facts live in parameters the survey caches never see; orthogonal stages (training-time generalization vs inference-time compression).**\\n",
         "\n",
         "- **STACK:** Evict x Compress x Place compose freely (pipeline order evict->compress->place); any evictor/compressor/placer with any backbone, any vocab/scale/context, dense or bounded wiring (hooks read whatever the compiled Heads compute); attention Impls compose with every non-Attn axis (subclasses reuse the compiled projections).\n",
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run; one compressor per run; one placer per run; one Attn kernel per run (the four new values join vanillaatten/mqa/gqa/mla/dsa/tokenformer/tpa at the same Head site); encoder-decoder Arch crossed with the new Attn Impls has no Impl provided and is out of scope here.\n",
@@ -11526,6 +11530,7 @@
         "- **vs KVCache survey (arXiv:2603.20397, s27): STACK (kept, closest kin).** SpindleKV instantiates the survey's families: pyramid eviction beside H2O/SnapKV/AdaKV (same accumulated-score site, new schedule), codebook beside MiniCache (merge) and KVzip (reconstruction) with magnitudes beside KIVI/KVQuant (exactness side), GQA-unfold beside the survey's GQA notes. Table-6-style claims stay labeled reported.\n",
         "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** Eq.1 attention form is Vaswani 2017 (foundation, not a runtime surface).\n",
         "- **vs Subspace Tuning (arXiv:2610.22293, s34): STACK (sibling at two sites).** The pyramid/codebook depth split defines what the fine-tuned forward sees; the codebook's cosine-graph entries and Pi's singular basis are two energy orderings of the same weights, and the leak per depth regime is the fine-tune-stability selector both papers lack.\n",
+        "- **vs Mehri (arXiv:2610.22300, s35): SpindleKV pyramid evicts by depth; Mehri nested CV picks one probe layer per relation - both answer which layer holds the knowledge, one for eviction, one for readability measurement.**\\n",
         "\n",
         "- **STACK:** spindlepyr with any backbone/vocab/scale/context/interface wiring (hooks read whatever the compiled Heads compute); spindlecodebook after any evictor (operates on survivors); preset composes both per layer; gqa check beside (not inside) the harness.\n",
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run (spindlepyr joins the \u00a727 Evict axis); one compressor per run (spindlecodebook joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impls has no Impl provided and is out of scope here.\n",
@@ -11878,6 +11883,7 @@
         "- **vs SpindleKV (arXiv:2507.06517, s28): STACK (kept, sibling).** Codebook replacement (s28, direction+magnitude entries) vs vote-weighted merging (s29, history-weighted entries): two answers to eviction loss, composable per layer (pyramid sets feed ZIP merges).\n",
         "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** Eq.1-3 attention form is Vaswani 2017 (foundation, not a runtime surface). App C.2 (CaM comparison) recorded here, not reimplemented.\n",
         "- **vs Subspace Tuning (arXiv:2610.22293, s34): STACK (lossless cache + forgetting-proof update).** ZIP merging is single-step lossless for the forward; SST is lossless for prior capabilities by construction. Merge-then-SST / SST-then-merge are clean pairs, and the vote-aware post-merge forward makes the leak per evictor pairing directly measurable.\n",
+        "- **vs Mehri (arXiv:2610.22300, s35): KeepKV vote-weights surviving cache entries; Mehri aggregates fine-tuning subjects per shared pretrained answer - subject->answer voting at training time vs entry->survival voting at inference time.**\\n",
         "\n",
         "- **STACK:** keepkv after any evictor (takes keep/evict sets as input); with any backbone/vocab/scale/context/interface wiring; periodic plan beside any placer (external vs tiered residency are different stores).\n",
         "- **ALTERNATIVE (pick 1 per run):** one compressor per run (keepkv joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
@@ -12212,6 +12218,7 @@
         "- **vs KeepKV (arXiv:2504.09936, s29): STACK (kept, sibling).** Vote-weighted merging vs grouped quantization: history weights vs channel codes; merge-then-quantize composes per head.\n",
         "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** Scaled dot-product form is Vaswani 2017 (foundation, not a runtime surface).\n",
         "- **vs Subspace Tuning (arXiv:2610.22293, s34): STACK (one backward feeds both).** The Fisher-weighted variant (Eq.6) needs activation grads; the same pass forms SST's update, so one calibration step serves both. Fine-tuning under the quantized cache then asks whether 1-bit KV interacts with the protected weight subspace - neither paper asked.\n",
+        "- **vs Mehri (arXiv:2610.22300, s35): CQ compresses the KV cache with grouped centroid codes; Mehri compresses subject states to 16 PCA-whitened dimensions before probing - representation compression at inference time vs at measurement time.**\\n",
         "\n",
         "- **STACK:** coupledquant after any evictor (operates on survivors); with any backbone/vocab/scale/context/interface wiring; Fisher grads from any backward; sliding-window leg beside any placer.\n",
         "- **ALTERNATIVE (pick 1 per run):** one compressor per run (coupledquant joins the \u00a727 Compress axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
@@ -12524,6 +12531,7 @@
         "- **vs CQ (arXiv:2405.03917, s30): STACK (kept, sibling).** Grouped channel codes vs grouped topic caches: channel groups vs episode groups; quantize-then-partition composes (paper's own future work: quantization into episodic caches).\n",
         "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** Cross-attention scoring form is Vaswani 2017 (foundation, not a runtime surface).\n",
         "- **vs Subspace Tuning (arXiv:2610.22293, s34): STACK (episodic forward + layer readout).** Fine-tuning under the episodic preset makes the retention delta per-episode; the sensitivity s=1-sigma ordering and SST's singular-value energy are two layer-importance orderings - a free joint diagnostic.\n",
+        "- **vs Mehri (arXiv:2610.22300, s35): EpiCache allocates KV budget per topic block; Mehri splits subjects into fine-tuning T and held-out H - subset selection for inference budget vs generalization measurement.**\\n",
         "\n",
         "- **STACK:** episodic after any backbone/vocab/scale/context/interface wiring (hooks read whatever the compiled Heads compute); block loop around any evictor (peak bound is structural); sensitivity allocation over any layer count; episode caches beside any placer (resident vs offloaded are different stores).\n",
         "- **ALTERNATIVE (pick 1 per run):** one evictor per run (episodic joins the \u00a727 Evict axis); encoder-decoder Arch crossed with the new Impl has no Impl provided and is out of scope here.\n",
@@ -13644,6 +13652,7 @@
         "- **vs EpiCache (arXiv:2509.17396, s31): STACK (closest kin overall).** EpiCache partitions history by topic and allocates KV budgets by sensitivity; this paper partitions DEPTH by a fixed fraction and spends extra forward passes. EpiCache's layer-scope allocation and the loop window both act per layer - compose, but never merge the two axes.\n",
         "- **vs Attention (arXiv:1706.03762) + BERT (arXiv:1810.04805, graded-only): STACK (expected).** The residual/Euler view reads the pre-norm block of Vaswani 2017 as a foundation; no attention-score rule is changed.\n",
         "- **vs Subspace Tuning (arXiv:2610.22293, s34): STACK (the hook both papers name).** Update::sst over a LoopWrapper window stabilises fine-tuning of a looped window exactly as SST stabilises SFT; DepthLoop and Update are separate axes and the joint run is unclaimed.\n",
+        "- **vs Mehri (arXiv:2610.22300, s35): Looped generalizes through repeated forward passes without weight updates; Mehri generalizes after fine-tuning with weight updates - Mehri held-out test is Looped-style evaluation with a weight-change step inserted.**\\n",
         "\n",
         "- **STACK:** the loop wrapper after any backbone/vocab/scale/context/interface wiring (it re-runs whatever blocks the compiled path built); any DepthLoop value with either LoopMode; either LoopMode with any window width and any K; any KV-cache policy underneath a LoopCache::first/last wrapper (the stash pass is where those writes happen); any placer (resident vs paged is orthogonal to a call schedule).\n",
         "- **ALTERNATIVE (pick 1 per run):** one DepthLoop value per run (all 12 join the new axis); one LoopMode per run; either K=1 (parity) or a looped run; cache=none is an ablation and never a deployment choice.\n",
@@ -13887,6 +13896,47 @@
         "    'ruler', run_ruler_live, ns=globals(), model=model, enc=enc_ext,\n",
         "    ctx_lens=(512, 1024, 2048, 8192, 16384, 32768, 65536, 131072), n_per_len=5, text=_ext_text))\n"
       ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 35. Mehri - Knowledge That Is Linear Before Fine-Tuning Generalizes After It (arXiv:2610.22300, s35)\\n",
+        "\\n",
+        "**Paper in one paragraph.** Mehri & Schuetze distinguish active facts (recalled and able to support new learning) from inert facts (recalled but useless for building new facts). They build new relations by randomly relabeling the answers of pretrained relations (Paris ->Europe ->crab), fine-tune on a subset of subjects, and test whether held-out subjects sharing an original answer receive the new label. Measuring Pre-linearity - how linearly readable a relation's answers are before fine-tuning, via a cross-validated linear probe on PCA-whitened subject states - across eleven models and 70 relations, it predicts Generalization after fine-tuning at Pearson r = 0.87 to 0.92 per model (median 0.90), better than Recall and robust to jointly controlling for recall, answer count, subject count, and subject frequency. The probe also predicts the fine-tuned model's errors better than Recall does.\\n"
+      ]
+    }
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "### Relations: Mehri (arXiv:2610.22300, s35) x All Previous Papers, paper by paper (standing rule)\\n",
+        "- **vs Attention (arXiv:1706.03762, s1-8): Mehri Pre-linearity probe reads relational answers linearly from subject-span states produced by Attention Q/K/V projections - the linear-decodability premise Attention-era probing assumes; Mehri shows it predicts generalization after fine-tuning, not just recall.\\n",
+        "- **vs BERT (arXiv:1810.04805, foundation; live pipeline): Mehri Pretrained-relation recall is candidate accuracy on masked factual knowledge - BERT pretrain-then-recall extended: whether BERT recalled facts can be built on into new relations, measured by held-out generalization after fine-tuning on relabeled answers.\\n",
+        "- **vs LayerMix (arXiv:2608.28930, s10-12): Mehri picks one probe layer per relation via nested cross-validation; LayerMix mixes representations across layers - complementary answers to where in the stack knowledge is readable.\\n",
+        "- **vs SABER (arXiv:2608.27963, s13): SABER exits early when confident; Mehri generalizes only after fine-tuning - both ask whether the current state suffices for the next step, at inference vs training time.\\n",
+        "- **vs Grokking (arXiv:2609.10657, s14/s16): Grokking traces the memorization-to-generalization transition; Mehri shows generalization tracks linear readability rather than recall - a mechanism lens for what grokking's transition measures.\\n",
+        "- **vs ConvMem (arXiv:2609.10441, s15): ConvMem builds memory for long-context recall; Mehri separates recall from generalization - active facts generalize beyond what a recall-optimized memory can hold.\\n",
+        "- **vs RiLM (arXiv:2609.10305, s19): RiLM learns new facts by removing the output matrix; Mehri fine-tunes all weights for 20 epochs - opposite answers to how much of the model must change to learn a new fact.\\n",
+        "- **vs WRP (arXiv:2609.09883, s20): WRP prunes and removes weights; Mehri repurposes them through fine-tuning - both modify weights to change behavior, in opposite directions.\\n",
+        "- **vs TASCO (arXiv:2609.11393, s21): TASCO adapts at test time without weight updates; Mehri generalizes after fine-tuning with updates - Mehri held-out generalization test is TASCO-style evaluation with a weight-change step inserted.\\n",
+        "- **vs Ignorance (arXiv:2609.02959, s22): Ignorance tempers Bayesian priors when the model does not know; Mehri active facts ask which known facts the model can build on - ignorance and activity as two sides of the same representation geometry.\\n",
+        "- **vs SharedCircuits (arXiv:2609.04463, s23): circuits that generalize across formats; Mehri facts generalize across relabelings - circuit activity and fact activity as parallel notions of what the representation supports.\\n",
+        "- **vs ImplicitPatch (arXiv:2511.17864, s25): ImplicitPatch shows context and parameter updates are equivalent; Mehri new relation is a parameter update whose success Mehri predicts from pretrained linear readability - ImplicitPatch formalizes the substrate Mehri measures.\\n",
+        "- **vs LBI (arXiv:2605.09204, s26): Mehri 20-epoch full-weight fine-tuning is standard backprop; LBI parallel scan backprop reformulates the same pass - Mehri fine-tuning loop is a candidate workload LBI could accelerate.\\n",
+        "- **vs KVCache survey (arXiv:2603.20397, s27): Mehri mutates weights; KV policies compress inference state without touching weights - Mehri active facts are parameter knowledge the survey caches never see; orthogonal stages (training-time generalization vs inference-time compression).\\n",
+        "- **vs SpindleKV (arXiv:2507.06517, s28): SpindleKV pyramid evicts by depth; Mehri nested CV selects one probe layer per relation - both answer which layer, one for eviction, one for readability measurement.\\n",
+        "- **vs KeepKV (arXiv:2504.09936, s29): KeepKV vote-weights surviving cache entries; Mehri aggregates fine-tuning subjects per shared pretrained answer - subject->answer voting at training time vs entry->survival voting at inference time.\\n",
+        "- **vs CQ (arXiv:2405.03917, s30): CQ compresses the KV cache with grouped centroid codes; Mehri compresses subject states to 16 PCA-whitened dimensions before probing - representation compression at inference time vs at measurement time.\\n",
+        "- **vs EpiCache (arXiv:2509.17396, s31): EpiCache allocates KV budget per topic block; Mehri splits subjects into fine-tuning T and held-out H - subset selection for inference budget vs generalization measurement.\\n",
+        "- **vs Looped (arXiv:2605.23872, s32): Looped generalizes through repeated forward passes without weight updates; Mehri generalizes after fine-tuning with weight updates - Mehri held-out test is Looped-style evaluation with a weight-change step inserted.\\n",
+        "- **vs Dust (QLabs, s33): Mehri fine-tunes all weights with standard backprop; Dust replaces the backward with a forward-only gradient estimator - Mehri relabel-and-generalize protocol is gradient-agnostic: its fine-tuning step re-runs on Train::dust with only the estimator swapped.\\n",
+        "- **vs SST (arXiv:2610.22293, s34): Mehri fine-tunes in full weight space; SST projects updates onto the protected singular subspace - do Mehri active facts generalize under SST projected updates? SST projected update constrains what Mehri fine-tuning can move.\\n",
+        "- **Ref-graph line (independent citation check).** Mehri bibliography (Paccanaro & Hinton 2000; Hernandez et al. 2024; Merullo et al. 2025; Marconato et al. 2025; Geva et al. 2021/2023; Nanda et al. 2023; Meng et al. 2022; Petroni et al. 2019; Cohen et al. 2024; probing and editing literature) contains no in-repo arXiv ID - zero shared references with the graded papers: NONE.\\n",
+        "\\n",
+        "**What Mehri gives the collective.** Mehri active/inert distinction is a prediction target for every paper that changes weights: Dust gradient-free fine-tuning, SST projected updates, RiLM parameter removal, WRP pruning - whether an update generalizes depends on pre-existing linear readability Mehri measures. Mehri relabel-and-generalize protocol is gradient-agnostic: its fine-tuning step compiles under any Update::Train path, and its held-out generalization is the readout the probe, SST leak, and per-Impl metrics measure.\\n"
+      ]
+    }
     }
   ],
   "metadata": {
