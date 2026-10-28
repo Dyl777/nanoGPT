@@ -959,6 +959,33 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                      "SST live: held-out CE delta after fine-tuning (retention)",
                      "CE delta vs before", f"{name}_retention")
 
+    if name == "mehri":
+        prs = measurements.get("pairs") if isinstance(measurements, dict) else None
+        summ = measurements.get("summary") if isinstance(measurements, dict) else None
+        pts = []
+        if isinstance(prs, list):
+            for i, pr in enumerate(prs):
+                if not isinstance(pr, dict) or pr.get("error"):
+                    continue
+                a, b = finite(pr.get("prelinearity")), finite(pr.get("generalization"))
+                if a is not None and b is not None:
+                    pts.append((a, b, "R%d" % (i + 1)))
+        if pts:
+            fig, ax = plt.subplots(figsize=(5.6, 4.6))
+            ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=34, color="#1f4e79")
+            for _a, _b, lab in pts:
+                ax.annotate(lab, (_a, _b), fontsize=7, color="0.35")
+            rt = ""
+            if isinstance(summ, dict) and isinstance(summ.get("pearson_r"), (int, float)):
+                rt = "  r=%.2f" % float(summ["pearson_r"])
+            ax.set_title("Mehri live: Pre-linearity vs held-out Generalization" + rt)
+            ax.set_xlabel("Pre-linearity (CV probe, pretrained states)")
+            ax.set_ylabel("Generalization (held-out subjects)")
+            paths.append(_save_fig(fig, f"{name}_prelinearity"))
+            bars([p[2] for p in pts], [p[1] for p in pts],
+                 "Mehri live: held-out Generalization per relation (chance 1/|E|)",
+                 "candidate accuracy", f"{name}_generalization")
+
     return paths
 
 
