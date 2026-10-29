@@ -986,6 +986,41 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                  "Mehri live: held-out Generalization per relation (chance 1/|E|)",
                  "candidate accuracy", f"{name}_generalization")
 
+    if name == "rshd":
+        # s36 (arXiv:2610.21018): Table-4 note-search funnel, deployment success
+        # before/after distillation, and the all-fail group share (Fig.1 null).
+        fun = measurements.get("funnel") if isinstance(measurements, dict) else None
+        suc = measurements.get("success") if isinstance(measurements, dict) else None
+        alf = measurements.get("allfail") if isinstance(measurements, dict) else None
+        if isinstance(fun, dict) and fun:
+            stages = [("written", "notes_written"), ("unparseable", "unparseable"),
+                      ("leaked", "leaked_notes"), ("replay-kill", "replays_did_not_beat"),
+                      ("kept", "kept")]
+            vals = [(lab, finite(fun.get(k))) for lab, k in stages]
+            vals = [(lab, v) for lab, v in vals if v is not None and v != 0]
+            if vals:
+                bars([v[0] for v in vals], [v[1] for v in vals],
+                     "RSHD live: note-search funnel (Paper Table-4 quantities)",
+                     "notes (count)", f"{name}_funnel")
+        if isinstance(suc, dict) and suc:
+            keys = [("train\nbefore", "train_before"), ("train\nafter", "train_after"),
+                    ("hold\nbefore", "hold_before"), ("hold\nafter", "hold_after")]
+            pts = [(lab, finite(suc.get(k))) for lab, k in keys]
+            pts = [(lab, v) for lab, v in pts if v is not None]
+            ch = finite(suc.get("chance"))
+            ttl = "RSHD live: task success on the PLAIN prompt (train/hold, before/after)"
+            if ch is not None:
+                ttl += "  | chance=%.2f" % ch
+            if pts:
+                bars([p[0] for p in pts], [p[1] for p in pts], ttl,
+                     "success rate", f"{name}_success")
+        if isinstance(alf, dict) and isinstance(alf.get("grpo_leg"), (int, float)) \
+                and isinstance(alf.get("rshd_leg"), (int, float)):
+            bars(["GRPO-only leg", "RSHD leg"],
+                 [finite(alf.get("grpo_leg")), finite(alf.get("rshd_leg"))],
+                 "RSHD live: all-fail group share per leg (Lemma-2 null; Fig.1: 8-51%%)",
+                 "share of groups all-fail", f"{name}_allfail")
+
     return paths
 
 
