@@ -1021,6 +1021,87 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                  "RSHD live: all-fail group share per leg (Lemma-2 null; Fig.1: 8-51%%)",
                  "share of groups all-fail", f"{name}_allfail")
 
+    if name == "lch":
+        # s37 (arXiv:2610.21182): causal-use bars (delete/substitute moved vs
+        # hurt), probe accuracy vs the permuted-label null at slot 0 / last
+        # slot, dynamics L vs the donor null, and the six-leaf census.
+        sums = measurements.get("summary") if isinstance(measurements, dict) else None
+        cells = measurements.get("cells") if isinstance(measurements, dict) else None
+        if isinstance(sums, dict) and sums:
+            labs, vals = [], []
+            for arm in sorted(sums):
+                row = sums[arm] if isinstance(sums[arm], dict) else None
+                if not isinstance(row, dict):
+                    continue
+                for key, lab in (("moved_delete", "delete moved"),
+                                 ("hurt_delete", "delete hurt"),
+                                 ("moved_substitute", "subs moved")):
+                    v = finite(row.get(key))
+                    if v is not None:
+                        labs.append("%s %s" % (arm, lab))
+                        vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "LRT live: causal use per arm (deletion vs substitution; "
+                     "RQ1; placeholder = del moved + subs never)",
+                     "problems whose answer changed", f"{name}_use")
+        if isinstance(cells, dict) and cells:
+            labs, vals = [], []
+            for arm in sorted(cells):
+                pr = cells[arm].get("probes") if isinstance(cells[arm], dict) else None
+                grid = pr.get("grid") if isinstance(pr, dict) else None
+                if not isinstance(grid, dict):
+                    continue
+                slot0_keys = [k for k in grid if k.startswith("slot0_")]
+                last_keys = [k for k in grid if k.startswith("slot") and
+                             not k.startswith("slot0_")]
+                for tag, keys in (("slot0", slot0_keys), ("last", last_keys)):
+                    accs = [(k, finite(grid[k].get("acc")),
+                             finite(grid[k].get("null"))) for k in keys
+                            if isinstance(grid.get(k), dict)]
+                    accs = [(k, a, n) for k, a, n in accs
+                            if a is not None and n is not None]
+                    if accs:
+                        # biggest acc-minus-null gap is the headline readout
+                        k, a, n = max(accs, key=lambda t: t[1] - t[2])
+                        labs += ["%s %s acc" % (arm, tag), "%s %s null" % (arm, tag)]
+                        vals += [a, n]
+            if vals:
+                bars(labs, vals,
+                     "LRT live: answer-probe acc vs permuted-label null "
+                     "(RQ2; verdict only above null + 1/12 MDE)",
+                     "probe accuracy", f"{name}_probe")
+        if isinstance(sums, dict) and sums:
+            labs, vals = [], []
+            for arm in sorted(sums):
+                row = sums[arm] if isinstance(sums[arm], dict) else None
+                if not isinstance(row, dict):
+                    continue
+                mv, nv = finite(row.get("L_mean")), finite(row.get("null_L"))
+                if mv is not None and nv is not None:
+                    labs += ["%s L" % arm, "%s null" % arm]
+                    vals += [mv, nv]
+            if vals:
+                bars(labs, vals,
+                     "LRT live: last-change slot L vs donor null "
+                     "(RQ3; settled iff L < null - 0.25)",
+                     "last-change slot L", f"{name}_dynamics")
+        if isinstance(sums, dict) and any(
+                isinstance(sums.get(a), dict) and sums[a].get("leaf")
+                for a in sums):
+            leaf_counts = {}
+            for arm in sorted(sums):
+                row = sums.get(arm) if isinstance(sums.get(arm), dict) else None
+                lf = row.get("leaf") if isinstance(row, dict) else None
+                if isinstance(lf, str) and lf:
+                    leaf_counts[lf] = leaf_counts.get(lf, 0) + 1
+            if leaf_counts:
+                bars(sorted(leaf_counts),
+                     [leaf_counts[k] for k in sorted(leaf_counts)],
+                     "LRT live: six-leaf census across arms "
+                     "(App. F; toy thresholds at N=12)",
+                     "cells assigned the leaf", f"{name}_census")
+
     return paths
 
 
