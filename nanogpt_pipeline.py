@@ -1102,6 +1102,82 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                      "(App. F; toy thresholds at N=12)",
                      "cells assigned the leaf", f"{name}_census")
 
+    if name == "etc":
+        # s38 (arXiv:2610.21204): the think-dose battery - dose-response
+        # delta per class/arm, the trace trajectory census, the early-read
+        # remedy, and the zero-deliberation stage defaults.
+        stage = measurements.get("etc_stage") if isinstance(measurements, dict) else None
+        dose = measurements.get("etc_dose") if isinstance(measurements, dict) else None
+        trac = measurements.get("etc_trace") if isinstance(measurements, dict) else None
+        rem = measurements.get("etc_remedy") if isinstance(measurements, dict) else None
+        if isinstance(dose, dict) and dose:
+            labs, vals = [], []
+            for arm in sorted(dose):
+                row = dose[arm] if isinstance(dose[arm], dict) else None
+                if not isinstance(row, dict):
+                    continue
+                for cls, lab in (("gci", "gci some/or"),
+                                 ("pci", "pci context"),
+                                 ("lex", "lexical")):
+                    d = row.get(cls) if isinstance(row, dict) else None
+                    v = finite(d.get("delta_pp_top")) if isinstance(d, dict) else None
+                    if v is not None:
+                        labs.append("%s %s" % (arm, lab))
+                        vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "ETC live: thinking-dose effect on readings per class/arm "
+                     "(negative = thinking cancels the pragmatic reading; "
+                     "paper: some -28.2 pp on Qwen3-8B)",
+                     "delta R(top B) - R(0), pp", f"{name}_dose")
+        if isinstance(trac, dict) and trac:
+            counts = {}
+            for arm in sorted(trac):
+                row = trac[arm] if isinstance(trac[arm], dict) else None
+                c = row.get("census") if isinstance(row, dict) else None
+                if isinstance(c, dict):
+                    for k, v in c.items():
+                        counts["%s %s" % (arm, k)] = v
+            if counts:
+                bars(sorted(counts),
+                     [counts[k] for k in sorted(counts)],
+                     "ETC live: trace trajectory census "
+                     "(etc = entertain then cancel; paper: 67.4% on Qwen3-8B)",
+                     "items", f"{name}_trace")
+        if isinstance(rem, dict) and rem:
+            labs, vals = [], []
+            for arm in sorted(rem):
+                row = rem[arm] if isinstance(rem[arm], dict) else None
+                if not isinstance(row, dict):
+                    continue
+                for key, lab in (("acc_early", "acc early prefix"),
+                                 ("acc_final", "acc trace end")):
+                    v = finite(row.get(key))
+                    if v is not None:
+                        labs.append("%s %s" % (arm, lab))
+                        vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "ETC live: early-read remedy on scalar items "
+                     "(paper: 1.2% -> 20.5% felicity on Qwen3-8B)",
+                     "accuracy", f"{name}_remedy")
+        if isinstance(stage, dict) and stage:
+            labs, vals = [], []
+            for arm in sorted(stage):
+                row = stage[arm] if isinstance(stage[arm], dict) else None
+                if not isinstance(row, dict):
+                    continue
+                v = finite(row.get("R0_gci_meaning"))
+                if v is not None:
+                    labs.append("%s R0" % arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "ETC live: zero-deliberation default readings per arm "
+                     "(P plain vs D think-filler SFT; paper: 75.6% -> 39.7% "
+                     "at thinking-SFT)",
+                     "share pragmatic at B = 0", f"{name}_stage")
+
     return paths
 
 
