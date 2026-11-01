@@ -606,3 +606,561 @@ def bench_ruler(model, enc, ctx_lens: Sequence[int] = (512, 1024, 2048),
         }
     except Exception as e:  # noqa: BLE001
         return _err(e)
+# ---------------------------------------------------------------------------
+# s38 pragmatic families (arXiv:2610.21204): the think-dial reading probe on
+# IMPPRES / NOPE / LUDWIG / Fig-QA / PUB / Circa - the benchmark families the
+# paper's Figures 2/5/6/8 run on.
+#
+# Shared protocol (the paper's section 2, realized):
+#   - every item is a FORCED-choice question about what the speaker MEANT
+#     ("meaning" framing); IMPPRES additionally carries the true/false
+#     "logic mode" framing the paper uses as the literal-gold comparison;
+#   - options are shuffled per trial, with the SAME shuffled order shared
+#     across the two think arms of an item (so the arm delta is within-item);
+#   - two think arms on the same weights: "off" (direct answer) and "capped"
+#     (a greedy reasoning fill of `budget` tokens inserted between the item
+#     body and the options). Declared adaptation: the paper switches a
+#     reasoning model's thinking off / stops it after B tokens; these
+#     compiled models have no thinking switch, so the capped arm is the
+#     greedy fill stand-in - the dial mechanics (same weights, budget knob)
+#     are what transfer;
+#   - scoring: likelihood forced-choice over the options (the paper's
+#     headline is likewise forced-choice; free-form was dropped there as
+#     unreliable to code);
+#   - readouts per family and arm: accuracy against the dataset's own gold
+#     and, where the dataset carries both a literal and a pragmatic NLI
+#     label (IMPPRES, NOPE), acc_log vs acc_prag with the committed
+#     pragmatic reading R = acc_prag - the paper's dR anchors are recorded
+#     claims (Fig-QA +10.7 pp, PUB +10.1 pp, Circa +17.5 pp, NOPE +9.9 pp,
+#     IMPPRES presupposition +22.2 pp, some -28.2 pp), never simulated here.
+# ---------------------------------------------------------------------------
+
+_LETTERS = "ABCDEFGH"
+
+
+def _think_fill(model, enc, prefix: str, budget: int) -> str:
+    """Greedy reasoning fill of `budget` tokens appended to `prefix`
+    (the capped-thinking arm, slid under the compiled ctx)."""
+    if int(budget) <= 0:
+        return prefix
+    ids = enc.encode(prefix)
+    ctx = ids[-min(len(ids), model.ctx_len):]
+    gen: List[int] = []
+    for _ in range(int(budget)):
+        with torch.no_grad():
+            x = torch.tensor([ctx], device=_dev(model))
+            logits = model(x)[0]
+            nxt = int(torch.argmax(logits[-1]))
+        gen.append(nxt)
+        ctx = (ctx + [nxt])[-model.ctx_len:]
+    return prefix + " " + enc.decode(gen).strip()
+
+
+def _options_block(opts: Sequence[str]) -> Tuple[List[str], str]:
+    letters = list(_LETTERS[: len(opts)])
+    tail = "\nOptions:\n" + "\n".join(
+        f"{l}. {o}" for l, o in zip(letters, opts))
+    tail += "\nRespond with only the letter of the best answer.\nAnswer:"
+    return letters, tail
+
+
+def _think_arms(model, enc, body: str, opts: Sequence[str], budget: int
+                ) -> Tuple[int, int]:
+    """The think dial for ONE item: 'off' answers directly; 'capped' gets a
+    greedy reasoning fill of `budget` tokens before the options. Returns
+    (pick_off, pick_capped) answer indices into opts."""
+    letters, tail = _options_block(opts)
+    cands = [" " + l for l in letters]
+    off, _ = _mc_pick(model, enc, body + tail, cands)
+    if int(budget) > 0:
+        filled = _think_fill(model, enc, body, int(budget))
+        cap, _ = _mc_pick(model, enc, filled + tail, cands)
+    else:
+        cap = off
+    return off, cap
+
+
+def _nli_int(v: Any) -> int:
+    """Normalize an NLI label to entailment=0 / neutral=1 / contradiction=2."""
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s.startswith("entail"):
+            return 0
+        if s.startswith("neutr"):
+            return 1
+        if s.startswith("contrad"):
+            return 2
+        return -1
+    i = int(v)
+    return i if i in (0, 1, 2) else -1
+
+
+def _shuffle_pair(rng: random.Random, yes: str, no: str) -> Tuple[List[str], int]:
+    """Per-trial 2-option shuffle; returns (shuffled options, yes-index)."""
+    idx = rng.randrange(2)
+    return ([yes, no] if idx == 0 else [no, yes]), idx
+
+
+# ---------------------------------------------------------------------------
+# IMPPRES (Jeretic et al. 2020): scalar implicature + presupposition items
+# under the dual literal/pragmatic NLI labels.
+# ---------------------------------------------------------------------------
+
+_IMPPRES_IMPLICATURE = ("implicature_connectives", "implicature_gradable_adjective",
+                        "implicature_gradable_verb", "implicature_modals",
+                        "implicature_quantifiers", "implicature_numerals_10_100",
+                        "implicature_numerals_2_3")
+_IMPPRES_PRESUP = ("presupposition_all_n_presupposition", "presupposition_both_presupposition",
+                   "presupposition_change_of_state", "presupposition_cleft_existence",
+                   "presupposition_cleft_uniqueness", "presupposition_only_presupposition",
+                   "presupposition_possessed_definites_existence",
+                   "presupposition_possessed_definites_uniqueness",
+                   "presupposition_question_presupposition")
+
+
+def bench_imppres(model, enc, n: int = 240, seed: int = 38, budget: int = 32,
+                  families: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    try:
+        if enc is None:
+            return _err("no encoder matches the compiled vocab")
+        fams = list(families) if families else list(_IMPPRES_IMPLICATURE) + \
+            list(_IMPPRES_PRESUP)
+        rng = random.Random(seed)
+        per_fam: Dict[str, Dict[str, Any]] = {}
+        skipped: List[Dict[str, str]] = []
+        n_used = 0
+        for conf in fams:
+            try:
+                split = conf.replace("implicature_", "").replace("presupposition_", "")
+                ds = _pick_repo([("facebook/imppres", conf)], split)
+            except Exception as e:  # noqa: BLE001 - family not measured here
+                skipped.append({"family": conf, "reason": str(e)[:200]})
+                continue
+            rows = list(ds[0])
+            if len(rows) > n:
+                rows = rng.sample(rows, n)
+            hits = {"log_off": 0, "log_cap": 0, "prag_off": 0, "prag_cap": 0,
+                    "logic_off": 0, "logic_cap": 0, "n": 0}
+            for r in rows:
+                p = str(r.get("premise", "")).strip()
+                h = str(r.get("hypothesis", "")).strip()
+                g_log = _nli_int(r.get("gold_label_log", -1))
+                g_prag = _nli_int(r.get("gold_label_prag", -1))
+                if not p or not h or g_log < 0:
+                    continue
+                body = (f'Speaker: "{p}"\nWould the listener conclude '
+                        f'that the speaker meant that "{h}"?\n')
+                (oy, i_y) = _shuffle_pair(rng, "yes", "no")
+                off, cap = _think_arms(model, enc, body, oy, budget)
+                off_is_yes, cap_is_yes = off == i_y, cap == i_y
+                gold_log_yes = g_log == 0
+                hits["log_off"] += int(off_is_yes == gold_log_yes)
+                hits["log_cap"] += int(cap_is_yes == gold_log_yes)
+                hits["prag_off"] += int(off_is_yes == (g_prag == 0))
+                hits["prag_cap"] += int(cap_is_yes == (g_prag == 0))
+                lbody = (f'Sentence 1: "{p}"\nSentence 2: "{h}"\n'
+                         "Is Sentence 2 necessarily true given Sentence 1?\n")
+                ly, li_y = _shuffle_pair(rng, "yes", "no")
+                loff, lcap = _think_arms(model, enc, lbody, ly, budget)
+                hits["logic_off"] += int((loff == li_y) == gold_log_yes)
+                hits["logic_cap"] += int((lcap == li_y) == gold_log_yes)
+                hits["n"] += 1
+            if hits["n"]:
+                m = hits["n"]
+                per_fam[conf] = {
+                    "n": m,
+                    "acc_log": {"off": round(hits["log_off"] / m, 4),
+                                "capped": round(hits["log_cap"] / m, 4)},
+                    "acc_prag": {"off": round(hits["prag_off"] / m, 4),
+                                 "capped": round(hits["prag_cap"] / m, 4)},
+                    "acc_logic": {"off": round(hits["logic_off"] / m, 4),
+                                  "capped": round(hits["logic_cap"] / m, 4)},
+                    "R_prag_log_gap_pp": {
+                        "off": round(100.0 * (hits["prag_off"] - hits["log_off"]) / m, 2),
+                        "capped": round(100.0 * (hits["prag_cap"] - hits["log_cap"]) / m, 2)},
+                }
+                n_used += m
+        if not per_fam:
+            return _err("imppres: no family accessible (all errored/skipped)")
+        return {
+            "families": per_fam,
+            "skipped_families": skipped,
+            "n": n_used, "n_per_family": n, "seed": seed, "budget": budget,
+            "provenance": f"facebook/imppres per-config test splits n<= {n}/fam "
+                          f"seed={seed} budget={budget} likelihood forced-choice, "
+                          f"options shuffled per trial; title=think dial off/capped "
+                          f"tokenizer={getattr(enc, 'name', '?')}",
+            "claim": "paper anchors recorded, not simulated: some -28.2/or -36.4 pp "
+                     "@Qwen3-8B; presupposition +22.2 pp",
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+# ---------------------------------------------------------------------------
+# NOPE (Parrish et al. 2021): naturally-occurring presuppositions (CoNLL),
+# direct GitHub jsonl (no HF mirror; the corpus carries no licence and is
+# used for research only, per the paper's A.2 note).
+# ---------------------------------------------------------------------------
+
+_NOPE_URLS = ("https://raw.githubusercontent.com/nyu-mll/nope/main/"
+              "annotated_corpus/nli_corpus.main.jsonl",
+              "https://github.com/nyu-mll/nope/raw/main/"
+              "annotated_corpus/nli_corpus.main.jsonl")
+
+
+def _nope_rows() -> List[Dict[str, Any]]:
+    """Main NOPE corpus (2,386 NLI items), cached under data/external/nope."""
+    cache = DATA / "nope" / "nli_corpus.main.jsonl"
+    if cache.exists():
+        return [json.loads(ln) for ln in cache.read_text(
+            encoding="utf-8").splitlines() if ln.strip()]
+    import requests
+    last: Optional[Exception] = None
+    for url in _NOPE_URLS:
+        try:
+            resp = requests.get(url, timeout=120)
+            resp.raise_for_status()
+            rows = [json.loads(ln) for ln in resp.text.splitlines() if ln.strip()]
+            if rows:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(resp.text, encoding="utf-8")
+                return rows
+        except Exception as e:  # noqa: BLE001 - fail-soft contract
+            last = e
+    raise IOError(f"nope corpus fetch failed: {last}")
+
+
+def bench_nope(model, enc, n: int = 400, seed: int = 38, budget: int = 32) -> Dict[str, Any]:
+    try:
+        if enc is None:
+            return _err("no encoder matches the compiled vocab")
+        rows_all = _nope_rows()
+        rng = random.Random(seed)
+        rows = list(rows_all)
+        if len(rows) > n:
+            rows = rng.sample(rows, n)
+        per_trig: Dict[str, Dict[str, Any]] = {}
+        hits_acc = {"off": 0, "cap": 0}
+        n_used = 0
+        for r in rows:
+            p = str(r.get("premise", "")).strip().replace("\n", " ")
+            h = str(r.get("hypothesis", "")).strip().replace("\n", " ")
+            lab = str(r.get("label", "")).strip().upper()[:1]
+            g_log = {"E": 0, "N": 1, "C": 2}.get(lab, -1)
+            if not p or not h or g_log < 0:
+                continue
+            body = (f'Speaker: "{p}"\nIs the speaker thereby committed to '
+                    f'this being true: "{h}"?\n')
+            oy, i_y = _shuffle_pair(rng, "yes", "no")
+            off, cap = _think_arms(model, enc, body, oy, budget)
+            gold_yes_off = g_log == 0
+            hit_o = (off == i_y) == gold_yes_off
+            hit_c = (cap == i_y) == gold_yes_off
+            hits_acc["off"] += int(hit_o)
+            hits_acc["cap"] += int(hit_c)
+            md = r.get("metadata", {}) if isinstance(r.get("metadata"), dict) else {}
+            trig = str(md.get("trigger_type", "?"))
+            if str(md.get("type", "original")) == "negated":
+                trig += "/negated"
+            d = per_trig.setdefault(
+                trig, {"n": 0, "acc_off": 0, "acc_capped": 0})
+            d["n"] += 1
+            d["acc_off"] += int(hit_o)
+            d["acc_capped"] += int(hit_c)
+            n_used += 1
+        if not n_used:
+            return _err("nope: no scored rows")
+        return {
+            "acc": {"off": round(hits_acc["off"] / n_used, 4),
+                    "capped": round(hits_acc["cap"] / n_used, 4)},
+            "delta_pp": round(100.0 * (hits_acc["cap"] - hits_acc["off"]) / n_used, 2),
+            "per_trigger": {k: {"n": v["n"],
+                                "acc_off": round(v["acc_off"] / v["n"], 4),
+                                "acc_capped": round(v["acc_capped"] / v["n"], 4)}
+                            for k, v in per_trig.items()},
+            "n": n_used, "corpus_size": len(rows_all), "seed": seed,
+            "budget": budget,
+            "provenance": "nyu-mll/nope nli_corpus.main.jsonl (direct GitHub "
+                          "fetch, research use) n=%d corpus=%d seed=%d "
+                          "budget=%d projection yes/no forced-choice, options "
+                          "shuffled per trial tokenizer=%s" % (
+                              n_used, len(rows_all), seed, budget,
+                              getattr(enc, "name", "?")),
+            "claim": "paper anchor recorded, not simulated: NOPE +9.9 pp "
+                     "(accuracy, Qwen3-8B)",
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+# ---------------------------------------------------------------------------
+# LUDWIG (Ruis et al. 2023): naturally-occurring conversational implicatures,
+# binary yes/no implicature resolution 0-shot.
+# ---------------------------------------------------------------------------
+
+def bench_ludwig(model, enc, n: int = 718, seed: int = 38, budget: int = 32,
+                 k_shots: int = 0) -> Dict[str, Any]:
+    try:
+        if enc is None:
+            return _err("no encoder matches the compiled vocab")
+        conf = {0: "0-shot", 1: "1-shot", 5: "5-shot", 10: "10-shot",
+                15: "15-shot", 30: "30-shot"}.get(int(k_shots), "0-shot")
+        split, ds_rep = "", None
+        last: Optional[Exception] = None
+        for sp in ("test", "validation"):
+            try:
+                ds_rep = _hf("UCL-DARK/ludwig", conf, sp)
+                split = sp
+                break
+            except Exception as e:  # noqa: BLE001
+                last = e
+        if ds_rep is None:
+            raise IOError(f"UCL-DARK/ludwig/{conf} failed: {last}")
+        rows = list(ds_rep)
+        rng = random.Random(seed)
+        if len(rows) > n:
+            rows = rng.sample(rows, n)
+        hits = {"off": 0, "cap": 0}
+        n_used = 0
+        for r in rows:
+            utt = str(r.get("utterance", "")).strip()
+            resp = str(r.get("response", "")).strip()
+            imp = str(r.get("implicature", "")).strip().lower()
+            if not (utt and resp and imp in ("yes", "no")):
+                continue
+            shots_txt = ""
+            if int(k_shots) > 0:
+                parts = []
+                for pr in (r.get("prompts") or [])[: int(k_shots)]:
+                    pu = str(pr.get("utterance", "")).strip()
+                    prs = str(pr.get("response", "")).strip()
+                    pi = str(pr.get("implicature", "")).strip().lower()
+                    if pu and prs and pi in ("yes", "no"):
+                        parts.append(f'Speaker A says: "{pu}"\n'
+                                     f'Speaker B responds: "{prs}"\n'
+                                     f'Does B\'s response mean "{pi}"? - {pi}\n')
+                if parts:
+                    shots_txt = "\n\n".join(parts) + "\n\n"
+            body = (f'Speaker A says: "{utt}"\n'
+                    f'Speaker B responds: "{resp}"\n'
+                    'Does B\'s answer mean "yes" to A\'s question?\n')
+            oy, i_y = _shuffle_pair(rng, "yes", "no")
+            off, cap = _think_arms(model, enc, shots_txt + body, oy, budget)
+            gold_yes = (imp == "yes")
+            hits["off"] += int((off == i_y) == gold_yes)
+            hits["cap"] += int((cap == i_y) == gold_yes)
+            n_used += 1
+        if not n_used:
+            return _err("ludwig: no scored rows")
+        return {
+            "acc": {"off": round(hits["off"] / n_used, 4),
+                    "capped": round(hits["cap"] / n_used, 4)},
+            "delta_pp": round(100.0 * (hits["cap"] - hits["off"]) / n_used, 2),
+            "n": n_used, "k_shots": int(k_shots), "split": split, "seed": seed,
+            "budget": budget,
+            "provenance": f"UCL-DARK/ludwig {conf}/{split} n={n_used} seed={seed} "
+                          f"budget={budget} binary yes/no forced-choice, options "
+                          f"shuffled per trial tokenizer={getattr(enc, 'name', '?')}",
+            "claim": "published LUDWIG rows (Ruis et al. 2023 accuracy 79.7/84.0/82.0 "
+                     "0-shot @NT/512/NAT) stay recorded in graded/figures",
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+# ---------------------------------------------------------------------------
+# Fig-QA (Liu et al. 2022): figurative language Winograd pairs - the correct
+# option is the figurative-complementary one; accuracy here IS the pragmatic
+# reading share R of the probe.
+# ---------------------------------------------------------------------------
+
+def bench_fig_qa(model, enc, n: int = 1146, seed: int = 38, budget: int = 32) -> Dict[str, Any]:
+    try:
+        if enc is None:
+            return _err("no encoder matches the compiled vocab")
+        split, ds_rep = "", None
+        last: Optional[Exception] = None
+        for sp in ("test", "validation", "train"):
+            try:
+                ds_rep, split = _pick_repo([("nightingal3/fig-qa", None)], sp), sp
+                break
+            except Exception as e:  # noqa: BLE001
+                last = e
+        if ds_rep is None:
+            raise IOError(f"nightingal3/fig-qa failed: {last}")
+        rows = list(ds_rep[0])
+        rng = random.Random(seed)
+        if len(rows) > n:
+            rows = rng.sample(rows, n)
+        hits = {"off": 0, "cap": 0}
+        n_used = 0
+        for r in rows:
+            sp_txt = str(r.get("startphrase", "")).strip()
+            e1 = str(r.get("ending1", "")).strip()
+            e2 = str(r.get("ending2", "")).strip()
+            lab = r.get("labels", None)
+            if not (sp_txt and e1 and e2) or lab is None or int(lab) not in (0, 1):
+                continue
+            ll = int(lab)
+            opts = [e1, e2] if rng.randrange(2) == 0 else [e2, e1]
+            want = opts.index([e1, e2][ll])
+            body = f'"{sp_txt}"\nWhich continuation is the better fit?\n'
+            off, cap = _think_arms(model, enc, body, opts, budget)
+            hits["off"] += int(off == want)
+            hits["cap"] += int(cap == want)
+            n_used += 1
+        if not n_used:
+            return _err("fig_qa: no scored rows")
+        return {
+            "acc_R": {"off": round(hits["off"] / n_used, 4),
+                      "capped": round(hits["cap"] / n_used, 4)},
+            "delta_pp": round(100.0 * (hits["cap"] - hits["off"]) / n_used, 2),
+            "n": n_used, "split": split, "seed": seed, "budget": budget,
+            "provenance": f"nightingal3/fig-qa {split} n={n_used} seed={seed} "
+                          f"budget={budget} 2-option likelihood forced-choice "
+                          f"(Winograd pairs, figurative = correct) options "
+                          f"shuffled per trial tokenizer={getattr(enc, 'name', '?')}",
+            "claim": "paper anchor recorded, not simulated: Fig-QA +10.7 pp",
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+# ---------------------------------------------------------------------------
+# Circa (Louis et al. 2020): indirect answers to polar questions - accuracy
+# over the dataset's own 5-label interpretation space (goldstandard2).
+# ---------------------------------------------------------------------------
+
+_CIRCA_LABELS = ("Yes", "No", "In the middle, neither yes nor no",
+                 "Yes, subject to some conditions", "Other")
+
+
+def bench_circa(model, enc, n: int = 1000, seed: int = 38, budget: int = 32) -> Dict[str, Any]:
+    try:
+        if enc is None:
+            return _err("no encoder matches the compiled vocab")
+        split, ds_rep = "", None
+        last: Optional[Exception] = None
+        for sp in ("test", "train"):
+            try:
+                ds_rep, split = _pick_repo(
+                    [("google-research-datasets/circa", None)], sp), sp
+                break
+            except Exception as e:  # noqa: BLE001
+                last = e
+        if ds_rep is None:
+            raise IOError(f"circa fetch failed: {last}")
+        rows = list(ds_rep[0])
+        rng = random.Random(seed)
+        if len(rows) > n:
+            rows = rng.sample(rows, n)
+        hits = {"off": 0, "cap": 0}
+        per_gold: Dict[str, List[int]] = {}
+        n_used = skipped_gold = 0
+        for r in rows:
+            ctx = str(r.get("context", "")).strip()
+            qx = str(r.get("question-X", "")).strip()
+            ay = str(r.get("answer-Y", "")).strip()
+            g2 = r.get("goldstandard2", None)
+            if g2 is None or int(g2) < 0:
+                skipped_gold += 1
+                continue
+            if not (ctx and qx and ay):
+                skipped_gold += 1
+                continue
+            gold = _CIRCA_LABELS[int(g2) % len(_CIRCA_LABELS)]
+            opts = list(_CIRCA_LABELS)
+            rng.shuffle(opts)
+            want = opts.index(gold)
+            body = (f"Context: {ctx}\nX asks: {qx}\nY answers: {ay}\n"
+                    "What does Y's answer mean?\n")
+            off, cap = _think_arms(model, enc, body, opts, budget)
+            ho = int(off == want)
+            hc = int(cap == want)
+            hits["off"] += ho
+            hits["cap"] += hc
+            per_gold.setdefault(gold, [0, 0, 0])
+            per_gold[gold][0] += 1
+            per_gold[gold][1] += ho
+            per_gold[gold][2] += hc
+            n_used += 1
+        if not n_used:
+            return _err("circa: no scored rows")
+        return {
+            "acc": {"off": round(hits["off"] / n_used, 4),
+                    "capped": round(hits["cap"] / n_used, 4)},
+            "delta_pp": round(100.0 * (hits["cap"] - hits["off"]) / n_used, 2),
+            "per_gold_label": {k: {"n": v[0],
+                                   "acc_off": round(v[1] / v[0], 4),
+                                   "acc_capped": round(v[2] / v[0], 4)}
+                               for k, v in per_gold.items()},
+            "n": n_used, "skipped_no_consensus": skipped_gold,
+            "split": split, "seed": seed, "budget": budget,
+            "provenance": f"google-research-datasets/circa {split} n={n_used} "
+                          f"seed={seed} budget={budget} MC over the dataset's own "
+                          f"label space (goldstandard2; -1 consensus rows skipped), "
+                          f"options shuffled per trial tokenizer={getattr(enc, 'name', '?')}",
+            "claim": "paper anchor recorded, not simulated: Circa +17.5 pp",
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err(e)
+
+
+# ---------------------------------------------------------------------------
+# PUB (Sravanthi et al. 2024): 14 pragmatic MCQA tasks over implicature,
+# presupposition, reference, deixis - MC with the dataset's own options.
+# ---------------------------------------------------------------------------
+
+def bench_pub(model, enc, n: int = 400, seed: int = 38, budget: int = 32) -> Dict[str, Any]:
+    try:
+        if enc is None:
+            return _err("no encoder matches the compiled vocab")
+        ds = _pick_repo([("cfilt/PUB", None)], "train")
+        rows = list(ds[0])
+        rng = random.Random(seed)
+        if len(rows) > n:
+            rows = rng.sample(rows, n)
+        hits = {"off": 0, "cap": 0}
+        per_sz: Dict[str, Dict[str, int]] = {}
+        n_used = skipped = 0
+        for r in rows:
+            pretext = str(r.get("pretext", "")).strip()
+            opts = [str(o) for o in (r.get("options") or [])]
+            gold = str(r.get("correct answer", "")).strip()
+            if not pretext or len(opts) > len(_LETTERS) or gold not in opts:
+                skipped += 1
+                continue
+            rng.shuffle(opts)
+            want = opts.index(gold)
+            body = pretext + "\nChoose the best option.\n"
+            off, cap = _think_arms(model, enc, body, opts, budget)
+            ho = int(off == want)
+            hc = int(cap == want)
+            hits["off"] += ho
+            hits["cap"] += hc
+            key = "n_options_%d" % len(opts)
+            d = per_sz.setdefault(key, {"n": 0, "off": 0, "capped": 0})
+            d["n"] += 1
+            d["off"] += ho
+            d["capped"] += hc
+            n_used += 1
+        if not n_used:
+            return _err("pub: no scored rows")
+        return {
+            "acc": {"off": round(hits["off"] / n_used, 4),
+                    "capped": round(hits["cap"] / n_used, 4)},
+            "delta_pp": round(100.0 * (hits["cap"] - hits["off"]) / n_used, 2),
+            "per_n_options": {k: {"n": v["n"],
+                                  "acc_off": round(v["off"] / v["n"], 4),
+                                  "acc_capped": round(v["capped"] / v["n"], 4)}
+                              for k, v in per_sz.items()},
+            "n": n_used, "skipped": skipped, "seed": seed, "budget": budget,
+            "provenance": f"cfilt/PUB train n={n_used} seed={seed} budget={budget} "
+                          f"MC with the dataset's own options, shuffled per trial "
+                          f"tokenizer={getattr(enc, 'name', '?')}",
+            "claim": "paper anchor recorded, not simulated: PUB (six tasks) "
+                     "+10.1 pp @Qwen3-8B",
+        }
+    except Exception as e:  # noqa: BLE001
+        return _err(e)

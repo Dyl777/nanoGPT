@@ -470,6 +470,57 @@ def run_ruler_live(model=None, enc=None, ctx_lens=(512, 1024, 2048), n_per_len=5
     return bench_ruler(model, enc, ctx_lens=ctx_lens, n_per_len=n_per_len,
                        seed=seed, corpus_text=str(body))
 
+def run_imppres_live(model=None, enc=None, n=240, seed=38, budget=32,
+                     families=None, **kw) -> dict:
+    guard = _model_probe_enc(model, enc, "imppres", **kw)
+    if "error" in guard:
+        return guard
+    from bench_external import bench_imppres
+    return bench_imppres(model, enc, n=n, seed=seed, budget=budget,
+                         families=families)
+
+
+def run_nope_live(model=None, enc=None, n=400, seed=38, budget=32, **kw) -> dict:
+    guard = _model_probe_enc(model, enc, "nope", **kw)
+    if "error" in guard:
+        return guard
+    from bench_external import bench_nope
+    return bench_nope(model, enc, n=n, seed=seed, budget=budget)
+
+
+def run_ludwig_live(model=None, enc=None, n=718, seed=38, budget=32,
+                    k_shots=0, **kw) -> dict:
+    guard = _model_probe_enc(model, enc, "ludwig", **kw)
+    if "error" in guard:
+        return guard
+    from bench_external import bench_ludwig
+    return bench_ludwig(model, enc, n=n, seed=seed, budget=budget,
+                        k_shots=k_shots)
+
+
+def run_figqa_live(model=None, enc=None, n=1146, seed=38, budget=32, **kw) -> dict:
+    guard = _model_probe_enc(model, enc, "figqa", **kw)
+    if "error" in guard:
+        return guard
+    from bench_external import bench_fig_qa
+    return bench_fig_qa(model, enc, n=n, seed=seed, budget=budget)
+
+
+def run_circa_live(model=None, enc=None, n=1000, seed=38, budget=32, **kw) -> dict:
+    guard = _model_probe_enc(model, enc, "circa", **kw)
+    if "error" in guard:
+        return guard
+    from bench_external import bench_circa
+    return bench_circa(model, enc, n=n, seed=seed, budget=budget)
+
+
+def run_pub_live(model=None, enc=None, n=400, seed=38, budget=32, **kw) -> dict:
+    guard = _model_probe_enc(model, enc, "pub", **kw)
+    if "error" in guard:
+        return guard
+    from bench_external import bench_pub
+    return bench_pub(model, enc, n=n, seed=seed, budget=budget)
+
 
 # ---------------------------------------------------------------------------
 # Curve / metric graphs (live numbers, labeled vs paper claims)
@@ -1178,6 +1229,72 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                      "at thinking-SFT)",
                      "share pragmatic at B = 0", f"{name}_stage")
 
+    if name == "grl":
+        # s36-ext (RL suite): reward per arm (first / final / hold-out), the
+        # all-fail (degenerate) share the RSHD null predicts, KL drift, and
+        # cost per reward point - RLOO vs GRPO vs GRPO-KL vs REINFORCE.
+        armr = measurements.get("grl_arms") if isinstance(measurements, dict) else None
+        gcost = measurements.get("grl_cost") if isinstance(measurements, dict) else None
+        if isinstance(armr, dict) and armr:
+            labs, vals = [], []
+            for arm in sorted(armr):
+                row = armr[arm] if isinstance(armr[arm], dict) else None
+                if not isinstance(row, dict):
+                    continue
+                for key, lab in (("reward_first", "first"),
+                                 ("reward_final", "final"),
+                                 ("hold_success", "hold")):
+                    v = finite(row.get(key))
+                    if v is not None:
+                        labs.append("%s %s" % (arm, lab))
+                        vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "RSHD ext live: RL-suite reward per arm "
+                     "(RLOO / GRPO / GRPO-KL / REINFORCE, one rollout path; "
+                     "held-out bar is greedy success)",
+                     "reward", f"{name}_reward")
+        if isinstance(armr, dict) and armr:
+            labs, vals = [], []
+            for arm in sorted(armr):
+                row = armr[arm] if isinstance(armr[arm], dict) else None
+                v = finite(row.get("degen_share_mean")) if isinstance(row, dict) else None
+                if v is not None:
+                    labs.append(arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "RSHD ext live: all-fail (degenerate) group share per arm "
+                     "(Lemma-2 null; paper Fig.1: 8-51% band)",
+                     "share of groups with zero advantage signal",
+                     f"{name}_degen")
+        if isinstance(armr, dict) and armr:
+            labs, vals = [], []
+            for arm in sorted(armr):
+                row = armr[arm] if isinstance(armr[arm], dict) else None
+                v = finite(row.get("kl_final")) if isinstance(row, dict) else None
+                if v is not None:
+                    labs.append(arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "RSHD ext live: token-KL drift to the reference snapshot "
+                     "per arm (k3 penalty active only on the GRPO-KL leg)",
+                     "mean token-KL (k3), final step",
+                     f"{name}_drift")
+        if isinstance(gcost, dict) and gcost:
+            labs, vals = [], []
+            for arm in sorted(gcost):
+                row = gcost[arm] if isinstance(gcost[arm], dict) else None
+                v = finite(row.get("cost_per_reward_point")) if isinstance(row, dict) else None
+                if v is not None:
+                    labs.append(arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "RSHD ext live: tokens spent per reward point per arm "
+                     "(the cost axis of the RSHD comparison)",
+                     "tokens / reward", f"{name}_cost")
     return paths
 
 
