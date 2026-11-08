@@ -1459,6 +1459,54 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                  "Density-of-Thought live: KL asymmetry ratio (paper: "
                  "2.4x, 2.0-2.6x across model sizes)", "ratio",
                  f"{name}_ratio")
+
+    # s40 (arXiv:2610.42112) ZHA selects which keys to attend; it does not evict.
+    # bytes_ratio is resident (KV + index) / KV and exceeds 1 by construction.
+    if name == "zha":
+        for key, tag, ylab in (("out_err", "err", "attention-output error"),
+                               ("mass", "mass", "retained mass"),
+                               ("attended_frac", "frac", "attended fraction"),
+                               ("true_mass_at_query", "tmass", "true mass at query"),
+                               ("bytes_ratio", "bytes", "resident / KV bytes")):
+            labs_vals = leg_series(("full", "dense_topp", "zha", "zha_ceiling"), (key,))
+            labs = [ln for ln, _, _ in labs_vals]
+            vals = [v for _, _, v in labs_vals]
+            if labs:
+                bars(labs, vals,
+                     "ZHA measurement sets: %s (live small-scale, untrained references)" % ylab,
+                     ylab, f"{name}_{tag}")
+        sweep = res.get("p_sweep")
+        if isinstance(sweep, dict) and sweep:
+            ps = sorted((p for p in sweep if isinstance(sweep[p], dict)), key=float)
+            for arm in ("dense", "zha"):
+                for key, tag, ylab in (("attended_frac", "frac", "attended fraction"),
+                                       ("true_mass_at_query", "mass", "true mass at query"),
+                                       ("out_err", "err", "attention-output error")):
+                    pts = []
+                    for p in ps:
+                        row = sweep[p].get(arm)
+                        v = finite(row.get(key)) if isinstance(row, dict) else None
+                        if v is not None:
+                            pts.append((float(p), v))
+                    if pts:
+                        line([x for x, _ in pts], [y for _, y in pts],
+                             "ZHA p-sweep: %s (%s top-p, live)" % (ylab, arm),
+                             "p", ylab, f"{name}_sweep_{arm}_{tag}")
+        growth = res.get("growth")
+        if isinstance(growth, dict) and isinstance(growth.get("T_grid"), list):
+            xs = growth["T_grid"]
+            for key, tag, ylab in (("cumulative_zha", "cum_zha", "cumulative attended keys (ZHA)"),
+                                   ("cumulative_dense", "cum_dense", "cumulative attended keys (dense)"),
+                                   ("node_scores_evaluated", "work", "node scores evaluated")):
+                ys = growth.get(key)
+                if not isinstance(ys, list):
+                    continue
+                pts = [(x, finite(y)) for x, y in zip(xs, ys)]
+                pts = [(x, y) for x, y in pts if y is not None]
+                if pts:
+                    line([x for x, _ in pts], [y for _, y in pts],
+                         "ZHA growth probe: %s (live, count-level only)" % ylab,
+                         "decode step T", ylab, f"{name}_{tag}")
     return paths
 
 

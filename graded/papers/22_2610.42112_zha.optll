@@ -1,0 +1,115 @@
+@PL::Python
+@Task::Arxiv_2610_42112_ZHA
+@Modulu::ZHA
+
+@Technique::ZHA::[reproduce]
+
+@Comment::[Paper: Subquadratic Attention with a Hierarchical Tree-Structured Indexer (Lufkin, Dawes, Speicher, Krishnamurthy, Figliolia, Millidge; Zyphra Research, arXiv:2610.42112v2, Nov 2026). ZHA builds a tree of recursively compressed key summaries over the KV cache and routes top-down with an adaptive top-p threshold to a query-dependent sparse leaf set. Each chunk's log unnormalized attention mass F_C(q) = LSE_{j in C}(q.k_j/sqrt(d)) is convex in q, so R tangent planes give a global piecewise-affine lower bound: khat_r = Attn(qhat_r, K_C, K_C), bhat_r = F_C(qhat_r) - qhat_r.khat_r/sqrt(d) = the entropy of the chunk attention weights. A parent merges C children by scoring them at its own reference query INCLUDING the child biases, then khat_P = sum_c w_c khat_c and bhat_P = H(w) + sum_c w_c bhat_c (entropy chain rule); with a shared reference query throughout the subtree this recovers the direct summary exactly (footnote 2), while chunk-dependent RoPE makes it an affine lower bound that need not be tangent. Routing is A_L = U_L, A_{ell-1} = union(ch(C) for C in S_ell) + U_{ell-1}, I(q) = {0} + union(S_1) + C_cur(q), where U_ell are the COMPLETE chunks with no complete parent; selection is smallest-descending-prefix top-p, NOT fixed top-K, with p constant at every level. The only learnable parameters are R shared reference queries per KV group (shared across all nodes, all levels and all GQA query heads of the group), trained by KL to dense chunk-pooled attention at every level with the backbone frozen. Graded scope: Sec. III-A tangent/gradient/entropy identities, Sec. III-A merge + footnote 2 + Sec. III-B RoPE correction, Sec. III-C routing invariants and the growing-depth log-log work slope, Fig.1 top-p power law, Fig.2 union coverage U_p(W), Fig.5 exact eval cells (AIME 2026, SWE-bench Verified, Terminal-Bench 2.1, MMLU-Pro, GPQA Diamond, RULER-13 at 256K, LongBench v2 thinking), Eq.2 four-parameter geometry model, Eq.7 cumulative exponent profile + Eq.58 beta coefficients, Sec. V-A/App.D worker-aware roofline (Eqs.3,4,5,22,29,30), App.B/Table I all 114 affine-vs-power-law cells, Tables II-III training recipe and per-level KL, Sec. VI-A variable sparsity, Sec. VI-B/Figs.9-10/App.G-H reference-query structure, and a repo audit. Paper-scale runs are NOT re-run: conversion was Qwen3.6-35B-A3B and Nemotron-3.5-Lightning-30B-A3B on a 1900-step / 0.996B-token KL warmup at 32768 context, the MSA baseline used 40B tokens, and the authors state 'While we do not release optimized kernels in this work'. Published tables and figure coordinates are reproduced as exact cells with recomputed checks; local probes verify the identities on CPU tensors (d=16, C in {4,8,16}, L<=6, T<=4097) and every synthetic stand-in is labelled a declared adaptation. Negative results are recorded rather than tuned away: the published per-level KL increase, the 0.44 reference-query cone cosine, and the monotone fall of cross-level Spearman with separation are all reported as NOT reproduced locally.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_zha_setup,
+    paper_zha_tangent_identity,
+    paper_zha_tree_merge,
+    paper_zha_routing,
+    paper_zha_fig1_topp_powerlaw,
+    paper_zha_fig2_union_coverage,
+    paper_zha_fig5_evals,
+    paper_zha_fig6_geometry_model,
+    paper_zha_fig7_exponent_profile,
+    paper_zha_fig8_roofline,
+    paper_zha_table1_affine_vs_powerlaw,
+    paper_zha_table3_kl,
+    paper_zha_variable_sparsity,
+    paper_zha_reference_queries,
+    paper_zha_repo_audit,
+    run_paper_42112,
+)
+
+@Impl::ZHA::reproduce{
+_ = "reproduce Sec. III tangent/merge/routing identities + exact Fig.5/Table I/Table II-III cells + Eq.2/Eq.7/Eq.58 geometry and exponent models + App.D roofline + Sec. VI-A variable sparsity + Sec. VI-B reference-query structure + repo audit"
+@}
+
+@Graded::Setup{
+# Protocol: geometry axes (R, C, L, p), top-p not top-K, sink key 0 + current incomplete chunk always retained, R shared reference queries per KV group as the only learnables, frozen-backbone KL warmup, deep R16 C4 L6 / wide R16 C256 L1 / lightweight R1 C8 L2.
+setup = paper_zha_setup()
+@}::endpoints::[setup=setup]
+
+@Graded::Tangent_Identity{
+# Sec. III-A: khat_r/sqrt(d) is the gradient of F_C at qhat_r, bhat_r is the chunk attention entropy, every tangent is a global lower bound tight at its own reference, and max over R tightens as R grows. Pure local probe.
+plot_ok, tan = paper_zha_tangent_identity()
+@}::endpoints::[plot_ok=plot_ok, tan=tan]
+
+@Graded::Tree_Merge{
+# Sec. III-A merge + footnote 2 + Sec. III-B: merging at a shared reference recovers the direct subtree summary exactly (entropy chain rule); chunk-dependent RoPE instead gives an affine lower bound needing the <khat_c, qhat_P - qhat_c>/sqrt(d) correction.
+plot_ok, merge = paper_zha_tree_merge()
+@}::endpoints::[plot_ok=plot_ok, merge=merge]
+
+@Graded::Routing{
+# Sec. III-C: ragged cache with non-empty U_ell at every level; p=1 recovers the whole cache, sink and current chunk always retained, p<1 captures most dense top-p mass on far fewer keys; growing T and L together gives a sublinear log-log slope of nodes scored.
+plot_ok, route = paper_zha_routing()
+@}::endpoints::[plot_ok=plot_ok, route=route]
+
+@Graded::Fig1_TopPPowerlaw{
+# Fig.1: published p-grid and the sublinear-power-law claim on six fiction books (Qwen3.6-35B-A3B) recorded as cells; local planted-cache arm checks slope < 1 at every p < 1 and exactly 1 at p = 1.
+plot_ok, f1 = paper_zha_fig1_topp_powerlaw()
+@}::endpoints::[plot_ok=plot_ok, f1=f1]
+
+@Graded::Fig2_UnionCoverage{
+# Fig.2: U_p(W) = (1/(T-W)) |union of the W recent queries' dense top-p sets restricted to the prefix|, computed exactly from the definition; per-query sparsity does not imply union sparsity, the argument against permanent KV eviction.
+plot_ok, f2 = paper_zha_fig2_union_coverage()
+@}::endpoints::[plot_ok=plot_ok, f2=f2]
+
+@Graded::Fig5_Evals{
+# Fig.5: exact published cells at p=0.95 on Qwen3.6-35B-A3B, dense vs ZHA deep (R16 C4 L6) vs ZHA wide (R16 C256 L1) vs MSA (top-16 blocks of 128); reasoning/coding within noise of dense, retrieval where fixed-budget MSA falls behind on 40x the token budget.
+plot_ok, f5 = paper_zha_fig5_evals()
+@}::endpoints::[plot_ok=plot_ok, f5=f5]
+
+@Graded::Fig6_GeometryModel{
+# Eq.2: d_ell(R,C) = log(1 + C^ell/R^r), retention exp(-a(1-p)^b d_ell^h) compounding down the tree against A_dense(N); published RMSE 1.44 pp pooled leave-one-length-out / 1.65 pp at 256K recorded; local arm checks monotonicity in p and R and retention in (0,1].
+plot_ok, f6 = paper_zha_fig6_geometry_model()
+@}::endpoints::[plot_ok=plot_ok, f6=f6]
+
+@Graded::Fig7_ExponentProfile{
+# Eq.7: eps_ell = 2 eps (1 - 2^-(L-ell)), beta_ell = beta + eps_ell, alpha_hat_ell = prod beta_k; Eq.58 beta_const(p) = 0.3736 + 0.5536p and beta_lin(L,p) = 0.3429 + 0.4129p + (0.007697 + 0.03518p)L. Every beta_ell < 1 makes prefill T^(1+alpha_hat_1) < T^2; linear-top overtakes constant-top at p=0.8 only for L >= 4.
+plot_ok, f7 = paper_zha_fig7_exponent_profile()
+@}::endpoints::[plot_ok=plot_ok, f7=f7]
+
+@Graded::Fig8_Roofline{
+# Sec. V-A/App.D: t_ZHA = t_tree + lambda_A + Phi_attn + sum_ell[lambda_ell + Phi_routing + Phi_scan], Phi_x = max(FLOPs/P, bytes/BW, tau*ceil(N_tiles/(N_SM c))), expansion K_{ell-1} = C S_ell. Published crossovers ~48K vs dense and ~0.48M vs MSA, 373-417x / 52-58x at 1e9 tokens with L5. Kernel calibration is fitted not tabulated, so local arms use declared H100 datasheet constants; the calibration-independent exponent ordering is what is checked.
+plot_ok, f8 = paper_zha_fig8_roofline()
+@}::endpoints::[plot_ok=plot_ok, f8=f8]
+
+@Graded::Table1_AffineVsPowerlaw{
+# App.B/Table I: all 114 published cells (228 numbers) over Q in {1,16,32,64,128,256}, C in {4,8,16,64,256}, p in {0.70,0.80,0.90,0.95}; percentage of 9600 rollout-layer-head fits where affine beats power law, plus cumulative-max. Deltas and orderings recomputed from the cells.
+plot_ok, t1 = paper_zha_table1_affine_vs_powerlaw()
+@}::endpoints::[plot_ok=plot_ok, t1=t1]
+
+@Graded::Table3_KL{
+# Tables II-III: exact training recipe (1900 steps, 0.996B tokens, lr 3.2e-2, AdamW beta=(0.9,0.95), clip 1.0, no weight decay, WSD) and per-level final KL. Qwen deep levels sum to 1.172 exactly; Nemotron deep sums to 0.852 vs the published 0.850 (recorded rounding gap). Local arm runs the paper's actual Adam KL warmup on nested reference sets; the published per-level increase is recorded as a negative result.
+plot_ok, t3 = paper_zha_table3_kl()
+@}::endpoints::[plot_ok=plot_ok, t3=t3]
+
+@Graded::VariableSparsity{
+# Sec. VI-A/App.F: at ~64K, 90% of dense mass sits in a median 2.3% / 11.7% / 15.0% of 16-key chunks on RULER / SWE-bench Verified / fiction books; ZHA R16 C16 L3 at p=0.9 retains 0.44% / 5.0% / 7.4% holding 80% / 78% / 78%. RULER tiers ~0.5x / 0.82-1.26x / ~1.6x over the 13-subtask geometric mean. Local planted-mass arm shows one fixed K cannot serve both regimes.
+plot_ok, vs = paper_zha_variable_sparsity()
+@}::endpoints::[plot_ok=plot_ok, vs=vs]
+
+@Graded::ReferenceQueries{
+# Sec. VI-B/Figs.9-10/App.G-H: mean pairwise cosine 0.44 over 20 KV groups at R16 C4 L6 p=0.9 (a cone, not collapse); exact Fig.9b Spearman matrix; 133 documents >=32K sampled at every 8th query position; four independently trained geometries share a 4096-key root. Local KL-warmed router reproduces the rising concentration with level and the smaller-norm preference, and records the cosine and separation-decay failures.
+plot_ok, rq = paper_zha_reference_queries()
+@}::endpoints::[plot_ok=plot_ok, rq=rq]
+
+@Graded::RepoAudit{
+# No verifiable official code: the paper states 'While we do not release optimized kernels in this work'; the only HF links are an eval dataset (MathArena/aime_2026) and a pretrained model (Qwen/Qwen3.6-35B-A3B). Reproduction basis is the 42-page PDF text layer, main text + Appendices A-H.
+repo = paper_zha_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::ZHAPaper::[Setup, Tangent_Identity, Tree_Merge, Routing, Fig1_TopPPowerlaw, Fig2_UnionCoverage, Fig5_Evals, Fig6_GeometryModel, Fig7_ExponentProfile, Fig8_Roofline, Table1_AffineVsPowerlaw, Table3_KL, VariableSparsity, ReferenceQueries, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, setup, tan, merge, route, f1, f2, f5, f6, f7, f8, t1, t3, vs, rq, repo]

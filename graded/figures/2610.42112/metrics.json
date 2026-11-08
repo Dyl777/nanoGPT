@@ -1,0 +1,3185 @@
+{
+  "arxiv": "2610.42112",
+  "title": "Subquadratic Attention with a Hierarchical Tree-Structured Indexer",
+  "authors": "Lufkin, Dawes, Speicher, Krishnamurthy, Figliolia, Millidge (Zyphra Research)",
+  "setup": {
+    "source": "arXiv:2610.42112v2 (Lufkin, Dawes, Speicher, Krishnamurthy, Figliolia, Millidge; Zyphra Research, Nov 2026)",
+    "method": "ZHA: tree of recursively compressed key summaries over the KV cache; route top-down with adaptive top-p to a query-dependent sparse leaf set",
+    "chunk_log_mass": "F_C(q) = LSE_{j in C}(q.k_j/sqrt(d)); convex in q, approximated by max over R tangent planes",
+    "tangent": "khat_r = Attn(qhat_r, K_C, K_C); bhat_r = F_C(qhat_r) - qhat_r.khat_r/sqrt(d) = entropy of the chunk attention weights",
+    "merge": "score children at the parent's reference query including child biases; khat_P = sum_c w_c khat_c, bhat_P = H(w) + sum_c w_c bhat_c",
+    "routing": "A_L = U_L; A_{ell-1} = union(ch(C) for C in S_ell) + U_{ell-1}; I(q) = {0} + union(S_1) + C_cur(q)",
+    "selection": "top-p (smallest descending-score prefix holding >= p of estimated mass), NOT fixed top-K; p constant at every level",
+    "always_retained": "key index 0 (attention sink) and the visible keys of the current incomplete chunk",
+    "learnable": "R shared reference queries per KV group, shared across all nodes, all levels, and the query heads of the group; nothing else",
+    "geometry_axes": {
+      "R": "reference queries per tree",
+      "C": "chunk size (tokens per leaf chunk, children per internal node)",
+      "L": "tree depth; top-level span is C^L",
+      "p": "routing mass threshold"
+    },
+    "geometries_evaluated": [
+      "deep: R16 C4 L6",
+      "wide: R16 C256 L1",
+      "lightweight: R1 C8 L2 (latency model)"
+    ],
+    "routing_thresholds": [
+      0.7,
+      0.8,
+      0.9,
+      0.95,
+      0.99
+    ],
+    "models": [
+      "Qwen3.6-35B-A3B (partial RoPE, primary)",
+      "Nemotron-3.5-Lightning-30B-A3B (hybrid NoPE, App. B-D)"
+    ],
+    "training": "backbone frozen; KL to dense chunk-pooled attention at every level; 1B tokens (3.45M docs) at 32768 context, 1900 steps; AdamW beta=(0.9,0.95), clip 1.0, lr 3.2e-2, no weight decay; WSD 20 warmup steps, linear decay over final 20% to 1% of peak; BF16 backbone, FP32 routing params",
+    "msa_baseline": "MiniMax Sparse Attention: top-16 blocks of 128 tokens, learned indexer, 40B-token KL warmup (40x ZHA's budget), lr 3e-4, 200 warmup, cosine to 10%",
+    "parameter_overhead": "R16 one tree per KV head on Qwen3.6-35B-A3B: 81,920 / 34.66B ~= 0.00024%",
+    "evals": [
+      "AIME 2026",
+      "SWE-bench Verified",
+      "Terminal-Bench 2.1",
+      "MMLU-Pro",
+      "GPQA Diamond",
+      "RULER-13 (256K)",
+      "LongBench v2 (thinking)"
+    ],
+    "toy_spec": "local probes use CPU float32/float64 tensors (d=16, C in {4,8,16}, L<=6, T<=4097); no pretrained backbone, no GPU kernels, no RULER/AIME harness"
+  },
+  "repo_status": "no-verifiable-official-code",
+  "repo_audit": {
+    "official_repo_in_paper": null,
+    "repo_status": "no-verifiable-official-code",
+    "evidence": [
+      "verbatim (Sec. V, kernel discussion): 'While we do not release optimized kernels in this work' - the paper explicitly declines to release the kernel implementation",
+      "the only github/huggingface links in the PDF text layer are MathArena/aime_2026 (an evaluation DATASET) and Qwen/Qwen3.6-35B-A3B (a pretrained MODEL); neither is ZHA source code",
+      "no author repository, no code URL and no artifact DOI appears in the main text or in Appendices A-H",
+      "the roofline/latency results (Fig. 8, Fig. 24) are produced by an analytical worker-aware model, not by released kernels"
+    ],
+    "reproduction_basis": "PDF text layer (42 pp): main text + Appendices A-H. All tables and figure coordinates in this module are transcribed from that text layer; every local probe is a declared synthetic stand-in",
+    "recorded_observations": [
+      "Sec. III gives the full tangent/merge/routing mathematics, so the mechanism is reproducible from the paper alone without code",
+      "Table II pins the training recipe (1900 steps, 0.996B tokens, lr 3.2e-2, AdamW beta=(0.9,0.95), clip 1.0, no weight decay, WSD with 20 warmup steps and linear decay over the final 20% to 1% of peak, BF16 backbone / FP32 routing params)",
+      "the trainable parameter count (81,920 for Qwen R16 over 10 layers) implies 512 floats per reference per layer, but the paper does not state head_dim or the KV-group count separately, so that split is left unpinned rather than guessed",
+      "Table III's Nemotron deep per-level cells sum to 0.852 while Table II reports 0.850; the 0.002 gap is six-cell rounding and is recorded, not silently corrected",
+      "the authors warn that the ZHA level-summed KL and the MSA token-level KL 'should not be compared directly across depths or methods', so the 1.172-vs-0.120 juxtaposition is not a like-for-like quality ranking",
+      "the claimed 'around 1% or less' overhead is an amortized LATENCY figure from the roofline model, not a storage figure; the index/KV element ratio R(d+1)/(2d(C-1)) is 2.69 at R16 C4 d128, i.e. the deep geometry's index is LARGER than the KV cache it indexes"
+    ],
+    "no_claims": [
+      "no claim of reproducing AIME 2026, SWE-bench Verified, Terminal-Bench 2.1, MMLU-Pro, GPQA Diamond, RULER-13 or LongBench v2 scores",
+      "no claim of reproducing the 1900-step / 1B-token KL warmup on a 35B backbone",
+      "no claim of reproducing the measured decode latencies or the 373-417x / 52-58x speedups",
+      "no claim that the local synthetic probes reproduce Fig. 1's book measurement, Fig. 9b's Spearman matrix or Sec. VI-A's chunk-fraction medians"
+    ]
+  },
+  "tangent_identity_plot": 1.0,
+  "tangent_identity_data": {
+    "probe": "d=16, C=8 random Gaussian keys, R in {1,2,4,8,16} reference queries, 256 probe queries, float64",
+    "grid": {
+      "1": {
+        "max_lower_bound_violation": -0.0885118869,
+        "mean_gap": 1.8381548454,
+        "max_gap": 6.2030183263,
+        "center_tightness_max_abs_err": 0.0,
+        "bias_min": 1.1303428992
+      },
+      "2": {
+        "max_lower_bound_violation": -0.0885118869,
+        "mean_gap": 1.1617894867,
+        "max_gap": 3.5264044202,
+        "center_tightness_max_abs_err": 0.0,
+        "bias_min": 1.0485882961
+      },
+      "4": {
+        "max_lower_bound_violation": -0.056610198,
+        "mean_gap": 0.7535849749,
+        "max_gap": 2.9919000926,
+        "center_tightness_max_abs_err": 0.0,
+        "bias_min": 1.0485882961
+      },
+      "8": {
+        "max_lower_bound_violation": -0.0183339711,
+        "mean_gap": 0.5735137036,
+        "max_gap": 2.9919000926,
+        "center_tightness_max_abs_err": 0.0,
+        "bias_min": 0.6906528533
+      },
+      "16": {
+        "max_lower_bound_violation": -0.0183339711,
+        "mean_gap": 0.4170929611,
+        "max_gap": 2.1728786722,
+        "center_tightness_max_abs_err": 0.0,
+        "bias_min": 0.6906528533
+      }
+    },
+    "checks": {
+      "tangent_is_global_lower_bound": true,
+      "tangent_tight_at_own_reference_query": true,
+      "bias_equals_chunk_attention_entropy": true,
+      "bias_nonnegative": true,
+      "compressed_key_is_scaled_gradient_of_log_mass": true,
+      "more_references_tighten_mean_gap": true,
+      "single_reference_already_a_valid_bound": true
+    },
+    "bias_entropy_max_abs_err": 0.0,
+    "gradient_identity_max_abs_err": 0.0,
+    "claim": "the log unnormalized attention mass of a chunk is a convex function of the query that is naturally approximated by a piecewise-affine tiling of tangent planes",
+    "note": "local probe on tensors that fit this repo; magnitudes are NOT paper scale (d=128, C up to 256, R16 on a 35B backbone there)"
+  },
+  "tree_merge_plot": 1.0,
+  "tree_merge_data": {
+    "probe": "d=16, C=4, L=3, R=4, T=65 (1 sink + 64 keys), float64; keys stored unrotated, references rotated to each node's last token in the RoPE arm",
+    "no_rope": {
+      "max_khat_merge_vs_direct": 0.0,
+      "max_bhat_merge_vs_direct": 0.0,
+      "max_merge_score_vs_child_lse": 0.0,
+      "max_merge_weight_vs_true_chunk_mass": 0.0,
+      "max_bhat_vs_global_weight_entropy": 0.0
+    },
+    "rope": {
+      "max_correction_formula_err": 0.0,
+      "max_child_bound_violation": -0.108863402813,
+      "true_minus_merged_log_mass": [
+        0.45447343,
+        0.88344159,
+        0.24967001,
+        0.6331235
+      ],
+      "min_true_minus_merged": 0.24967001
+    },
+    "checks": {
+      "merge_recovers_direct_summary_without_rope": true,
+      "merge_scores_equal_child_true_log_mass": true,
+      "merge_weights_equal_true_chunk_mass_share": true,
+      "bias_merge_is_entropy_chain_rule": true,
+      "rope_correction_equals_score_difference": true,
+      "rope_child_summary_is_lower_bound_at_parent_query": true,
+      "rope_merged_parent_is_lower_bound": true,
+      "rope_bound_is_strictly_looser_than_tangent": true
+    },
+    "claim": "when the same reference query is used throughout a subtree, this merge recovers the summary computed directly from its original keys; with chunk-dependent RoPE rotations it instead gives an affine lower bound that need not be tangent",
+    "note": "local probe on tensors that fit this repo; the RoPE arm stores keys unrotated and rotates only the shared reference queries, isolating the correction term of Sec. III-B"
+  },
+  "routing_plot": 1.0,
+  "routing_data": {
+    "probe": "d=16, C=4, R=8 untrained random reference queries; ragged T=1032; scaling arm T=1+C^L for L=2..6, planted relevant set ~T^0.6",
+    "ragged_routing": {
+      "0.8": {
+        "attended": 28,
+        "attended_frac": 0.02713,
+        "retained_dense_mass": 0.43823,
+        "dense_top_p_size": 19,
+        "dense_top_p_recall": 0.26316,
+        "nodes_scored": 70,
+        "per_level_candidates": [
+          1,
+          4,
+          12,
+          24,
+          29
+        ]
+      },
+      "0.9": {
+        "attended": 64,
+        "attended_frac": 0.06202,
+        "retained_dense_mass": 0.74195,
+        "dense_top_p_size": 29,
+        "dense_top_p_recall": 0.48276,
+        "nodes_scored": 146,
+        "per_level_candidates": [
+          1,
+          4,
+          16,
+          44,
+          81
+        ]
+      },
+      "0.95": {
+        "attended": 104,
+        "attended_frac": 0.10078,
+        "retained_dense_mass": 0.85941,
+        "dense_top_p_size": 37,
+        "dense_top_p_recall": 0.64865,
+        "nodes_scored": 194,
+        "per_level_candidates": [
+          1,
+          4,
+          16,
+          52,
+          121
+        ]
+      },
+      "1.0": {
+        "attended": 1032,
+        "attended_frac": 1.0,
+        "retained_dense_mass": 1.0,
+        "dense_top_p_size": 1032,
+        "dense_top_p_recall": 1.0,
+        "nodes_scored": 342,
+        "per_level_candidates": [
+          1,
+          4,
+          16,
+          64,
+          257
+        ]
+      }
+    },
+    "parentless_chunk_counts_U_ell": [
+      1,
+      0,
+      0,
+      0,
+      1
+    ],
+    "scaling": {
+      "T": [
+        17,
+        65,
+        257,
+        1025,
+        4097
+      ],
+      "nodes_scored": [
+        5,
+        17,
+        57,
+        161,
+        301
+      ],
+      "keys_attended": [
+        9,
+        21,
+        45,
+        70,
+        102
+      ],
+      "dense_top_p_size": [
+        2,
+        5,
+        14,
+        31,
+        63
+      ],
+      "slope_nodes_scored": 0.76029,
+      "slope_keys_attended": 0.44093,
+      "slope_dense_top_p": 0.63532
+    },
+    "checks": {
+      "p_equals_1_recovers_whole_cache": true,
+      "sink_and_current_chunk_always_retained": true,
+      "parentless_chunks_exist_on_ragged_cache": true,
+      "sparser_than_dense_at_p09": true,
+      "retains_majority_of_dense_mass_at_p09": true,
+      "higher_p_attends_more_keys": true,
+      "higher_p_retains_more_mass": true,
+      "routing_work_sublinear_in_T": true,
+      "attended_keys_sublinear_in_T": true,
+      "scored_nodes_fewer_than_cache": true
+    },
+    "claim": "the union of all the leaves we reach defines the sparse KV cache subset that we dispatch to the main attention; by iteratively growing the tree's depth, the total cost including routing and final attention grows sublinearly in sequence length",
+    "note": "local probe with UNTRAINED random reference queries on a planted synthetic cache; the sublinear relevant set is imposed, not measured. Tree construction is O(T) per level and amortized (paper: ~1% of decode); the slopes here are per-query ROUTING work only. Not paper scale (C4 L6 R16 on a 35B backbone there)"
+  },
+  "fig1_topp_powerlaw_plot": 1.0,
+  "fig1_topp_powerlaw_data": {
+    "published": {
+      "model": "Qwen3.6-35B-A3B (partial RoPE)",
+      "data": "six fiction books, averaged across books, layers and heads",
+      "p_grid": [
+        0.1,
+        0.278,
+        0.599,
+        0.9,
+        0.95,
+        0.99,
+        0.999,
+        1.0
+      ],
+      "context_range_decades": [
+        100,
+        100000
+      ],
+      "claim": "at all p < 1 the top-p set size increases sublinearly as a power law, indicating that longer sequences become increasingly compressible",
+      "caveat": "power-law structure depends on positional encoding: Nemotron-3.5-Lightning-30B-A3B (NoPE) does not show as robust power-law top-p scaling (Fig. 12, App. B-D)",
+      "layer_head_breakdown": "Appendix A-A; a whole layer/model power law is a more conservative test than a single head"
+    },
+    "local_probe": {
+      "T": [
+        17,
+        65,
+        257,
+        1025,
+        4097,
+        16385
+      ],
+      "sizes": {
+        "0.5": [
+          1,
+          2,
+          4,
+          7,
+          18,
+          48
+        ],
+        "0.9": [
+          3,
+          5,
+          14,
+          24,
+          59,
+          151
+        ],
+        "0.95": [
+          4,
+          6,
+          17,
+          34,
+          79,
+          186
+        ],
+        "0.99": [
+          5,
+          9,
+          25,
+          51,
+          119,
+          274
+        ],
+        "1.0": [
+          17,
+          65,
+          257,
+          1025,
+          4097,
+          16385
+        ]
+      },
+      "slopes": {
+        "0.5": 0.55046,
+        "0.9": 0.57182,
+        "0.95": 0.57367,
+        "0.99": 0.59127,
+        "1.0": 1.0
+      }
+    },
+    "checks": {
+      "p_below_1_sublinear": true,
+      "p_equals_1_exactly_linear": true,
+      "larger_p_larger_set": true,
+      "sublinear_exponent_near_planted_alpha": true
+    },
+    "note": "the published Fig. 1 curves are recorded, not re-measured (no 35B backbone or book corpus here). The local arm imposes a ~T^0.6 relevant set to check that top-p selection tracks it sublinearly; it is a mechanism probe, not a reproduction of the book measurement"
+  },
+  "fig2_union_coverage_plot": 1.0,
+  "fig2_union_coverage_data": {
+    "published": {
+      "sequence_length": 261548,
+      "figure_context": "256K sequence, six fiction books, several p",
+      "p_grid": [
+        0.1,
+        0.278,
+        0.599,
+        0.9,
+        0.95,
+        0.99,
+        0.999,
+        1.0
+      ],
+      "claim": "the union expands to cover the entire cache, indicating that entries receiving negligible attention from some queries may still be relevant to others",
+      "consequence": "motivates retaining the full KV cache while retrieving a query-dependent subset for each attention computation"
+    },
+    "local_probe": {
+      "T": 384,
+      "n_clusters": 24,
+      "W": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        192,
+        256,
+        320,
+        380
+      ],
+      "coverage": {
+        "0.5": [
+          0.01044,
+          0.02356,
+          0.05,
+          0.10372,
+          0.20924,
+          0.33239,
+          0.34687,
+          0.37891,
+          0.44271,
+          0.5,
+          0.51562,
+          0.75
+        ],
+        "0.9": [
+          0.03394,
+          0.06806,
+          0.13421,
+          0.2633,
+          0.52446,
+          0.7983,
+          0.82812,
+          0.84766,
+          0.89062,
+          0.89062,
+          0.95312,
+          1.0
+        ],
+        "0.95": [
+          0.03655,
+          0.0733,
+          0.14737,
+          0.29787,
+          0.59511,
+          0.90625,
+          0.93125,
+          0.93359,
+          0.95312,
+          0.97656,
+          0.98438,
+          1.0
+        ],
+        "0.99": [
+          0.04178,
+          0.08377,
+          0.16579,
+          0.32979,
+          0.66304,
+          0.99716,
+          0.99687,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "median_per_query_sparsity": {
+        "0.5": 0.01603,
+        "0.9": 0.03546,
+        "0.95": 0.03947,
+        "0.99": 0.04237
+      }
+    },
+    "checks": {
+      "coverage_rises_with_W": true,
+      "coverage_near_total_at_large_W": true,
+      "higher_p_covers_more_at_fixed_W": true,
+      "per_query_attention_is_sparse": true,
+      "sparse_queries_coexist_with_broad_union": true,
+      "coverage_bounded_by_one": true
+    },
+    "note": "U_p(W) is computed exactly as defined in Sec. II-B on a synthetic T=384 cache with 24 key clusters and one aligned query cluster per position; the published curve is a 256K-token measurement on a 35B model and is recorded, not re-measured"
+  },
+  "fig5_evals_plot": 1.0,
+  "fig5_evals_data": {
+    "published_fig5": {
+      "AIME 2026": [
+        93.1,
+        91.2,
+        90.8,
+        89.6
+      ],
+      "SWE-bench Verified": [
+        67.4,
+        67.4,
+        68.4,
+        65.6
+      ],
+      "Terminal-Bench 2.1": [
+        49.9,
+        46.7,
+        53.3,
+        45.4
+      ],
+      "MMLU-Pro": [
+        84.9,
+        85.3,
+        85.2,
+        85.4
+      ],
+      "GPQA Diamond": [
+        84.8,
+        85.0,
+        85.0,
+        83.3
+      ],
+      "RULER-13 (256K)": [
+        96.0,
+        93.3,
+        96.2,
+        77.1
+      ],
+      "LongBench v2 (thinking)": [
+        58.0,
+        63.4,
+        62.4,
+        50.7
+      ]
+    },
+    "systems": [
+      "Dense",
+      "ZHA deep (R16 C4 L6)",
+      "ZHA wide (R16 C256 L1)",
+      "MSA (top-16 x 128)"
+    ],
+    "backbone": "Qwen3.6-35B-A3B, frozen; ZHA routers trained on 1B tokens, MSA indexer on 40B tokens",
+    "recomputed": {
+      "ruler13_deep_drop_pp": 2.7,
+      "longbench_deep_over_msa_pp": 12.7,
+      "deep_max_reasoning_drop_pp": 3.2,
+      "wide_max_reasoning_drop_pp": 2.3,
+      "msa_retrieval_drop_pp": {
+        "RULER-13 (256K)": 18.9,
+        "LongBench v2 (thinking)": 7.3
+      }
+    },
+    "decode_key_shares": {
+      "deep_longbench": 0.011,
+      "msa_longbench": 0.01,
+      "deep_ruler_range": [
+        0.01,
+        0.06
+      ]
+    },
+    "checks": {
+      "ruler_deep_drop_matches_text_3pct": true,
+      "longbench_deep_over_msa_is_12_7pp": true,
+      "deep_reasoning_within_4pp_of_dense": true,
+      "wide_reasoning_within_4pp_of_dense": true,
+      "wide_beats_dense_on_ruler": true,
+      "msa_trails_both_zha_on_retrieval": true,
+      "msa_competitive_on_reasoning": true,
+      "zha_deep_sparser_than_msa_budget_on_longbench": true
+    },
+    "claim": "both routers perform within noise of the dense baseline on reasoning, agentic coding, and long-context benchmarks; the deep router attends to 1.1% of decode keys on LongBench v2 yet scores 12.7 points above MSA, which trained on 40x the token budget",
+    "note": "published cells recorded exactly from the Fig. 5 text layer; no benchmark is re-run here (no 35B backbone, no RULER/AIME/SWE-bench harness)"
+  },
+  "fig6_geometry_model_plot": 1.0,
+  "fig6_geometry_model_data": {
+    "model": "d_ell(R,C) = log(1 + C^ell/R^r); A_hat = A_dense(N) * prod_ell exp(-a (1-p)^b d_ell^h)",
+    "parameter_bounds": {
+      "a": {
+        "min": 0.0,
+        "max": null,
+        "constraint": "a > 0"
+      },
+      "b": {
+        "min": 1.0,
+        "max": 2.0,
+        "constraint": "1 <= b <= 2"
+      },
+      "h": {
+        "min": 0.2,
+        "max": 6.0,
+        "constraint": "0.2 <= h <= 6"
+      },
+      "r": {
+        "min": 0.0,
+        "max": 6.0,
+        "constraint": "0 <= r <= 6"
+      }
+    },
+    "nominal_parameters_used_for_structure_probe": {
+      "a": 1.0,
+      "b": 1.5,
+      "h": 1.0,
+      "r": 1.0
+    },
+    "published_fit": {
+      "geometries": 28,
+      "reference_counts": [
+        1,
+        2,
+        4,
+        16
+      ],
+      "thresholds": [
+        0.7,
+        0.8,
+        0.9,
+        0.95
+      ],
+      "thresholds_p99_subset": 13,
+      "lengths": [
+        65536,
+        131072,
+        262144
+      ],
+      "fit_cells_per_fold": 250,
+      "eval_cells_per_fold": 125,
+      "rmse_pp_pooled_leave_one_length_out": 1.44,
+      "rmse_pp_256K_subset": 1.65,
+      "pooled_predictions_R16": 150,
+      "fitted_on": "13-task RULER mean, accuracy in percentage points, nonlinear least squares"
+    },
+    "structure_probe": {
+      "accuracy_vs_p_R16C4L6": {
+        "0.7": 8.0531,
+        "0.8": 24.9117,
+        "0.9": 59.5848,
+        "0.95": 81.1031,
+        "0.99": 94.563
+      },
+      "accuracy_vs_R_C8L2_p09": {
+        "1": 78.4813,
+        "2": 81.6861,
+        "4": 84.776,
+        "16": 90.074
+      },
+      "accuracy_vs_C_L2_p09": {
+        "4": 93.2583,
+        "8": 90.074,
+        "16": 85.87,
+        "64": 76.5524,
+        "256": 67.4722
+      },
+      "accuracy_at_fixed_compression_4096": {
+        "C4096_L1": 80.5494,
+        "C64_L2": 76.5524,
+        "C16_L3": 72.0498,
+        "C8_L4": 67.6661,
+        "C4_L6": 59.5848
+      },
+      "difficulty_per_level_R16C4L6": [
+        0.22314,
+        0.69315,
+        1.60944,
+        2.83321,
+        4.17439,
+        5.54908
+      ],
+      "retention_range": [
+        0.401798,
+        0.999777
+      ]
+    },
+    "checks": {
+      "accuracy_monotone_increasing_in_p": true,
+      "accuracy_monotone_increasing_in_R": true,
+      "accuracy_monotone_decreasing_in_C": true,
+      "difficulty_increases_with_level_span": true,
+      "retention_factors_in_unit_interval": true,
+      "accuracy_never_exceeds_dense_baseline": true,
+      "p_equals_1_removes_the_sparsity_penalty": true,
+      "more_references_lower_difficulty": true
+    },
+    "published_empirical_observations": {
+      "robust_band": "attending 10-30% of keys, retrieval is robust to geometry choice",
+      "depth_at_fixed_compression": "at C^L = 4096, deeper geometries sustain retrieval out to greater sparsity and are more performant at a fixed sparsity level (Fig. 6b)",
+      "reference_count": "increasing R at fixed C8 L2 improves accuracy at a given sparsity (Fig. 6c)"
+    },
+    "claim": "the relatively low prediction error of such a simple model suggests that accuracy varies surprisingly smoothly with sparsity and tree geometry over the fitted range",
+    "note": "the four fitted parameters are not tabulated in the text layer, so the local arm uses nominal admissible values to probe the model's STRUCTURE only; it does not reproduce the 1.44 pp fit. Fig. 6b compares geometries at matched decode-key share, whereas Eq. 2 takes p (not sparsity) as input, so the depth advantage is recorded as an observation rather than asserted from the model"
+  },
+  "fig7_exponent_profile_plot": 1.0,
+  "fig7_exponent_profile_data": {
+    "published_coefficients": {
+      "beta_const": "0.3736 + 0.5536 p",
+      "beta_lin": "0.3429 + 0.4129 p + (0.007697 + 0.03518 p) L",
+      "eps_profile_r_half": "eps_ell = 2 eps (1 - 2^-(L-ell))",
+      "general_recursion": "eps_L = 0; eps_{ell-1} = eps + r eps_ell"
+    },
+    "published_rmse": {
+      "within_tree_r0": 0.0218,
+      "within_tree_r_half": 0.013,
+      "within_tree_r1": 0.0156,
+      "within_tree_settings": 20,
+      "within_tree_exponent_summaries": 80,
+      "top_exponent_const": 0.0574,
+      "top_exponent_lin": 0.0226,
+      "held_out_depths_const": 0.0706,
+      "held_out_depths_lin": 0.0317,
+      "held_out_thresholds_const": 0.0597,
+      "held_out_thresholds_lin": 0.0442
+    },
+    "profile_grid_eps0": {
+      "L2_p0.7": {
+        "beta_lin": 0.696576,
+        "beta_const": 0.76112,
+        "alpha_hat": [
+          0.485218,
+          0.696576
+        ],
+        "alpha_hat_leaf": 0.485218,
+        "prefill_exponent": 1.485218,
+        "max_eps_for_sublinearity": 0.151712
+      },
+      "L2_p0.8": {
+        "beta_lin": 0.744902,
+        "beta_const": 0.81648,
+        "alpha_hat": [
+          0.554879,
+          0.744902
+        ],
+        "alpha_hat_leaf": 0.554879,
+        "prefill_exponent": 1.554879,
+        "max_eps_for_sublinearity": 0.127549
+      },
+      "L2_p0.9": {
+        "beta_lin": 0.793228,
+        "beta_const": 0.87184,
+        "alpha_hat": [
+          0.629211,
+          0.793228
+        ],
+        "alpha_hat_leaf": 0.629211,
+        "prefill_exponent": 1.629211,
+        "max_eps_for_sublinearity": 0.103386
+      },
+      "L2_p0.95": {
+        "beta_lin": 0.817391,
+        "beta_const": 0.89952,
+        "alpha_hat": [
+          0.668128,
+          0.817391
+        ],
+        "alpha_hat_leaf": 0.668128,
+        "prefill_exponent": 1.668128,
+        "max_eps_for_sublinearity": 0.091305
+      },
+      "L3_p0.7": {
+        "beta_lin": 0.728899,
+        "beta_const": 0.76112,
+        "alpha_hat": [
+          0.387259,
+          0.531294,
+          0.728899
+        ],
+        "alpha_hat_leaf": 0.387259,
+        "prefill_exponent": 1.387259,
+        "max_eps_for_sublinearity": 0.135551
+      },
+      "L3_p0.8": {
+        "beta_lin": 0.780743,
+        "beta_const": 0.81648,
+        "alpha_hat": [
+          0.475909,
+          0.60956,
+          0.780743
+        ],
+        "alpha_hat_leaf": 0.475909,
+        "prefill_exponent": 1.475909,
+        "max_eps_for_sublinearity": 0.109629
+      },
+      "L3_p0.9": {
+        "beta_lin": 0.832587,
+        "beta_const": 0.87184,
+        "alpha_hat": [
+          0.57715,
+          0.693201,
+          0.832587
+        ],
+        "alpha_hat_leaf": 0.57715,
+        "prefill_exponent": 1.57715,
+        "max_eps_for_sublinearity": 0.083707
+      },
+      "L3_p0.95": {
+        "beta_lin": 0.858509,
+        "beta_const": 0.89952,
+        "alpha_hat": [
+          0.632754,
+          0.737038,
+          0.858509
+        ],
+        "alpha_hat_leaf": 0.632754,
+        "prefill_exponent": 1.632754,
+        "max_eps_for_sublinearity": 0.070746
+      },
+      "L4_p0.7": {
+        "beta_lin": 0.761222,
+        "beta_const": 0.76112,
+        "alpha_hat": [
+          0.335773,
+          0.441097,
+          0.579459,
+          0.761222
+        ],
+        "alpha_hat_leaf": 0.335773,
+        "prefill_exponent": 1.335773,
+        "max_eps_for_sublinearity": 0.119389
+      },
+      "L4_p0.8": {
+        "beta_lin": 0.816584,
+        "beta_const": 0.81648,
+        "alpha_hat": [
+          0.444635,
+          0.544506,
+          0.666809,
+          0.816584
+        ],
+        "alpha_hat_leaf": 0.444635,
+        "prefill_exponent": 1.444635,
+        "max_eps_for_sublinearity": 0.091708
+      },
+      "L4_p0.9": {
+        "beta_lin": 0.871946,
+        "beta_const": 0.87184,
+        "alpha_hat": [
+          0.578041,
+          0.662932,
+          0.76029,
+          0.871946
+        ],
+        "alpha_hat_leaf": 0.578041,
+        "prefill_exponent": 1.578041,
+        "max_eps_for_sublinearity": 0.064027
+      },
+      "L4_p0.95": {
+        "beta_lin": 0.899627,
+        "beta_const": 0.89952,
+        "alpha_hat": [
+          0.655013,
+          0.728094,
+          0.809329,
+          0.899627
+        ],
+        "alpha_hat_leaf": 0.655013,
+        "prefill_exponent": 1.655013,
+        "max_eps_for_sublinearity": 0.050187
+      },
+      "L5_p0.7": {
+        "beta_lin": 0.793545,
+        "beta_const": 0.76112,
+        "alpha_hat": [
+          0.314672,
+          0.396539,
+          0.499706,
+          0.629714,
+          0.793545
+        ],
+        "alpha_hat_leaf": 0.314672,
+        "prefill_exponent": 1.314672,
+        "max_eps_for_sublinearity": 0.103228
+      },
+      "L5_p0.8": {
+        "beta_lin": 0.852425,
+        "beta_const": 0.81648,
+        "alpha_hat": [
+          0.450071,
+          0.527989,
+          0.619396,
+          0.726628,
+          0.852425
+        ],
+        "alpha_hat_leaf": 0.450071,
+        "prefill_exponent": 1.450071,
+        "max_eps_for_sublinearity": 0.073788
+      },
+      "L5_p0.9": {
+        "beta_lin": 0.911305,
+        "beta_const": 0.87184,
+        "alpha_hat": [
+          0.62852,
+          0.689692,
+          0.756818,
+          0.830477,
+          0.911305
+        ],
+        "alpha_hat_leaf": 0.62852,
+        "prefill_exponent": 1.62852,
+        "max_eps_for_sublinearity": 0.044347
+      },
+      "L5_p0.95": {
+        "beta_lin": 0.940745,
+        "beta_const": 0.89952,
+        "alpha_hat": [
+          0.736817,
+          0.783227,
+          0.83256,
+          0.885001,
+          0.940745
+        ],
+        "alpha_hat_leaf": 0.736817,
+        "prefill_exponent": 1.736817,
+        "max_eps_for_sublinearity": 0.029628
+      },
+      "L6_p0.7": {
+        "beta_lin": 0.825868,
+        "beta_const": 0.76112,
+        "alpha_hat": [
+          0.317295,
+          0.384196,
+          0.465203,
+          0.56329,
+          0.682058,
+          0.825868
+        ],
+        "alpha_hat_leaf": 0.317295,
+        "prefill_exponent": 1.317295,
+        "max_eps_for_sublinearity": 0.087066
+      },
+      "L6_p0.8": {
+        "beta_lin": 0.888266,
+        "beta_const": 0.81648,
+        "alpha_hat": [
+          0.4912,
+          0.552987,
+          0.622547,
+          0.700857,
+          0.789016,
+          0.888266
+        ],
+        "alpha_hat_leaf": 0.4912,
+        "prefill_exponent": 1.4912,
+        "max_eps_for_sublinearity": 0.055867
+      },
+      "L6_p0.9": {
+        "beta_lin": 0.950664,
+        "beta_const": 0.87184,
+        "alpha_hat": [
+          0.73818,
+          0.776489,
+          0.816786,
+          0.859174,
+          0.903762,
+          0.950664
+        ],
+        "alpha_hat_leaf": 0.73818,
+        "prefill_exponent": 1.73818,
+        "max_eps_for_sublinearity": 0.024668
+      },
+      "L6_p0.95": {
+        "beta_lin": 0.981863,
+        "beta_const": 0.89952,
+        "alpha_hat": [
+          0.895995,
+          0.912545,
+          0.929402,
+          0.94657,
+          0.964055,
+          0.981863
+        ],
+        "alpha_hat_leaf": 0.895995,
+        "prefill_exponent": 1.895995,
+        "max_eps_for_sublinearity": 0.009068
+      }
+    },
+    "linear_top_overtake_depth_at_p08": 4,
+    "illustrative_eps002_L6_p08": {
+      "alpha_hat": [
+        0.587002,
+        0.633217,
+        0.683993,
+        0.74084,
+        0.806782,
+        0.888266
+      ],
+      "beta_ell": [
+        0.927016,
+        0.925766,
+        0.923266,
+        0.918266,
+        0.908266,
+        0.888266
+      ],
+      "eps_ell": [
+        0.03875,
+        0.0375,
+        0.035,
+        0.03,
+        0.02,
+        0.0
+      ]
+    },
+    "checks": {
+      "alpha_hat_top_equals_beta": true,
+      "cumulative_product_recursion_holds": true,
+      "eps_L_is_zero": true,
+      "eps_grows_toward_leaves_and_saturates_below_2eps": true,
+      "r_half_closed_form_matches_recursion": true,
+      "exponent_highest_at_top_and_decreases_down": true,
+      "all_beta_below_1_over_fitted_range": true,
+      "every_level_sublinear_at_eps0": true,
+      "prefill_strictly_subquadratic": true,
+      "linear_top_overtakes_constant_top_and_stays_above": true,
+      "published_rmse_prefers_linear_top": true,
+      "published_rmse_prefers_r_half": true
+    },
+    "claim": "the scaling exponent is highest at the top level and decreases proceeding down each tree; ZHA can remain asymptotically subquadratic, subject to careful top-p scaling",
+    "note": "beta coefficients and RMSE cells are published and exact. eps is fitted per geometry and p and is NOT tabulated, so the profile grid uses eps=0 (the pure-product baseline, a lower bound on leaf exponents) and one illustrative eps=0.02 arm to check the recursion; max_eps_for_sublinearity reports the largest eps keeping every beta_ell < 1. Count amplitudes c_ell are likewise fitted, not published. Directions matter here: eps_ell is 0 at the top and grows toward the leaves, so alpha_hat_ell = prod_{k>=ell} beta_k is LARGEST at ell=L and shrinks down the tree. The linear-top beta grows with L and only overtakes the constant-top beta beyond the recorded overtake depth; at shallow depths the constant-top scenario is the larger exponent"
+  },
+  "fig8_roofline_plot": 1.0,
+  "fig8_roofline_data": {
+    "model": "t_ZHA = t_tree + lambda_A + Phi_attn + sum_ell[lambda_ell + Phi_routing,ell + Phi_scan,ell]; Phi_x = max(FLOPs/P, bytes/BW, tau*ceil(N_tiles/(N_SM*c))); K_{ell-1} = C*S_ell",
+    "declared_hardware_constants": {
+      "N_SM": 132,
+      "s_QKV": 2,
+      "P_attn": 989000000000000.0,
+      "P_routing": 989000000000000.0,
+      "P_scan": 1000000000000.0,
+      "BW": 3350000000000.0,
+      "c_routing": 2,
+      "c_scan": 2,
+      "c_attn": 1,
+      "tau_routing": 2e-06,
+      "tau_scan": 2e-06,
+      "tau_attn": 5e-06,
+      "lambda_kernel": 3e-06
+    },
+    "declared_workload": {
+      "B": 1,
+      "Q": 1,
+      "Hq": 16,
+      "HKV": 2,
+      "dk": 128,
+      "dv": 128,
+      "R": 1,
+      "C": 8,
+      "p": 0.75,
+      "kappa_routing": 64,
+      "kappa_scan": 256,
+      "kappa_attn": 128,
+      "tree_amortized_fraction": 0.01
+    },
+    "published_fig8": {
+      "geometry": "R1, C8, p=0.75, Qwen 35B BF16, per-token decode, one layer, batch 1",
+      "crossover_vs_dense_tokens": 48000,
+      "crossover_vs_dense_depth": 1,
+      "crossover_vs_msa_tokens": 480000,
+      "crossover_vs_msa_depth": 2,
+      "speedup_vs_dense_at_1e9": [
+        373,
+        417
+      ],
+      "speedup_vs_msa_at_1e9": [
+        52,
+        58
+      ],
+      "depth_at_1e9": 5,
+      "abstract_crossover_claim": "around 0.5M tokens for a performant geometry with p = 0.75"
+    },
+    "modeled_with_declared_constants": {
+      "10000": {
+        "dense_ms": 0.008,
+        "msa_ms": 0.013,
+        "zha_ms": 0.01808,
+        "best_depth": 1,
+        "speedup_vs_dense": 0.442478,
+        "speedup_vs_msa": 0.719027
+      },
+      "100000": {
+        "dense_ms": 0.018284,
+        "msa_ms": 0.018642,
+        "zha_ms": 0.030183,
+        "best_depth": 2,
+        "speedup_vs_dense": 0.605761,
+        "speedup_vs_msa": 0.617629
+      },
+      "1000000": {
+        "dense_ms": 0.155836,
+        "msa_ms": 0.087418,
+        "zha_ms": 0.045558,
+        "best_depth": 3,
+        "speedup_vs_dense": 3.420576,
+        "speedup_vs_msa": 1.918812
+      },
+      "10000000": {
+        "dense_ms": 1.531358,
+        "msa_ms": 0.775179,
+        "zha_ms": 0.095314,
+        "best_depth": 5,
+        "speedup_vs_dense": 16.066527,
+        "speedup_vs_msa": 8.132934
+      },
+      "100000000": {
+        "dense_ms": 15.286582,
+        "msa_ms": 7.652791,
+        "zha_ms": 0.341866,
+        "best_depth": 6,
+        "speedup_vs_dense": 44.715152,
+        "speedup_vs_msa": 22.385365
+      },
+      "1000000000": {
+        "dense_ms": 152.838821,
+        "msa_ms": 76.42891,
+        "zha_ms": 2.465388,
+        "best_depth": 6,
+        "speedup_vs_dense": 61.993815,
+        "speedup_vs_msa": 31.000761
+      }
+    },
+    "latency_exponents_full_grid": {
+      "dense": 0.89043,
+      "msa": 0.78955,
+      "zha": 0.40447
+    },
+    "latency_exponents_asymptotic_T_ge_1e6": {
+      "dense": 0.99739,
+      "msa": 0.98194,
+      "zha": 0.57547
+    },
+    "modeled_crossover_tokens": {
+      "dense": 1000000,
+      "msa": 1000000
+    },
+    "checks": {
+      "dense_decode_latency_asymptotically_linear": true,
+      "msa_decode_latency_asymptotically_linear": true,
+      "zha_latency_is_sublinear": true,
+      "zha_exponent_below_dense_and_msa": true,
+      "sublinear_forces_eventual_crossover": true,
+      "kernel_floors_explain_sub_unity_full_grid_slope": true,
+      "depth_nondecreasing_with_context": true,
+      "worker_wave_term_present": true,
+      "published_speedups_vs_dense_exceed_msa": true
+    },
+    "claim": "ZHA becomes faster than dense attention at approximately 48K tokens (at L1) and MSA at 0.48M tokens (at L2); at 1e9 tokens these speedups reach about 373-417x and 52-58x respectively, with selected depth L5",
+    "note": "DECLARED ADAPTATION: the paper's per-kernel P_x, BW_x, tau_x, lambda and count amplitudes c_ell are calibrated and not tabulated, so this arm substitutes H100 SXM5 datasheet values, unit amplitudes, and an illustrative head config. Absolute crossovers and speedups here are NOT the paper's and are not claimed to be; the published values are recorded as cells. The exponent ordering - the actual reason a crossover exists - follows from the published Eq. 58 coefficients and is calibration-independent. t_tree is 1% of dense decode latency, matching the paper's own statement that construction adds 'around 1% or less' amortized (Sec. II-A). Exponents are read on the T >= 1e6 tail because kernel-launch and worker-wave floors flatten the full-grid log-log fit; dense and MSA decode are memory-bound there, which is what makes them linear. The authors release no kernels and did not empirically validate latency beyond available model contexts"
+  },
+  "table1_affine_vs_powerlaw_plot": 1.0,
+  "table1_affine_vs_powerlaw_data": {
+    "statistic": "rho = (1 - R2_lin)/(1 - R2_pow) < 1 means the affine model wins; both fits minimize squared log-count residuals on identical observations",
+    "targets": "Raw and Cum-max are separate targets; running maxima are taken within each rollout before 256-query bin averaging",
+    "counts_definition": "ZHA leaf-level selection counts, unioned over the 8 query heads sharing a KV head, excluding mandatory sink and local tokens; C is the checkpoint base KV chunk size, Q the query-tile width",
+    "paired_fits": 9600,
+    "fit_factorization": "30 problems x 16 rollouts x 10 layers x 2 KV heads",
+    "cells_Q_C_p_raw_cummax": [
+      [
+        1,
+        4,
+        0.7,
+        56.43,
+        39.18
+      ],
+      [
+        1,
+        4,
+        0.8,
+        11.95,
+        8.59
+      ],
+      [
+        1,
+        4,
+        0.9,
+        11.27,
+        6.77
+      ],
+      [
+        1,
+        4,
+        0.95,
+        11.94,
+        7.99
+      ],
+      [
+        1,
+        8,
+        0.7,
+        12.5,
+        8.67
+      ],
+      [
+        1,
+        8,
+        0.8,
+        9.11,
+        4.61
+      ],
+      [
+        1,
+        8,
+        0.9,
+        10.38,
+        6.82
+      ],
+      [
+        1,
+        8,
+        0.95,
+        10.4,
+        7.35
+      ],
+      [
+        1,
+        16,
+        0.7,
+        5.86,
+        2.94
+      ],
+      [
+        1,
+        16,
+        0.8,
+        7.34,
+        5.0
+      ],
+      [
+        1,
+        16,
+        0.9,
+        11.52,
+        7.28
+      ],
+      [
+        1,
+        16,
+        0.95,
+        9.57,
+        8.13
+      ],
+      [
+        1,
+        64,
+        0.7,
+        1.64,
+        0.72
+      ],
+      [
+        1,
+        64,
+        0.8,
+        4.41,
+        1.81
+      ],
+      [
+        1,
+        64,
+        0.9,
+        7.49,
+        4.07
+      ],
+      [
+        1,
+        64,
+        0.95,
+        8.09,
+        15.56
+      ],
+      [
+        1,
+        256,
+        0.8,
+        6.09,
+        41.63
+      ],
+      [
+        1,
+        256,
+        0.9,
+        12.18,
+        83.65
+      ],
+      [
+        1,
+        256,
+        0.95,
+        29.55,
+        97.17
+      ],
+      [
+        16,
+        4,
+        0.7,
+        49.83,
+        30.26
+      ],
+      [
+        16,
+        4,
+        0.8,
+        5.89,
+        2.3
+      ],
+      [
+        16,
+        4,
+        0.9,
+        4.42,
+        3.25
+      ],
+      [
+        16,
+        4,
+        0.95,
+        4.36,
+        6.69
+      ],
+      [
+        16,
+        8,
+        0.7,
+        6.89,
+        2.67
+      ],
+      [
+        16,
+        8,
+        0.8,
+        2.95,
+        2.17
+      ],
+      [
+        16,
+        8,
+        0.9,
+        3.76,
+        5.36
+      ],
+      [
+        16,
+        8,
+        0.95,
+        3.73,
+        8.79
+      ],
+      [
+        16,
+        16,
+        0.7,
+        1.8,
+        1.43
+      ],
+      [
+        16,
+        16,
+        0.8,
+        2.26,
+        3.57
+      ],
+      [
+        16,
+        16,
+        0.9,
+        3.25,
+        7.08
+      ],
+      [
+        16,
+        16,
+        0.95,
+        3.76,
+        17.36
+      ],
+      [
+        16,
+        64,
+        0.7,
+        0.47,
+        1.96
+      ],
+      [
+        16,
+        64,
+        0.8,
+        1.69,
+        16.67
+      ],
+      [
+        16,
+        64,
+        0.9,
+        10.81,
+        53.89
+      ],
+      [
+        16,
+        64,
+        0.95,
+        24.41,
+        83.21
+      ],
+      [
+        16,
+        256,
+        0.8,
+        46.68,
+        96.72
+      ],
+      [
+        16,
+        256,
+        0.9,
+        74.31,
+        99.84
+      ],
+      [
+        16,
+        256,
+        0.95,
+        90.93,
+        100.0
+      ],
+      [
+        32,
+        4,
+        0.7,
+        47.78,
+        27.04
+      ],
+      [
+        32,
+        4,
+        0.8,
+        4.15,
+        1.91
+      ],
+      [
+        32,
+        4,
+        0.9,
+        3.15,
+        3.88
+      ],
+      [
+        32,
+        4,
+        0.95,
+        3.39,
+        8.42
+      ],
+      [
+        32,
+        8,
+        0.7,
+        5.59,
+        2.39
+      ],
+      [
+        32,
+        8,
+        0.8,
+        1.82,
+        2.49
+      ],
+      [
+        32,
+        8,
+        0.9,
+        2.66,
+        6.55
+      ],
+      [
+        32,
+        8,
+        0.95,
+        3.21,
+        10.94
+      ],
+      [
+        32,
+        16,
+        0.7,
+        1.41,
+        1.6
+      ],
+      [
+        32,
+        16,
+        0.8,
+        1.84,
+        4.13
+      ],
+      [
+        32,
+        16,
+        0.9,
+        2.32,
+        10.47
+      ],
+      [
+        32,
+        16,
+        0.95,
+        7.54,
+        22.64
+      ],
+      [
+        32,
+        64,
+        0.7,
+        0.55,
+        8.65
+      ],
+      [
+        32,
+        64,
+        0.8,
+        4.31,
+        35.4
+      ],
+      [
+        32,
+        64,
+        0.9,
+        22.18,
+        74.7
+      ],
+      [
+        32,
+        64,
+        0.95,
+        51.15,
+        93.01
+      ],
+      [
+        32,
+        256,
+        0.8,
+        67.74,
+        98.88
+      ],
+      [
+        32,
+        256,
+        0.9,
+        89.13,
+        99.96
+      ],
+      [
+        32,
+        256,
+        0.95,
+        96.57,
+        100.0
+      ],
+      [
+        64,
+        4,
+        0.7,
+        44.09,
+        22.85
+      ],
+      [
+        64,
+        4,
+        0.8,
+        2.85,
+        1.88
+      ],
+      [
+        64,
+        4,
+        0.9,
+        2.32,
+        4.98
+      ],
+      [
+        64,
+        4,
+        0.95,
+        2.83,
+        10.8
+      ],
+      [
+        64,
+        8,
+        0.7,
+        4.32,
+        2.22
+      ],
+      [
+        64,
+        8,
+        0.8,
+        1.26,
+        2.97
+      ],
+      [
+        64,
+        8,
+        0.9,
+        2.26,
+        8.55
+      ],
+      [
+        64,
+        8,
+        0.95,
+        3.24,
+        14.33
+      ],
+      [
+        64,
+        16,
+        0.7,
+        1.17,
+        1.9
+      ],
+      [
+        64,
+        16,
+        0.8,
+        1.47,
+        5.08
+      ],
+      [
+        64,
+        16,
+        0.9,
+        3.08,
+        14.16
+      ],
+      [
+        64,
+        16,
+        0.95,
+        12.45,
+        30.91
+      ],
+      [
+        64,
+        64,
+        0.7,
+        3.11,
+        29.47
+      ],
+      [
+        64,
+        64,
+        0.8,
+        19.73,
+        62.84
+      ],
+      [
+        64,
+        64,
+        0.9,
+        53.82,
+        90.22
+      ],
+      [
+        64,
+        64,
+        0.95,
+        78.69,
+        98.55
+      ],
+      [
+        64,
+        256,
+        0.8,
+        85.46,
+        99.73
+      ],
+      [
+        64,
+        256,
+        0.9,
+        96.49,
+        100.0
+      ],
+      [
+        64,
+        256,
+        0.95,
+        99.34,
+        100.0
+      ],
+      [
+        128,
+        4,
+        0.7,
+        39.41,
+        18.83
+      ],
+      [
+        128,
+        4,
+        0.8,
+        2.06,
+        2.0
+      ],
+      [
+        128,
+        4,
+        0.9,
+        2.11,
+        6.66
+      ],
+      [
+        128,
+        4,
+        0.95,
+        2.72,
+        11.85
+      ],
+      [
+        128,
+        8,
+        0.7,
+        3.29,
+        2.23
+      ],
+      [
+        128,
+        8,
+        0.8,
+        1.05,
+        3.83
+      ],
+      [
+        128,
+        8,
+        0.9,
+        2.32,
+        9.64
+      ],
+      [
+        128,
+        8,
+        0.95,
+        7.48,
+        17.28
+      ],
+      [
+        128,
+        16,
+        0.7,
+        1.05,
+        2.58
+      ],
+      [
+        128,
+        16,
+        0.8,
+        1.4,
+        6.04
+      ],
+      [
+        128,
+        16,
+        0.9,
+        8.27,
+        19.96
+      ],
+      [
+        128,
+        16,
+        0.95,
+        24.26,
+        45.98
+      ],
+      [
+        128,
+        64,
+        0.7,
+        13.19,
+        43.44
+      ],
+      [
+        128,
+        64,
+        0.8,
+        40.36,
+        75.22
+      ],
+      [
+        128,
+        64,
+        0.9,
+        73.65,
+        94.26
+      ],
+      [
+        128,
+        64,
+        0.95,
+        90.56,
+        99.28
+      ],
+      [
+        128,
+        256,
+        0.8,
+        95.44,
+        99.98
+      ],
+      [
+        128,
+        256,
+        0.9,
+        99.39,
+        100.0
+      ],
+      [
+        128,
+        256,
+        0.95,
+        99.95,
+        100.0
+      ],
+      [
+        256,
+        4,
+        0.7,
+        32.93,
+        15.39
+      ],
+      [
+        256,
+        4,
+        0.8,
+        1.54,
+        2.04
+      ],
+      [
+        256,
+        4,
+        0.9,
+        2.26,
+        8.24
+      ],
+      [
+        256,
+        4,
+        0.95,
+        3.94,
+        11.57
+      ],
+      [
+        256,
+        8,
+        0.7,
+        2.46,
+        2.59
+      ],
+      [
+        256,
+        8,
+        0.8,
+        1.17,
+        4.68
+      ],
+      [
+        256,
+        8,
+        0.9,
+        4.08,
+        11.08
+      ],
+      [
+        256,
+        8,
+        0.95,
+        15.96,
+        22.85
+      ],
+      [
+        256,
+        16,
+        0.7,
+        1.27,
+        3.31
+      ],
+      [
+        256,
+        16,
+        0.8,
+        2.7,
+        7.78
+      ],
+      [
+        256,
+        16,
+        0.9,
+        20.52,
+        29.79
+      ],
+      [
+        256,
+        16,
+        0.95,
+        49.83,
+        62.56
+      ],
+      [
+        256,
+        64,
+        0.7,
+        33.61,
+        58.35
+      ],
+      [
+        256,
+        64,
+        0.8,
+        63.2,
+        83.81
+      ],
+      [
+        256,
+        64,
+        0.9,
+        87.25,
+        96.84
+      ],
+      [
+        256,
+        64,
+        0.95,
+        96.89,
+        99.64
+      ],
+      [
+        256,
+        256,
+        0.8,
+        99.42,
+        100.0
+      ],
+      [
+        256,
+        256,
+        0.9,
+        99.97,
+        100.0
+      ],
+      [
+        256,
+        256,
+        0.95,
+        100.0,
+        100.0
+      ]
+    ],
+    "n_cells": 114,
+    "local_probe_model_recovery": {
+      "generated_affine_a_plus_bT": {
+        "0.3": {
+          "affine_win_rate_pct": 100.0,
+          "rho_median": 0.02824,
+          "r2_lin_mean": 0.99443,
+          "r2_pow_mean": 0.80704,
+          "n_traces": 64
+        },
+        "1.0": {
+          "affine_win_rate_pct": 100.0,
+          "rho_median": 0.08086,
+          "r2_lin_mean": 0.97469,
+          "r2_pow_mean": 0.72808,
+          "n_traces": 64
+        },
+        "3.0": {
+          "affine_win_rate_pct": 98.44,
+          "rho_median": 0.32362,
+          "r2_lin_mean": 0.8723,
+          "r2_pow_mean": 0.62994,
+          "n_traces": 64
+        }
+      },
+      "generated_powerlaw_cT_alpha": {
+        "0.4": {
+          "affine_win_rate_pct": 0.0,
+          "rho_median": 63.72305,
+          "r2_lin_mean": 0.86642,
+          "r2_pow_mean": 0.99779,
+          "n_traces": 64
+        },
+        "0.55": {
+          "affine_win_rate_pct": 0.0,
+          "rho_median": 57.69156,
+          "r2_lin_mean": 0.92075,
+          "r2_pow_mean": 0.99855,
+          "n_traces": 64
+        },
+        "0.7": {
+          "affine_win_rate_pct": 0.0,
+          "rho_median": 44.51539,
+          "r2_lin_mean": 0.96734,
+          "r2_pow_mean": 0.99921,
+          "n_traces": 64
+        }
+      }
+    },
+    "local_probe_floor_sweep_observation": {
+      "0.0": {
+        "affine_win_rate_pct": 0.0,
+        "rho_median": 64.76756,
+        "r2_lin_mean": 0.92165,
+        "r2_pow_mean": 0.99874,
+        "n_traces": 64
+      },
+      "0.1": {
+        "affine_win_rate_pct": 0.0,
+        "rho_median": 3.42796,
+        "r2_lin_mean": 0.93144,
+        "r2_pow_mean": 0.97983,
+        "n_traces": 64
+      },
+      "0.3": {
+        "affine_win_rate_pct": 23.44,
+        "rho_median": 1.33407,
+        "r2_lin_mean": 0.92938,
+        "r2_pow_mean": 0.94925,
+        "n_traces": 64
+      },
+      "0.6": {
+        "affine_win_rate_pct": 62.5,
+        "rho_median": 0.78957,
+        "r2_lin_mean": 0.92844,
+        "r2_pow_mean": 0.9126,
+        "n_traces": 64
+      },
+      "1.0": {
+        "affine_win_rate_pct": 56.25,
+        "rho_median": 0.67013,
+        "r2_lin_mean": 0.91676,
+        "r2_pow_mean": 0.88765,
+        "n_traces": 64
+      }
+    },
+    "local_probe_design": "DECLARED ADAPTATION: 64 synthetic traces per arm, T = 256..65536 geometric, 4% lognormal count noise; affine a+bT fitted by Adam on log a, log b (800 steps, lr 0.05), power law by closed-form log-log least squares. Recovery arms generate from each competing family in turn. Not the paper's rollouts",
+    "checks": {
+      "win_rates_are_percentages": true,
+      "fit_factorization_gives_9600": true,
+      "cell_count_is_114": true,
+      "prose_spot_check_C8_Q16_p090": true,
+      "prose_spot_check_C256_Q256_p090": true,
+      "affine_win_rate_rises_with_C_at_Q256_p090": true,
+      "affine_win_rate_rises_with_C_at_Q256_p095": true,
+      "cummax_rises_with_C_at_Q256_p090": true,
+      "power_law_preferred_at_C4_for_p_ge_080": true,
+      "affine_wins_majority_at_C256_Q_ge_64_p_ge_090": true,
+      "trend_is_not_uniform_in_query_tile_width": true,
+      "rho_definition_equals_sse_ratio": true,
+      "rho_recovers_generated_affine_family": true,
+      "rho_rejects_generated_powerlaw_family": true,
+      "affine_rho_below_1_for_every_generated_affine_arm": true,
+      "powerlaw_rho_above_1_for_every_generated_powerlaw_arm": true,
+      "families_separated_by_over_an_order_of_magnitude": true,
+      "generated_powerlaw_traces_fit_nearly_exactly": true
+    },
+    "claim": "power laws are preferred in many configurations, but not uniformly across checkpoint geometries and query-tile widths; at p=0.9 and (C,Q)=(8,16) the affine win rate is 3.76% raw / 5.36% cum-max, while (256,256) gives 99.97% / 100%",
+    "note": "all 228 percentages are published cells transcribed exactly. C=256 rows carry only p in {0.80,0.90,0.95} in every panel, giving 19 rows per panel and 114 rows overall, so the p=0.70 curve stops at C=64. The local probe validates the rho STATISTIC by model recovery, not the paper's win rates. Recorded negative result: adding a mandatory floor to SUBLINEAR growth (floor + 12(T/256)^0.55) does NOT monotonically raise the affine win rate - it peaks at floor fraction 0.6 and falls back at 1.0 - because a+bT is misspecified for T^0.55 over eight doublings. A floor mechanism alone therefore does not explain Table I's C/Q dependence, and no such explanation is claimed here. Within the correctly specified affine family the win rate stays at 98-100% for every floor, but median rho RISES toward 1 as the floor grows (0.028 -> 0.081 -> 0.324): once a >> bT both families approximate a constant in log space, so the relative advantage shrinks even though the affine fit still wins"
+  },
+  "table3_kl_plot": 1.0,
+  "table3_kl_data": {
+    "table2_training_setup": {
+      "columns": [
+        "Qwen ZHA deep",
+        "Qwen ZHA wide",
+        "Nemotron ZHA deep",
+        "Nemotron ZHA wide",
+        "Qwen MSA index"
+      ],
+      "trained_module": [
+        "ref. queries",
+        "ref. queries",
+        "ref. queries",
+        "ref. queries",
+        "index proj. + norms"
+      ],
+      "geometry": [
+        "C4 L6",
+        "C256 L1",
+        "C4 L6",
+        "C256 L1",
+        "B128 top-16"
+      ],
+      "sparse_attention_layers": [
+        "10 / 40",
+        "10 / 40",
+        "6 / 52",
+        "6 / 52",
+        "10 / 40"
+      ],
+      "trainable_params": [
+        81920,
+        81920,
+        24576,
+        24576,
+        7870000
+      ],
+      "frozen_backbone_params": [
+        34660000000.0,
+        34660000000.0,
+        31580000000.0,
+        31580000000.0,
+        34660000000.0
+      ],
+      "sequence_length": [
+        32768,
+        32768,
+        32768,
+        32768,
+        32768
+      ],
+      "batch_rows": [
+        16,
+        16,
+        16,
+        16,
+        320
+      ],
+      "batch_tokens": [
+        520000.0,
+        520000.0,
+        520000.0,
+        520000.0,
+        10500000.0
+      ],
+      "steps": [
+        1900,
+        1900,
+        1900,
+        1900,
+        3815
+      ],
+      "training_tokens": [
+        996000000.0,
+        996000000.0,
+        996000000.0,
+        996000000.0,
+        40000000000.0
+      ],
+      "adamw_eps": [
+        1e-15,
+        1e-15,
+        1e-15,
+        1e-15,
+        1e-08
+      ],
+      "peak_lr": [
+        0.032,
+        0.032,
+        0.032,
+        0.032,
+        0.0003
+      ],
+      "lr_schedule": [
+        "WSD",
+        "WSD",
+        "WSD",
+        "WSD",
+        "cosine"
+      ],
+      "weight_decay": [
+        "0",
+        "0",
+        "0",
+        "0",
+        "0.1 / 0"
+      ],
+      "grad_clip_norm": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "final_kl_zha_level_sum": [
+        1.172,
+        0.242,
+        0.85,
+        0.179,
+        0.12
+      ]
+    },
+    "table3_per_level_kl": {
+      "Qwen deep": [
+        0.021,
+        0.097,
+        0.18,
+        0.253,
+        0.302,
+        0.319
+      ],
+      "Qwen wide": [
+        0.242,
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "Nemotron deep": [
+        0.016,
+        0.069,
+        0.137,
+        0.192,
+        0.217,
+        0.221
+      ],
+      "Nemotron wide": [
+        0.179,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "level_sum_qwen_deep": 1.172,
+    "level_sum_nemotron_deep": 0.852,
+    "published_totals": {
+      "Qwen deep": 1.172,
+      "Qwen wide": 0.242,
+      "Nemotron deep": 0.85,
+      "Nemotron wide": 0.179,
+      "MSA index (token-level)": 0.12
+    },
+    "nemotron_rounding_gap": 0.002,
+    "aggregation_warning": "verbatim: 'These differently aggregated objectives should not be compared directly across depths or methods.' ZHA totals sum over tree levels; MSA is token-level, averaged over query positions, KV groups and MSA layers",
+    "kl_averaging_window": "last 100 training steps",
+    "objective": "L_KL = sum_ell E_q[ DKL(p_ell || p_hat_ell) ], local to each attention block, backbone frozen",
+    "data_accounting": "~1B tokens (3.45M documents) sampled per model from a 100B-token ZAYA1-8B mid-training mixture, retokenized, single epoch; MSA trained on 40B tokens; Nemotron FP32 MoE correction biases frozen and excluded from the trainable count",
+    "msa_recipe": "128-token blocks, top-16 per query, token-level KL warmup over all causal keys, max pooling within blocks; best of three 40B-token pilots varying lr, batch size and schedule",
+    "local_probe": {
+      "d": 16,
+      "C": 4,
+      "L": 3,
+      "T": 257,
+      "n_queries": 96,
+      "Rs": [
+        1,
+        4,
+        16
+      ],
+      "nodes_per_level": [
+        64,
+        16,
+        4
+      ],
+      "warmup_steps": 120,
+      "adam_lr": 0.05,
+      "kl_per_level_untrained": {
+        "1": [
+          1.134183,
+          1.435236,
+          0.27718
+        ],
+        "4": [
+          0.052618,
+          0.024817,
+          0.015632
+        ],
+        "16": [
+          0.007692,
+          0.004967,
+          0.001326
+        ]
+      },
+      "kl_per_level_trained": {
+        "1": [
+          0.046863,
+          0.024241,
+          0.015632
+        ],
+        "4": [
+          0.00607,
+          0.004967,
+          0.001326
+        ],
+        "16": [
+          0.001579,
+          0.001104,
+          0.000249
+        ]
+      },
+      "total_kl_untrained": {
+        "1": 2.846599,
+        "4": 0.093067,
+        "16": 0.013985
+      },
+      "total_kl_trained": {
+        "1": 0.086736,
+        "4": 0.012363,
+        "16": 0.002932
+      },
+      "design": "DECLARED ADAPTATION: 64 topic directions (unit norm x 2.0), one per level-1 chunk, plus Gaussian noise 0.3; 96 queries drawn from the same topic set. Reference queries are a NESTED pool of 16 topic-aligned directions: R=4 starts from the trained R=1 queries plus 3 fresh ones, R=16 from the trained R=4 plus 12 fresh, so the fall with R is a property of the function class (max over a superset of tangents) rather than of optimizer luck. 120 Adam steps at lr 0.05 on L_KL = sum_ell KL with K frozen - the paper's actual warmup mechanism, not an untrained envelope. KL is over ALL nodes at each level rather than only routing-kept nodes. C4 L3 T=257 gives 64/16/4 nodes per level, all complete; the paper trains C4 L6 at 32768. L=3 is chosen so every level has more than one node: a single-node level has softmax == [1] on both sides and KL identically 0, which makes any level trend untestable (the previous T=257/L=4 probe had exactly that degeneracy at level 4)",
+      "negative_result": "The published per-level trend (KL strictly increasing with ell: Qwen deep 0.021 -> 0.319, Nemotron deep 0.016 -> 0.221) is NOT reproduced by the local warmup, which gives a decreasing trained profile. Recorded, not tuned away. Cause: with synthetic topic-clustered keys a large span mixes many topics, so its log-mass concentrates and becomes smooth, and the top level has only 4 nodes over which to diverge; real trained keys at 32768 keep coarse spans heterogeneous. The two trends that ARE verified locally are the warmup reducing KL and the nested-R monotonicity"
+    },
+    "checks": {
+      "qwen_deep_level_sum_matches_published_total": true,
+      "nemotron_deep_level_sum_within_rounding_of_total": true,
+      "nemotron_gap_is_exactly_six_cell_rounding": true,
+      "published_per_level_kl_increases_with_level": true,
+      "nemotron_deep_below_qwen_deep_at_every_level": true,
+      "wide_geometry_reports_only_level1": true,
+      "wide_totals_equal_their_single_level": true,
+      "only_a_subset_of_layers_is_converted": true,
+      "zha_trainable_params_over_50x_below_msa": true,
+      "msa_token_budget_about_40x_zha": true,
+      "qwen_parameter_overhead_matches_setup": true,
+      "steps_times_batch_tokens_matches_reported_tokens": true,
+      "local_kl_is_nonnegative_everywhere": true,
+      "local_every_level_has_multiple_nodes": true,
+      "local_warmup_reduces_total_kl_at_every_R": true,
+      "local_nested_total_kl_falls_with_R": true,
+      "local_trained_per_level_kl_below_published_max": true,
+      "local_published_level_trend_reproduced": false
+    },
+    "claim": "ZHA trains only reference queries to a per-level KL against dense chunk-pooled attention; final level sums are 1.172 (Qwen deep), 0.242 (Qwen wide), 0.850 (Nemotron deep), 0.179 (Nemotron wide), against 0.120 for the MSA token-level objective on a 40x token budget",
+    "note": "every Table II and Table III cell is published and exact. The Nemotron deep per-level cells sum to 0.852 while Table II reports 0.850; the 0.002 gap is exactly six-decimal-cell rounding (6 x 0.0005 budget) and is recorded rather than silently corrected. Trainable params imply 81920/(16 refs x 10 layers) = 512 floats per ref per layer for Qwen and 24576/(16 x 6) = 256 for Nemotron; the paper does not state head_dim or KV-group count separately, so the split is left unpinned. The local KL probe is a structural stand-in on synthetic topic-clustered keys, not a reproduction of the 1900-step runs; it verifies the warmup mechanism and the nested-R monotonicity, and records the published per-level increase as a negative result (local_published_level_trend_reproduced is False by measurement, not by assertion failure)"
+  },
+  "variable_sparsity_plot": 1.0,
+  "variable_sparsity_data": {
+    "published": {
+      "model": "Qwen3.6-35B-A3B",
+      "context_tokens": "~64K",
+      "chunk_width_keys": 16,
+      "mass_threshold": 0.9,
+      "domains": [
+        "RULER",
+        "SWE-bench Verified",
+        "fiction books"
+      ],
+      "dense_top_p_chunk_pct_median": [
+        2.3,
+        11.7,
+        15.0
+      ],
+      "zha_geometry": "R16, C16, L3",
+      "zha_p": 0.9,
+      "zha_retained_chunk_pct_median": [
+        0.44,
+        5.0,
+        7.4
+      ],
+      "zha_contained_dense_mass_pct_median": [
+        80.0,
+        78.0,
+        78.0
+      ],
+      "ruler_individual_task_mass_pct_range": [
+        74.0,
+        82.0
+      ],
+      "router_vs_dense": "the router is consistently sparser than the dense top-p set, reflecting iterative pruning across the three levels; the pattern across tasks is consistent",
+      "domain_interpretation": "RULER's synthetic filler carries little the answer depends on; in agentic SWE-bench the relevant information is spread over code, tool outputs and earlier reasoning; in fiction books it is diffuse throughout the entire context",
+      "ruler_reference": "geometric mean over all 13 RULER subtasks",
+      "ruler_tiers": [
+        {
+          "multiplier": "~0.5x",
+          "range": [
+            0.5,
+            0.5
+          ],
+          "description": "single target in repetitive filler",
+          "named": [
+            "variable_tracking",
+            "niah_single_1"
+          ]
+        },
+        {
+          "multiplier": "0.82-1.26x",
+          "range": [
+            0.82,
+            1.26
+          ],
+          "description": "needles in essay text and document QA",
+          "named": []
+        },
+        {
+          "multiplier": "~1.6x",
+          "range": [
+            1.6,
+            1.6
+          ],
+          "description": "must scan many candidates: aggregating items or distinguishing many look-alike needles",
+          "named": [
+            "cwe",
+            "fwe",
+            "niah_multikey_2",
+            "niah_multikey_3"
+          ]
+        }
+      ],
+      "figure25": "App. F: one retrieval head at 64K on niah_single_1 vs niah_multikey_2, C16 L3 R16 p=0.9, layer 35 query head 8, emitting the first answer digit; both traversals ultimately attend to a single answer-containing chunk, but multi-key 2 (many distractor needles resembling the target) explores substantially more upper-level nodes. Zoom window keys 49,608-52,680 (K=1,024 keys). Single layer/head/decode step: illustrates the mechanism, not typical behavior",
+      "footnote12": "verbatim: 'We exclude key 0 and the current partial chunk, which ZHA always attends to, and record dense attention along the router's own decode. Medians are taken over decode steps, the 10 full-attention layers, and query heads within each sequence, then across sequences.'",
+      "closing_argument": "verbatim: 'this adaptive sparsity is impossible for a fixed-budget top-K mechanism, which instead forces a tradeoff between a large budget wasting keys on concentrated inputs, and a small one missing context needed for diffuse retrieval. ZHA's top-p threshold avoids this choice entirely.'",
+      "ruler13_protocol": "13 official tasks x 100 examples at 256K tokens; 64K and 128K in the appendix"
+    },
+    "local_probe": {
+      "d": 16,
+      "C": 16,
+      "L": 3,
+      "R": 16,
+      "p": 0.9,
+      "T": 4097,
+      "n_chunks": 256,
+      "queries_per_regime": 8,
+      "warmup_steps": 40,
+      "adam_lr": 0.05,
+      "planted_signal_chunks": {
+        "concentrated": 6,
+        "diffuse": 38
+      },
+      "nodes_per_level": [
+        256,
+        16,
+        1
+      ],
+      "measurements": {
+        "concentrated": {
+          "dense_top_p_chunk_frac_median": 0.023438,
+          "dense_top_p_mass_median": 0.91501,
+          "zha_chunk_frac_median": 0.023438,
+          "zha_mass_median": 0.91501,
+          "zha_sparser_than_dense": false,
+          "needle_chunk_retained_every_query": true,
+          "dense_frac_per_query": [
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438
+          ],
+          "zha_frac_per_query": [
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438,
+            0.023438
+          ]
+        },
+        "diffuse": {
+          "dense_top_p_chunk_frac_median": 0.148438,
+          "dense_top_p_mass_median": 0.906313,
+          "zha_chunk_frac_median": 0.136719,
+          "zha_mass_median": 0.855847,
+          "zha_sparser_than_dense": true,
+          "needle_chunk_retained_every_query": true,
+          "dense_frac_per_query": [
+            0.148438,
+            0.148438,
+            0.148438,
+            0.148438,
+            0.148438,
+            0.148438,
+            0.148438,
+            0.148438
+          ],
+          "zha_frac_per_query": [
+            0.136719,
+            0.140625,
+            0.136719,
+            0.136719,
+            0.140625,
+            0.136719,
+            0.136719,
+            0.136719
+          ]
+        }
+      },
+      "fixed_top_k_mass": {
+        "concentrated": {
+          "6": 0.91501,
+          "38": 0.926764
+        },
+        "diffuse": {
+          "6": 0.189539,
+          "38": 0.906313
+        }
+      },
+      "K_small_from_concentrated": 6,
+      "K_large_from_diffuse": 38,
+      "budget_waste_ratio": 6.3333,
+      "design": "DECLARED ADAPTATION: two caches of 256 complete 16-key chunks (T=4097, so there is no partial chunk and the only always-retained extra key is the sink). Filler keys are projected exactly orthogonal to a fixed direction u and scaled by 0.5, so they score 0 for the aligned part of every query; n_signal chunks are aligned with u at the amplitude that puts fraction p of the unnormalized chunk mass on them (6 chunks -> ~2.3% of chunks, 38 -> ~14.8%, matching the published RULER 2.3% and fiction 15.0% order). Per-chunk amplitude jitter 0.9-1.1 and orthogonal query noise 0.4 give query-to-query variation so medians are meaningful. ONE router (R=16) is warmed up for 40 Adam steps at lr 0.05 on the summed per-level KL of both caches with K frozen - the paper's actual training mechanism, not an untrained envelope. Level 3 has a single node, so its KL is identically 0 and contributes no gradient; levels 1 and 2 do the training. Fractions exclude key 0 per footnote 12. The published geometry is R16 C16 L3 at ~64K (4096 chunks); the local tree has 256"
+    },
+    "checks": {
+      "published_dense_fraction_increases_across_domains": true,
+      "published_zha_fraction_increases_across_domains": true,
+      "published_zha_sparser_than_dense_in_every_domain": true,
+      "published_contained_mass_below_the_p_target": true,
+      "published_ruler_task_range_brackets_the_median": true,
+      "published_ruler_tiers_are_ordered": true,
+      "published_ruler_tiers_straddle_the_geometric_mean": true,
+      "local_dense_top_p_reaches_p_in_both_regimes": true,
+      "local_concentrated_is_sparser_than_diffuse": true,
+      "local_fractions_match_published_order": true,
+      "local_zha_tracks_the_regime": true,
+      "local_zha_never_denser_than_dense_top_p": true,
+      "local_needle_chunk_always_retained": true,
+      "local_small_fixed_budget_misses_diffuse_mass": true,
+      "local_large_fixed_budget_wastes_on_concentrated": true,
+      "local_extra_budget_buys_little_mass_on_concentrated": true,
+      "local_top_p_budget_varies_while_top_k_does_not": true
+    },
+    "claim": "at ~64K tokens 90% of dense mass sits in a median 2.3% / 11.7% / 15.0% of 16-key chunks on RULER / SWE-bench Verified / fiction books; ZHA (R16 C16 L3, p=0.9) retains 0.44% / 5.0% / 7.4% holding 80% / 78% / 78% of that mass, and within RULER the retrieved set spans ~0.5x to ~1.6x the 13-subtask geometric mean",
+    "note": "every published percentage is a literal cell from Sec. VI-A and App. F; none is re-measured (no 35B backbone, no RULER harness, no book corpus here). The middle RULER tier is recorded with the paper's own description ('needles in essay text and document QA') and an empty named list because the paper does not enumerate those subtask IDs. The local arm is a planted-mass stand-in that verifies the top-p-vs-top-K tradeoff the section argues from; the router's contained mass is reported as measured and is NOT asserted to reach the published 78-80%. NEGATIVE RESULT: the paper says the router is 'consistently sparser' than the dense top-p set, but locally the concentrated regime gives exact equality (6 chunks either way) because the planted signal is rank-1, the tangent bound is tight on it, and 6 chunks already hold 91.5% of the mass - iterative pruning has nothing left to prune. Only the diffuse regime is strictly sparser (13.67% vs 14.84%). The per-regime zha_sparser_than_dense booleans are reported as measured rather than collapsed into a passing aggregate"
+  },
+  "reference_queries_plot": 1.0,
+  "reference_queries_data": {
+    "published": {
+      "case_study_geometry": "R16, C4, L6 at p = 0.9 (deep geometry, moderate sparsity)",
+      "figure10_mean_pairwise_cosine": 0.44,
+      "figure10_kv_groups_averaged": 20,
+      "figure10_interpretation": "the 16 reference queries within a KV group occupy a cone of directions rather than collapsing to identical vectors",
+      "figure10a_cosine_axis_range": [
+        -0.25,
+        0.75
+      ],
+      "figure10b_norm_axis_range": [
+        0.0,
+        100.0
+      ],
+      "figure10_norm_observation": "norms have some spread while remaining fairly concentrated; selection also favors smaller-norm reference queries, which give smoother weighting and may indicate that more uniform averaging of keys is advantageous at higher levels",
+      "figure9a_protocol": "within each KV group and level, reference queries are independently ranked by selection frequency; each point is the level's share of selections at that rank, averaged over layers and KV groups; ranks 1-16, rates 0%-25%, uniform reference 1/16 = 6.25%",
+      "figure9a_observation": "higher levels concentrate selections among fewer reference queries, while lower levels use them more uniformly",
+      "figure9b_levels_order": [
+        6,
+        5,
+        4,
+        3,
+        2,
+        1
+      ],
+      "figure9b_spearman_matrix": [
+        [
+          1.0,
+          0.97,
+          0.93,
+          0.88,
+          0.73,
+          0.08
+        ],
+        [
+          0.97,
+          1.0,
+          0.97,
+          0.93,
+          0.79,
+          0.08
+        ],
+        [
+          0.93,
+          0.97,
+          1.0,
+          0.98,
+          0.85,
+          0.1
+        ],
+        [
+          0.88,
+          0.93,
+          0.98,
+          1.0,
+          0.9,
+          0.16
+        ],
+        [
+          0.73,
+          0.79,
+          0.85,
+          0.9,
+          1.0,
+          0.41
+        ],
+        [
+          0.08,
+          0.08,
+          0.1,
+          0.16,
+          0.41,
+          1.0
+        ]
+      ],
+      "figure9b_adjacent_level_rho_top_down": [
+        0.97,
+        0.97,
+        0.98,
+        0.9,
+        0.41
+      ],
+      "figure9b_mean_rho_to_all_other_levels_top_down": [
+        0.718,
+        0.748,
+        0.766,
+        0.77,
+        0.736,
+        0.166
+      ],
+      "figure9b_chunk_level_mean_rho": 0.166,
+      "figure9b_top_level_mean_rho": 0.718,
+      "figure9b_observation": "higher levels have strongly aligned reference-query rankings; agreement generally weakens as levels become further separated, with the chunk level showing the greatest divergence from the upper levels",
+      "footnote13": "verbatim: '133 documents of at least length-32K in one training-mix shard; these are chat-formatted, mostly long mathematical reasoning, plus general chat, agentic coding, and long-document QA. At every 8th query position, we count which reference query wins each kept node. As the routers may have seen this data, Appendix G repeats the analysis on RULER.'",
+      "no_explicit_regularization": "the maximum over reference-query-mediated scores in the KL objective does not explicitly enforce balanced usage or distinct reference query representations; in the worst case they might simply collapse while still adding a constant-factor computational cost",
+      "appendixG": "Fig. 26 extends Fig. 9 to all four geometries (C4 L6, C8 L4, C16 L3, C64 L2) and two corpora (RULER at 64K, natural text at 32K); Spearman correlation between the 16 reference-query selection shares at each pair of levels, averaged over 20 groups (10 layers x 2 KV groups); adjacent levels are similar, levels farther apart have different selection priority, and this holds across all geometries",
+      "appendixH": "Figs. 30-32 compare the 16 references across the four independently trained R16 geometries C4 L6, C8 L4, C16 L3, C64 L2; a top-level node covers exactly 4096 keys in each (4^6 = 8^4 = 16^3 = 64^2). Across most layers matched references are similar across geometries while reference keys remain differentiated within each geometry, suggesting training finds a largely geometry-independent, specialized basis. Clearest for the most frequently selected references. Panels shown for layers 3, 7, 11, 15, 19, 23 x KV heads 0 and 1",
+      "conclusion": "the distribution in cosine similarity and norms suggests the reference queries have organized into a coherent and non-collapsed geometric structure"
+    },
+    "local_probe": {
+      "d": 16,
+      "C": 4,
+      "L": 6,
+      "R": 16,
+      "p": 0.9,
+      "T": 4097,
+      "n_topics": 32,
+      "topic_norm": 2.0,
+      "key_noise": 0.3,
+      "n_queries": 16,
+      "query_stride": 1,
+      "warmup_steps": 40,
+      "adam_lr": 0.05,
+      "nodes_per_level": [
+        1024,
+        256,
+        64,
+        16,
+        4,
+        1
+      ],
+      "mean_pairwise_cosine": 0.055051,
+      "cosine_matrix": [
+        [
+          1.0,
+          -0.1906,
+          0.0586,
+          0.4223,
+          -0.1007,
+          -0.2138,
+          0.0962,
+          0.7072,
+          -0.1472,
+          0.1845,
+          0.0651,
+          0.0735,
+          0.6605,
+          -0.1546,
+          0.4173,
+          -0.2698
+        ],
+        [
+          -0.1906,
+          1.0,
+          0.1315,
+          -0.566,
+          0.1509,
+          0.374,
+          0.2369,
+          -0.3437,
+          0.2044,
+          -0.1713,
+          -0.1125,
+          -0.1288,
+          -0.2639,
+          0.1245,
+          -0.4638,
+          -0.1048
+        ],
+        [
+          0.0586,
+          0.1315,
+          1.0,
+          -0.4166,
+          0.4405,
+          0.3634,
+          0.8044,
+          -0.2149,
+          0.4036,
+          -0.0861,
+          0.6056,
+          0.1365,
+          -0.1579,
+          0.0127,
+          -0.1313,
+          0.2872
+        ],
+        [
+          0.4223,
+          -0.566,
+          -0.4166,
+          1.0,
+          -0.1467,
+          -0.3634,
+          -0.5067,
+          0.665,
+          -0.1956,
+          0.451,
+          -0.439,
+          0.028,
+          0.5406,
+          -0.0053,
+          0.6183,
+          -0.0962
+        ],
+        [
+          -0.1007,
+          0.1509,
+          0.4405,
+          -0.1467,
+          1.0,
+          0.4434,
+          0.4898,
+          -0.0949,
+          0.4456,
+          0.1424,
+          0.2074,
+          -0.0373,
+          -0.12,
+          0.222,
+          -0.0239,
+          0.2022
+        ],
+        [
+          -0.2138,
+          0.374,
+          0.3634,
+          -0.3634,
+          0.4434,
+          1.0,
+          0.0695,
+          -0.1113,
+          0.4888,
+          -0.333,
+          0.3525,
+          0.2177,
+          -0.4887,
+          0.1483,
+          -0.3715,
+          0.0214
+        ],
+        [
+          0.0962,
+          0.2369,
+          0.8044,
+          -0.5067,
+          0.4898,
+          0.0695,
+          1.0,
+          -0.4039,
+          0.3726,
+          0.1045,
+          0.4227,
+          -0.1147,
+          0.0014,
+          0.0937,
+          -0.2106,
+          0.356
+        ],
+        [
+          0.7072,
+          -0.3437,
+          -0.2149,
+          0.665,
+          -0.0949,
+          -0.1113,
+          -0.4039,
+          1.0,
+          -0.2412,
+          0.1404,
+          -0.1624,
+          0.1354,
+          0.5523,
+          -0.086,
+          0.5684,
+          -0.3845
+        ],
+        [
+          -0.1472,
+          0.2044,
+          0.4036,
+          -0.1956,
+          0.4456,
+          0.4888,
+          0.3726,
+          -0.2412,
+          1.0,
+          -0.2234,
+          0.312,
+          0.3165,
+          -0.1812,
+          -0.0429,
+          -0.4223,
+          -0.0019
+        ],
+        [
+          0.1845,
+          -0.1713,
+          -0.0861,
+          0.451,
+          0.1424,
+          -0.333,
+          0.1045,
+          0.1404,
+          -0.2234,
+          1.0,
+          -0.3971,
+          -0.346,
+          0.6793,
+          0.0132,
+          0.6221,
+          0.3255
+        ],
+        [
+          0.0651,
+          -0.1125,
+          0.6056,
+          -0.439,
+          0.2074,
+          0.3525,
+          0.4227,
+          -0.1624,
+          0.312,
+          -0.3971,
+          1.0,
+          0.0925,
+          -0.2263,
+          -0.2841,
+          -0.3217,
+          0.1927
+        ],
+        [
+          0.0735,
+          -0.1288,
+          0.1365,
+          0.028,
+          -0.0373,
+          0.2177,
+          -0.1147,
+          0.1354,
+          0.3165,
+          -0.346,
+          0.0925,
+          1.0,
+          -0.1777,
+          0.1321,
+          -0.094,
+          -0.2324
+        ],
+        [
+          0.6605,
+          -0.2639,
+          -0.1579,
+          0.5406,
+          -0.12,
+          -0.4887,
+          0.0014,
+          0.5523,
+          -0.1812,
+          0.6793,
+          -0.2263,
+          -0.1777,
+          1.0,
+          -0.1858,
+          0.673,
+          -0.0123
+        ],
+        [
+          -0.1546,
+          0.1245,
+          0.0127,
+          -0.0053,
+          0.222,
+          0.1483,
+          0.0937,
+          -0.086,
+          -0.0429,
+          0.0132,
+          -0.2841,
+          0.1321,
+          -0.1858,
+          1.0,
+          -0.2461,
+          0.5451
+        ],
+        [
+          0.4173,
+          -0.4638,
+          -0.1313,
+          0.6183,
+          -0.0239,
+          -0.3715,
+          -0.2106,
+          0.5684,
+          -0.4223,
+          0.6221,
+          -0.3217,
+          -0.094,
+          0.673,
+          -0.2461,
+          1.0,
+          -0.1901
+        ],
+        [
+          -0.2698,
+          -0.1048,
+          0.2872,
+          -0.0962,
+          0.2022,
+          0.0214,
+          0.356,
+          -0.3845,
+          -0.0019,
+          0.3255,
+          0.1927,
+          -0.2324,
+          -0.0123,
+          0.5451,
+          -0.1901,
+          1.0
+        ]
+      ],
+      "reference_norms": [
+        2.3771,
+        5.4637,
+        5.0358,
+        2.3117,
+        4.1624,
+        5.3216,
+        5.7426,
+        1.8086,
+        5.3489,
+        1.787,
+        4.8986,
+        2.6518,
+        1.9676,
+        4.346,
+        1.9763,
+        4.6451
+      ],
+      "selection_shares_per_level": [
+        [
+          0.076289,
+          0.036158,
+          0.041124,
+          0.054237,
+          0.060793,
+          0.036456,
+          0.031588,
+          0.088706,
+          0.041621,
+          0.123075,
+          0.052747,
+          0.125161,
+          0.066951,
+          0.051058,
+          0.071322,
+          0.042714
+        ],
+        [
+          0.116534,
+          0.036189,
+          0.0249,
+          0.034197,
+          0.02822,
+          0.018592,
+          0.031208,
+          0.116202,
+          0.0166,
+          0.232736,
+          0.039509,
+          0.079017,
+          0.101594,
+          0.015272,
+          0.064077,
+          0.045153
+        ],
+        [
+          0.113426,
+          0.0,
+          0.0,
+          0.03125,
+          0.017361,
+          0.006944,
+          0.006944,
+          0.155093,
+          0.00463,
+          0.37963,
+          0.02662,
+          0.037037,
+          0.157407,
+          0.009259,
+          0.054398,
+          0.0
+        ],
+        [
+          0.133333,
+          0.0,
+          0.0,
+          0.0125,
+          0.0125,
+          0.0,
+          0.0,
+          0.175,
+          0.0,
+          0.433333,
+          0.0,
+          0.029167,
+          0.141667,
+          0.0,
+          0.0625,
+          0.0
+        ],
+        [
+          0.140625,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.1875,
+          0.0,
+          0.4375,
+          0.0,
+          0.03125,
+          0.140625,
+          0.0,
+          0.0625,
+          0.0
+        ],
+        [
+          0.125,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.1875,
+          0.0,
+          0.4375,
+          0.0,
+          0.0,
+          0.1875,
+          0.0,
+          0.0625,
+          0.0
+        ]
+      ],
+      "top_selection_rate_per_level": [
+        0.1252,
+        0.2327,
+        0.3796,
+        0.4333,
+        0.4375,
+        0.4375
+      ],
+      "uniform_rate": 0.0625,
+      "kept_nodes_per_level_median": {
+        "1": 629.0,
+        "2": 188.0,
+        "3": 54.0,
+        "4": 15.0,
+        "5": 4.0,
+        "6": 1.0
+      },
+      "spearman_matrix_local": [
+        [
+          1.0,
+          0.7382,
+          0.859,
+          0.8788,
+          0.8136,
+          0.6641
+        ],
+        [
+          0.7382,
+          1.0,
+          0.7365,
+          0.8128,
+          0.861,
+          0.7894
+        ],
+        [
+          0.859,
+          0.7365,
+          1.0,
+          0.9199,
+          0.8675,
+          0.8246
+        ],
+        [
+          0.8788,
+          0.8128,
+          0.9199,
+          1.0,
+          0.9294,
+          0.8783
+        ],
+        [
+          0.8136,
+          0.861,
+          0.8675,
+          0.9294,
+          1.0,
+          0.9419
+        ],
+        [
+          0.6641,
+          0.7894,
+          0.8246,
+          0.8783,
+          0.9419,
+          1.0
+        ]
+      ],
+      "mean_rho_by_separation_local": {
+        "1": 0.8532,
+        "2": 0.8544,
+        "3": 0.8548,
+        "4": 0.8015,
+        "5": 0.6641
+      },
+      "mean_rho_by_separation_published": {
+        "1": 0.846,
+        "2": 0.7175,
+        "3": 0.59,
+        "4": 0.405,
+        "5": 0.08
+      },
+      "mean_rho_to_all_other_levels_local": [
+        0.7907,
+        0.7876,
+        0.8415,
+        0.8838,
+        0.8827,
+        0.8197
+      ],
+      "chunk_level_mean_rho_local": 0.7907,
+      "top_level_mean_rho_local": 0.8197,
+      "least_aligned_level_local": 2,
+      "zero_share_references_per_level": [
+        0,
+        0,
+        3,
+        8,
+        10,
+        11
+      ],
+      "spearman_norm_vs_total_selection_share": -0.917647,
+      "traverse_matches_route_mismatches": 0,
+      "design": "DECLARED ADAPTATION: 32 unit topic directions, chunk c gets topic c mod 32, keys = topic x 2.0 + Gaussian noise 0.3, T = 4^6 + 1 = 4097 so the six levels hold 1024/256/64/16/4/1 nodes. 16 queries drawn from the same topics. R = 16 reference queries initialized on the unit sphere x 2.0 and trained for 40 Adam steps at lr 0.05 on L_KL = sum_ell KL with K frozen - the paper's warmup, not an untrained envelope. Selection shares count which reference wins each KEPT node over all 16 local queries (the paper samples every 8th query position across 133 documents of >=32K tokens; the local query set is 16, so no subsampling is applied). Local matrix rows run level 1 (chunk) to level 6 (top); the published Fig. 9b rows run 6 to 1, so the two are transposes of each other in orientation but both are symmetric. Level 6 has a single node, so its share vector is one-hot by construction and its KL is identically 0; it is kept in the matrix for shape parity with Fig. 9b. The published matrix is a measurement on a trained 35B router over natural text and is NOT reproduced cell-by-cell",
+      "negative_result": "Three published structural claims do not survive the local stand-in. (1) Mean pairwise cosine is 0.055, not 0.44: 40 Adam steps on a 32-topic synthetic cache leave the references near-orthogonal rather than cone-shaped, so the paper's coherent-cone geometry is a property of the real 1B-token warmup, not of the objective alone. (2) Mean Spearman does not fall monotonically with level separation (0.853/0.854/0.855/0.802/0.664 vs published 0.846/0.718/0.590/0.405/0.080): at levels 4-6 between 8 and 11 of the 16 references have EXACTLY zero share, and midrank ties dominate the correlation, inflating agreement at large separations. Adjacent-level agreement itself is close (0.853 local vs 0.846 published). (3) The chunk level is less aligned than the top level (0.791 vs 0.820) but is not the least aligned of all six - level 2 is (0.788) - and the gap is two orders of magnitude smaller than the published 0.166-vs-0.718. All three are recorded as measured. What DOES reproduce: the Fig. 9a concentration trend (top selection rate rises monotonically 0.125 -> 0.438 from chunk to top level, against a 0.0625 uniform baseline) and the smaller-norm preference (Spearman between reference norm and total selection share = -0.918)"
+    },
+    "checks": {
+      "published_matrix_is_symmetric": true,
+      "published_matrix_diagonal_is_one": true,
+      "published_matrix_entries_are_valid_correlations": true,
+      "published_adjacent_rho_high_at_top_and_lowest_at_the_chunk_level": true,
+      "published_chunk_level_is_the_most_divergent": true,
+      "published_mean_rho_falls_with_separation": true,
+      "published_top_level_pair_is_near_zero": true,
+      "published_cosine_is_strictly_between_zero_and_one": true,
+      "published_four_geometries_share_a_4096_key_root": true,
+      "local_reference_queries_did_not_collapse": true,
+      "local_cosine_is_positive_cone_like": true,
+      "local_mean_cosine_near_published_044": false,
+      "local_selection_shares_sum_to_one_per_level": true,
+      "local_every_reference_used_at_some_level": true,
+      "local_upper_levels_more_concentrated_than_uniform": true,
+      "local_top_selection_rate_rises_from_chunk_to_top": true,
+      "local_chunk_level_closest_to_uniform": true,
+      "local_selection_favors_smaller_norm_references": true,
+      "local_mean_rho_falls_with_separation": false,
+      "local_chunk_level_less_aligned_than_top_level": true,
+      "local_chunk_level_is_the_least_aligned_of_all": false,
+      "local_traversal_agrees_with_the_routing_helper": true,
+      "local_published_matrix_reproduced_cellwise": false
+    },
+    "claim": "the only learnable router parameters organize into a non-collapsed cone (mean pairwise cosine 0.44 across 20 KV groups at R16 C4 L6 p=0.9), with upper levels concentrating selection on fewer references and strongly aligned rankings (adjacent-level Spearman 0.97/0.97/0.98/0.90) while the chunk level diverges (0.41 to level 2, 0.08 to level 6)",
+    "note": "the Fig. 9b matrix, the 0.44 cosine, the 20-group count, the 133-document protocol and the App. G/H geometry set are published cells recorded verbatim; the derived row means and separation means are arithmetic on those cells, not extra measurements. Four checks are deliberately strict comparisons against a synthetic topic cache and are reported as measured rather than tuned to pass: local_mean_cosine_near_published_044, local_mean_rho_falls_with_separation, local_chunk_level_is_the_least_aligned_of_all and local_published_matrix_reproduced_cellwise. See local_probe.negative_result for the causes. The two Fig. 9/10 observations the local arm DOES reproduce are the rising concentration of selection with level and the negative norm/selection correlation; the latter is checked by sign only, since 16 references over 16 queries is too small a sample to establish its published magnitude"
+  }
+}

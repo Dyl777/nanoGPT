@@ -11478,9 +11478,13 @@ def paper_zha_table3_kl(arxiv_id="2610.42112"):
     layers, and the paper explicitly warns these differently aggregated objectives should
     not be compared directly across depths or methods.
 
-    The local probe measures the same per-level KL on a CPU tree with random reference
-    queries drawn from the query cone, checking the two structural trends Table III shows:
-    KL grows with level (coarser spans are harder to tile with R tangents) and falls with R.
+    The local probe runs the paper's actual warmup mechanism on a CPU tree: reference
+    queries are optimized by Adam against L_KL = sum_ell KL with the keys frozen, over
+    NESTED reference sets (R=4 starts from the trained R=1 queries, R=16 from the trained
+    R=4), so the fall with R is a property of the function class rather than optimizer luck.
+    It verifies that the warmup reduces KL and that the nested totals fall with R. The
+    published per-level INCREASE with ell is not reproduced on synthetic keys and is
+    recorded as a negative result rather than tuned away.
     """
     table2 = {
         "columns": ["Qwen ZHA deep", "Qwen ZHA wide", "Nemotron ZHA deep", "Nemotron ZHA wide", "Qwen MSA index"],
@@ -11512,18 +11516,43 @@ def paper_zha_table3_kl(arxiv_id="2610.42112"):
     rounding_budget = 6 * 0.0005
 
     torch.manual_seed(28)
-    d, C, L, T = 16, 4, 4, 257
-    K = torch.randn(T, d)
-    K[1::37] *= 3.5
-    mu = torch.nn.functional.normalize(torch.randn(d), dim=0) * 3.0
-    Q = mu + 1.0 * torch.randn(64, d)
-    Rs = [1, 2, 4, 8, 16]
-    kl_grid = {}
+    d, C, L = 16, 4, 3
+    n_chunks = 64
+    T = n_chunks * C + 1                       # 257 -> 64 / 16 / 4 nodes, all complete
+    topic_norm, noise = 2.0, 0.3
+    topics = torch.nn.functional.normalize(torch.randn(n_chunks, d), dim=-1)
+    K = torch.randn(T, d) * 0.1
+    K[1:] = (topics[:, None, :] * topic_norm
+             + torch.randn(n_chunks, C, d) * noise).reshape(-1, d)
+    Q = topics[torch.randint(0, n_chunks, (96,))] * topic_norm + torch.randn(96, d) * noise
+    pool = topics[torch.randperm(n_chunks)[:16]] * topic_norm
+    Rs, steps, lr = [1, 4, 16], 120, 0.05
+
+    def _warmup(Qref):
+        q = Qref.clone().requires_grad_(True)
+        opt = torch.optim.Adam([q], lr=lr)
+        for _ in range(steps):
+            opt.zero_grad()
+            loss = sum(_zha_level_kl(_zha_build_tree(K, C, L, q), Q, K))
+            loss.backward()
+            opt.step()
+        return q.detach()
+
+    def _eval(Qref):
+        with torch.no_grad():
+            return [round(float(v), 6)
+                    for v in _zha_level_kl(_zha_build_tree(K, C, L, Qref), Q, K)]
+
+    kl_untrained, kl_trained, trained = {}, {}, None
     for R in Rs:
-        Qref = mu + 1.0 * torch.randn(R, d)
-        kl_grid[R] = [round(float(v), 6) for v in _zha_level_kl(_zha_build_tree(K, C, L, Qref), Q, K)]
-    lv4 = [kl_grid[R][3] for R in Rs]
-    r4 = [kl_grid[4][ell] for ell in range(L)]
+        init = pool[:R] if trained is None else torch.cat([trained, pool[trained.shape[0]:R]])
+        kl_untrained[R] = _eval(init)
+        trained = _warmup(init)
+        kl_trained[R] = _eval(trained)
+    nodes_per_level = [len(lv) for lv in _zha_build_tree(K, C, L, pool[:1])]
+    sums_untrained = {R: round(sum(kl_untrained[R]), 6) for R in Rs}
+    sums_trained = {R: round(sum(kl_trained[R]), 6) for R in Rs}
+    trained_sums = [sums_trained[R] for R in Rs]
 
     _style()
     out = _outdir(arxiv_id)
@@ -11538,11 +11567,15 @@ def paper_zha_table3_kl(arxiv_id="2610.42112"):
     axes[0].set_title("Table III: KL grows with level; deep sums 1.172 / 0.850")
     axes[0].legend(fontsize=7)
     for i, R in enumerate(Rs):
-        axes[1].plot(range(1, L + 1), kl_grid[R], "o-", color=cols[i % len(cols)], label=f"R={R}")
-    axes[1].set_xlabel("tree level ell (local C4 L4, T=257)")
+        c = cols[i % len(cols)]
+        axes[1].plot(range(1, L + 1), kl_untrained[R], "o--", color=c, alpha=0.45,
+                     label=f"R={R} before warmup")
+        axes[1].plot(range(1, L + 1), kl_trained[R], "o-", color=c, label=f"R={R} trained")
+    axes[1].set_yscale("log")
+    axes[1].set_xlabel(f"tree level ell (local C{C} L{L}, T={T})")
     axes[1].set_ylabel("KL(p_dense || p_tree)")
-    axes[1].set_title("local probe: same two trends, random reference queries")
-    axes[1].legend(fontsize=8)
+    axes[1].set_title("local warmup: nested R totals fall; level trend NOT reproduced")
+    axes[1].legend(fontsize=6)
     plot_ok = _save(fig, out / "table3_per_level_kl.png")
     return plot_ok, {
         "table2_training_setup": table2,
@@ -11557,9 +11590,15 @@ def paper_zha_table3_kl(arxiv_id="2610.42112"):
         "objective": "L_KL = sum_ell E_q[ DKL(p_ell || p_hat_ell) ], local to each attention block, backbone frozen",
         "data_accounting": "~1B tokens (3.45M documents) sampled per model from a 100B-token ZAYA1-8B mid-training mixture, retokenized, single epoch; MSA trained on 40B tokens; Nemotron FP32 MoE correction biases frozen and excluded from the trainable count",
         "msa_recipe": "128-token blocks, top-16 per query, token-level KL warmup over all causal keys, max pooling within blocks; best of three 40B-token pilots varying lr, batch size and schedule",
-        "local_probe": {"d": d, "C": C, "L": L, "T": T, "n_queries": 64, "Rs": Rs,
-                        "kl_per_level_by_R": {str(R): kl_grid[R] for R in Rs},
-                        "design": "DECLARED ADAPTATION: random Gaussian keys with every 37th key scaled 3.5x, queries and reference queries drawn from the same cone (mu norm 3, unit spread), KL over ALL nodes at each level rather than only routing-kept nodes, no training. T=257 = 4^4+1 so every level is complete"},
+        "local_probe": {"d": d, "C": C, "L": L, "T": T, "n_queries": 96, "Rs": Rs,
+                        "nodes_per_level": nodes_per_level,
+                        "warmup_steps": steps, "adam_lr": lr,
+                        "kl_per_level_untrained": {str(R): kl_untrained[R] for R in Rs},
+                        "kl_per_level_trained": {str(R): kl_trained[R] for R in Rs},
+                        "total_kl_untrained": {str(R): sums_untrained[R] for R in Rs},
+                        "total_kl_trained": {str(R): sums_trained[R] for R in Rs},
+                        "design": "DECLARED ADAPTATION: 64 topic directions (unit norm x 2.0), one per level-1 chunk, plus Gaussian noise 0.3; 96 queries drawn from the same topic set. Reference queries are a NESTED pool of 16 topic-aligned directions: R=4 starts from the trained R=1 queries plus 3 fresh ones, R=16 from the trained R=4 plus 12 fresh, so the fall with R is a property of the function class (max over a superset of tangents) rather than of optimizer luck. 120 Adam steps at lr 0.05 on L_KL = sum_ell KL with K frozen - the paper's actual warmup mechanism, not an untrained envelope. KL is over ALL nodes at each level rather than only routing-kept nodes. C4 L3 T=257 gives 64/16/4 nodes per level, all complete; the paper trains C4 L6 at 32768. L=3 is chosen so every level has more than one node: a single-node level has softmax == [1] on both sides and KL identically 0, which makes any level trend untestable (the previous T=257/L=4 probe had exactly that degeneracy at level 4)",
+                        "negative_result": "The published per-level trend (KL strictly increasing with ell: Qwen deep 0.021 -> 0.319, Nemotron deep 0.016 -> 0.221) is NOT reproduced by the local warmup, which gives a decreasing trained profile. Recorded, not tuned away. Cause: with synthetic topic-clustered keys a large span mixes many topics, so its log-mass concentrates and becomes smooth, and the top level has only 4 nodes over which to diverge; real trained keys at 32768 keep coarse spans heterogeneous. The two trends that ARE verified locally are the warmup reducing KL and the nested-R monotonicity"},
         "checks": {
             "qwen_deep_level_sum_matches_published_total": bool(abs(sum_q - 1.172) < 1e-9),
             "nemotron_deep_level_sum_within_rounding_of_total": bool(abs(sum_n - 0.850) <= rounding_budget),
@@ -11573,12 +11612,515 @@ def paper_zha_table3_kl(arxiv_id="2610.42112"):
             "msa_token_budget_about_40x_zha": bool(abs(40.0e9 / 0.996e9 - 40.0) < 0.5),
             "qwen_parameter_overhead_matches_setup": bool(abs(100.0 * 81920 / 34.66e9 - 0.00024) < 1e-5),
             "steps_times_batch_tokens_matches_reported_tokens": bool(abs(1900 * 0.52e6 - 0.996e9) / 0.996e9 < 0.02),
-            "local_kl_is_nonnegative_everywhere": bool(all(v >= -1e-9 for R in Rs for v in kl_grid[R])),
-            "local_kl_increases_with_level": bool(all(a < b for a, b in zip(r4, r4[1:]))),
-            "local_kl_falls_with_more_references": bool(all(a > b for a, b in zip(lv4, lv4[1:]))),
-            "local_kl_falls_with_R_at_every_level": bool(all(all(kl_grid[R][ell] >= kl_grid[R2][ell] for R, R2 in zip(Rs, Rs[1:])) for ell in range(L))),
-            "local_level1_kl_small_at_R16": bool(kl_grid[16][0] < kl_grid[16][3]),
+            "local_kl_is_nonnegative_everywhere": bool(all(v >= -1e-9 for R in Rs for v in kl_untrained[R] + kl_trained[R])),
+            "local_every_level_has_multiple_nodes": bool(all(n > 1 for n in nodes_per_level)),
+            "local_warmup_reduces_total_kl_at_every_R": bool(all(sums_trained[R] < sums_untrained[R] for R in Rs)),
+            "local_nested_total_kl_falls_with_R": bool(all(a > b for a, b in zip(trained_sums, trained_sums[1:]))),
+            "local_trained_per_level_kl_below_published_max": bool(all(v < 0.319 for R in Rs for v in kl_trained[R])),
+            "local_published_level_trend_reproduced": bool(all(a < b for a, b in zip(kl_trained[1], kl_trained[1][1:]))),
         },
         "claim": "ZHA trains only reference queries to a per-level KL against dense chunk-pooled attention; final level sums are 1.172 (Qwen deep), 0.242 (Qwen wide), 0.850 (Nemotron deep), 0.179 (Nemotron wide), against 0.120 for the MSA token-level objective on a 40x token budget",
-        "note": "every Table II and Table III cell is published and exact. The Nemotron deep per-level cells sum to 0.852 while Table II reports 0.850; the 0.002 gap is exactly six-decimal-cell rounding (6 x 0.0005 budget) and is recorded rather than silently corrected. Trainable params imply 81920/(16 refs x 10 layers) = 512 floats per ref per layer for Qwen and 24576/(16 x 6) = 256 for Nemotron; the paper does not state head_dim or KV-group count separately, so the split is left unpinned. The local KL probe is a structural stand-in on synthetic keys, not a reproduction of the 1900-step runs",
+        "note": "every Table II and Table III cell is published and exact. The Nemotron deep per-level cells sum to 0.852 while Table II reports 0.850; the 0.002 gap is exactly six-decimal-cell rounding (6 x 0.0005 budget) and is recorded rather than silently corrected. Trainable params imply 81920/(16 refs x 10 layers) = 512 floats per ref per layer for Qwen and 24576/(16 x 6) = 256 for Nemotron; the paper does not state head_dim or KV-group count separately, so the split is left unpinned. The local KL probe is a structural stand-in on synthetic topic-clustered keys, not a reproduction of the 1900-step runs; it verifies the warmup mechanism and the nested-R monotonicity, and records the published per-level increase as a negative result (local_published_level_trend_reproduced is False by measurement, not by assertion failure)",
     }
+def paper_zha_variable_sparsity(arxiv_id="2610.42112"):
+    """Sec. VI-A: sparsity is task-dependent, and top-p tracks it while fixed top-K cannot.
+
+    The published cells are medians over a pretrained Qwen3.6-35B-A3B at ~64K tokens on
+    RULER, SWE-bench Verified and fiction books; they are recorded, not re-measured. The
+    local arm plants two caches with the paper's 16-key chunking and a 90% mass target,
+    then compares dense top-p, a fixed top-K budget, and ZHA's three-level top-p routing
+    on both. This is the mechanism behind the section's closing argument that a fixed
+    budget "forces a tradeoff between a large budget wasting keys on concentrated inputs,
+    and a small one missing context needed for diffuse retrieval".
+    """
+    torch.manual_seed(31)
+    d, C, L, R, p = 16, 16, 3, 16, 0.9
+    n_chunks = C ** (L - 1)
+    T = n_chunks * C + 1
+    strength, n_q = 6.0, 8
+    n_signal = {"concentrated": 6, "diffuse": 38}
+
+    def make_cache(n_sig, seed):
+        g = torch.Generator().manual_seed(seed)
+        u = torch.randn(d, generator=g, dtype=torch.float64)
+        u = u / u.norm()
+        K = torch.randn(T, d, generator=g, dtype=torch.float64)
+        K -= torch.outer(K @ u, u)
+        K *= 0.5
+        ratio = p * (n_chunks - n_sig) / (n_sig * (1.0 - p))
+        amp = math.sqrt(d) * math.log(ratio) / strength
+        ids = torch.unique(torch.linspace(0, n_chunks - 1, n_sig).round().long())
+        jitter = 0.9 + 0.2 * torch.rand(len(ids), generator=g, dtype=torch.float64)
+        for c, j in zip(ids.tolist(), jitter.tolist()):
+            sl = slice(1 + c * C, 1 + (c + 1) * C)
+            K[sl] = u.unsqueeze(0) * (amp * j) + 0.05 * torch.randn(C, d, generator=g, dtype=torch.float64)
+        Q = []
+        for _ in range(n_q):
+            noise = torch.randn(d, generator=g, dtype=torch.float64) * 0.4
+            noise -= (noise @ u) * u
+            Q.append(u * strength + noise)
+        return K, torch.stack(Q), u, int(ids[len(ids) // 2])
+
+    def chunk_probs(K, q):
+        body = K[1:].reshape(n_chunks, C, d)
+        return torch.softmax(torch.logsumexp(_zha_scores(q, body.reshape(-1, d)).reshape(n_chunks, C), -1), -1)
+
+    caches = {name: make_cache(n, 100 + i) for i, (name, n) in enumerate(n_signal.items())}
+    Qref = (F.normalize(torch.randn(R, d, dtype=torch.float64), dim=-1) * strength).requires_grad_(True)
+    opt = torch.optim.Adam([Qref], lr=0.05)
+    Qall = torch.cat([c[1] for c in caches.values()])
+    warmup_steps = 40
+    for _ in range(warmup_steps):
+        opt.zero_grad()
+        loss = 0.0
+        for K, Q, _, _ in caches.values():
+            loss = loss + sum(_zha_level_kl(_zha_build_tree(K, C, L, Qref), Q, K))
+        loss.backward()
+        opt.step()
+    Qref = Qref.detach()
+
+    meas = {}
+    for name, (K, Q, u, needle) in caches.items():
+        levels = _zha_build_tree(K, C, L, Qref)
+        dense_frac, dense_mass, zha_frac, zha_mass, hit = [], [], [], [], []
+        for q in Q:
+            pc = chunk_probs(K, q)
+            sel = _zha_top_p_indices(pc, p)
+            dense_frac.append(sel.numel() / n_chunks)
+            dense_mass.append(float(pc[sel].sum()))
+            toks, _ = _zha_route(levels, q, p, C)
+            kept = sorted({(t - 1) // C for t in toks if t > 0})
+            zha_frac.append(len(kept) / n_chunks)
+            zha_mass.append(float(pc[kept].sum()))
+            hit.append(needle in kept)
+        meas[name] = {
+            "dense_top_p_chunk_frac_median": round(float(np.median(dense_frac)), 6),
+            "dense_top_p_mass_median": round(float(np.median(dense_mass)), 6),
+            "zha_chunk_frac_median": round(float(np.median(zha_frac)), 6),
+            "zha_mass_median": round(float(np.median(zha_mass)), 6),
+            "zha_sparser_than_dense": bool(float(np.median(zha_frac)) < float(np.median(dense_frac))),
+            "needle_chunk_retained_every_query": bool(all(hit)),
+            "dense_frac_per_query": [round(v, 6) for v in dense_frac],
+            "zha_frac_per_query": [round(v, 6) for v in zha_frac],
+        }
+
+    K_small = int(round(meas["concentrated"]["dense_top_p_chunk_frac_median"] * n_chunks))
+    K_large = int(round(meas["diffuse"]["dense_top_p_chunk_frac_median"] * n_chunks))
+    topk = {}
+    for name, (K, Q, _, _) in caches.items():
+        row = {}
+        for budget in (K_small, K_large):
+            masses = []
+            for q in Q:
+                pc = chunk_probs(K, q)
+                order = torch.argsort(pc, descending=True)[:budget]
+                masses.append(float(pc[order].sum()))
+            row[str(budget)] = round(float(np.median(masses)), 6)
+        topk[name] = row
+    K_grid = list(range(1, min(n_chunks, 4 * K_large) + 1))
+    topk_curve = {}
+    for name, (K, Q, _, _) in caches.items():
+        pcs = torch.stack([chunk_probs(K, q) for q in Q])
+        srt = pcs.sort(dim=-1, descending=True).values
+        topk_curve[name] = [round(float(srt[:, :k].sum(-1).median()), 6) for k in K_grid]
+
+    published = {
+        "model": "Qwen3.6-35B-A3B",
+        "context_tokens": "~64K",
+        "chunk_width_keys": 16,
+        "mass_threshold": 0.9,
+        "domains": ["RULER", "SWE-bench Verified", "fiction books"],
+        "dense_top_p_chunk_pct_median": [2.3, 11.7, 15.0],
+        "zha_geometry": "R16, C16, L3",
+        "zha_p": 0.9,
+        "zha_retained_chunk_pct_median": [0.44, 5.0, 7.4],
+        "zha_contained_dense_mass_pct_median": [80.0, 78.0, 78.0],
+        "ruler_individual_task_mass_pct_range": [74.0, 82.0],
+        "router_vs_dense": "the router is consistently sparser than the dense top-p set, reflecting iterative pruning across the three levels; the pattern across tasks is consistent",
+        "domain_interpretation": "RULER's synthetic filler carries little the answer depends on; in agentic SWE-bench the relevant information is spread over code, tool outputs and earlier reasoning; in fiction books it is diffuse throughout the entire context",
+        "ruler_reference": "geometric mean over all 13 RULER subtasks",
+        "ruler_tiers": [
+            {"multiplier": "~0.5x", "range": [0.5, 0.5], "description": "single target in repetitive filler", "named": ["variable_tracking", "niah_single_1"]},
+            {"multiplier": "0.82-1.26x", "range": [0.82, 1.26], "description": "needles in essay text and document QA", "named": []},
+            {"multiplier": "~1.6x", "range": [1.6, 1.6], "description": "must scan many candidates: aggregating items or distinguishing many look-alike needles", "named": ["cwe", "fwe", "niah_multikey_2", "niah_multikey_3"]},
+        ],
+        "figure25": "App. F: one retrieval head at 64K on niah_single_1 vs niah_multikey_2, C16 L3 R16 p=0.9, layer 35 query head 8, emitting the first answer digit; both traversals ultimately attend to a single answer-containing chunk, but multi-key 2 (many distractor needles resembling the target) explores substantially more upper-level nodes. Zoom window keys 49,608-52,680 (K=1,024 keys). Single layer/head/decode step: illustrates the mechanism, not typical behavior",
+        "footnote12": "verbatim: 'We exclude key 0 and the current partial chunk, which ZHA always attends to, and record dense attention along the router's own decode. Medians are taken over decode steps, the 10 full-attention layers, and query heads within each sequence, then across sequences.'",
+        "closing_argument": "verbatim: 'this adaptive sparsity is impossible for a fixed-budget top-K mechanism, which instead forces a tradeoff between a large budget wasting keys on concentrated inputs, and a small one missing context needed for diffuse retrieval. ZHA's top-p threshold avoids this choice entirely.'",
+        "ruler13_protocol": "13 official tasks x 100 examples at 256K tokens; 64K and 128K in the appendix",
+    }
+
+    _style()
+    out = _outdir(arxiv_id)
+    fig, axes = plt.subplots(1, 3, figsize=(14.6, 4.0), constrained_layout=True)
+    cols = ["#1f4e79", "#b05a1f", "#2e8b57"]
+    x = np.arange(3)
+    axes[0].bar(x - 0.19, published["dense_top_p_chunk_pct_median"], 0.38, color=cols[0], label="dense top-p (90% mass)")
+    axes[0].bar(x + 0.19, published["zha_retained_chunk_pct_median"], 0.38, color=cols[1], label="ZHA R16 C16 L3, p=0.9")
+    for i, m in enumerate(published["zha_contained_dense_mass_pct_median"]):
+        axes[0].text(i + 0.19, published["zha_retained_chunk_pct_median"][i] + 0.4, f"{m:.0f}% mass", ha="center", fontsize=8)
+    axes[0].set_xticks(x, published["domains"])
+    axes[0].set_ylabel("% of 16-key chunks (median)")
+    axes[0].set_title("published Sec. VI-A, ~64K tokens\n(Qwen3.6-35B-A3B; recorded, not re-measured)")
+    axes[0].legend(fontsize=8)
+
+    names = list(meas)
+    x2 = np.arange(len(names))
+    axes[1].bar(x2 - 0.19, [100 * meas[n]["dense_top_p_chunk_frac_median"] for n in names], 0.38, color=cols[0], label="dense top-p")
+    axes[1].bar(x2 + 0.19, [100 * meas[n]["zha_chunk_frac_median"] for n in names], 0.38, color=cols[1], label="ZHA routed leaves")
+    for i, n in enumerate(names):
+        axes[1].text(i + 0.19, 100 * meas[n]["zha_chunk_frac_median"] + 0.4,
+                     f"{100 * meas[n]['zha_mass_median']:.0f}% mass", ha="center", fontsize=8)
+    axes[1].set_xticks(x2, [f"{n}\n({n_signal[n]} planted chunks)" for n in names])
+    axes[1].set_ylabel("% of 256 chunks (median of 8 queries)")
+    axes[1].set_title(f"local probe: C{C} L{L} R{R} T={T}, p={p}\n(DECLARED ADAPTATION: planted mass)")
+    axes[1].legend(fontsize=8)
+
+    for i, n in enumerate(names):
+        axes[2].plot(K_grid, topk_curve[n], "-", color=cols[i], label=f"fixed top-K, {n}")
+        axes[2].plot([K_small, K_large], [topk[n][str(K_small)], topk[n][str(K_large)]],
+                     "o", ms=5, color=cols[i])
+        axes[2].plot([meas[n]["dense_top_p_chunk_frac_median"] * n_chunks],
+                     [meas[n]["dense_top_p_mass_median"]], "*", ms=13, color=cols[i])
+    axes[2].axhline(p, color="#1c1917", ls="--", lw=0.9, label="p = 0.9 target")
+    axes[2].set_xlabel("fixed chunk budget K")
+    axes[2].set_ylabel("median dense mass captured")
+    axes[2].set_title("local: one K cannot serve both regimes\n(stars = adaptive top-p operating points)")
+    axes[2].legend(fontsize=8)
+    plot_ok = _save(fig, out / "variable_sparsity.png")
+
+    return plot_ok, {
+        "published": published,
+        "local_probe": {
+            "d": d, "C": C, "L": L, "R": R, "p": p, "T": T, "n_chunks": n_chunks,
+            "queries_per_regime": n_q, "warmup_steps": warmup_steps, "adam_lr": 0.05,
+            "planted_signal_chunks": n_signal,
+            "nodes_per_level": [len(lv) for lv in _zha_build_tree(caches["concentrated"][0], C, L, Qref)],
+            "measurements": meas,
+            "fixed_top_k_mass": topk,
+            "K_small_from_concentrated": K_small, "K_large_from_diffuse": K_large,
+            "budget_waste_ratio": round(K_large / max(K_small, 1), 4),
+            "design": "DECLARED ADAPTATION: two caches of 256 complete 16-key chunks (T=4097, so there is no partial chunk and the only always-retained extra key is the sink). Filler keys are projected exactly orthogonal to a fixed direction u and scaled by 0.5, so they score 0 for the aligned part of every query; n_signal chunks are aligned with u at the amplitude that puts fraction p of the unnormalized chunk mass on them (6 chunks -> ~2.3% of chunks, 38 -> ~14.8%, matching the published RULER 2.3% and fiction 15.0% order). Per-chunk amplitude jitter 0.9-1.1 and orthogonal query noise 0.4 give query-to-query variation so medians are meaningful. ONE router (R=16) is warmed up for 40 Adam steps at lr 0.05 on the summed per-level KL of both caches with K frozen - the paper's actual training mechanism, not an untrained envelope. Level 3 has a single node, so its KL is identically 0 and contributes no gradient; levels 1 and 2 do the training. Fractions exclude key 0 per footnote 12. The published geometry is R16 C16 L3 at ~64K (4096 chunks); the local tree has 256",
+        },
+        "checks": {
+            "published_dense_fraction_increases_across_domains": bool(all(a < b for a, b in zip(published["dense_top_p_chunk_pct_median"], published["dense_top_p_chunk_pct_median"][1:]))),
+            "published_zha_fraction_increases_across_domains": bool(all(a < b for a, b in zip(published["zha_retained_chunk_pct_median"], published["zha_retained_chunk_pct_median"][1:]))),
+            "published_zha_sparser_than_dense_in_every_domain": bool(all(z < dd for z, dd in zip(published["zha_retained_chunk_pct_median"], published["dense_top_p_chunk_pct_median"]))),
+            "published_contained_mass_below_the_p_target": bool(all(m < 90.0 for m in published["zha_contained_dense_mass_pct_median"])),
+            "published_ruler_task_range_brackets_the_median": bool(published["ruler_individual_task_mass_pct_range"][0] <= published["zha_contained_dense_mass_pct_median"][0] <= published["ruler_individual_task_mass_pct_range"][1]),
+            "published_ruler_tiers_are_ordered": bool(all(a["range"][1] < b["range"][0] for a, b in zip(published["ruler_tiers"], published["ruler_tiers"][1:]))),
+            "published_ruler_tiers_straddle_the_geometric_mean": bool(published["ruler_tiers"][0]["range"][1] < 1.0 < published["ruler_tiers"][2]["range"][0]),
+            "local_dense_top_p_reaches_p_in_both_regimes": bool(all(meas[n]["dense_top_p_mass_median"] >= p - 1e-9 for n in names)),
+            "local_concentrated_is_sparser_than_diffuse": bool(meas["concentrated"]["dense_top_p_chunk_frac_median"] < meas["diffuse"]["dense_top_p_chunk_frac_median"]),
+            "local_fractions_match_published_order": bool(meas["concentrated"]["dense_top_p_chunk_frac_median"] < 0.05 and meas["diffuse"]["dense_top_p_chunk_frac_median"] > 0.10),
+            "local_zha_tracks_the_regime": bool(meas["concentrated"]["zha_chunk_frac_median"] < meas["diffuse"]["zha_chunk_frac_median"]),
+            "local_zha_never_denser_than_dense_top_p": bool(all(meas[n]["zha_chunk_frac_median"] <= meas[n]["dense_top_p_chunk_frac_median"] + 1e-12 for n in names)),
+            "local_needle_chunk_always_retained": bool(all(meas[n]["needle_chunk_retained_every_query"] for n in names)),
+            "local_small_fixed_budget_misses_diffuse_mass": bool(topk["diffuse"][str(K_small)] < p),
+            "local_large_fixed_budget_wastes_on_concentrated": bool(K_large >= 3 * K_small),
+            "local_extra_budget_buys_little_mass_on_concentrated": bool(topk["concentrated"][str(K_large)] - topk["concentrated"][str(K_small)] < 0.05),
+            "local_top_p_budget_varies_while_top_k_does_not": bool(K_large > K_small),
+        },
+        "claim": "at ~64K tokens 90% of dense mass sits in a median 2.3% / 11.7% / 15.0% of 16-key chunks on RULER / SWE-bench Verified / fiction books; ZHA (R16 C16 L3, p=0.9) retains 0.44% / 5.0% / 7.4% holding 80% / 78% / 78% of that mass, and within RULER the retrieved set spans ~0.5x to ~1.6x the 13-subtask geometric mean",
+        "note": "every published percentage is a literal cell from Sec. VI-A and App. F; none is re-measured (no 35B backbone, no RULER harness, no book corpus here). The middle RULER tier is recorded with the paper's own description ('needles in essay text and document QA') and an empty named list because the paper does not enumerate those subtask IDs. The local arm is a planted-mass stand-in that verifies the top-p-vs-top-K tradeoff the section argues from; the router's contained mass is reported as measured and is NOT asserted to reach the published 78-80%. NEGATIVE RESULT: the paper says the router is 'consistently sparser' than the dense top-p set, but locally the concentrated regime gives exact equality (6 chunks either way) because the planted signal is rank-1, the tangent bound is tight on it, and 6 chunks already hold 91.5% of the mass - iterative pruning has nothing left to prune. Only the diffuse regime is strictly sparser (13.67% vs 14.84%). The per-regime zha_sparser_than_dense booleans are reported as measured rather than collapsed into a passing aggregate",
+    }
+
+
+def _zha_traverse(levels, q, p, C):
+    """Fig. 9 measurement traversal: the same top-down rule as _zha_route, additionally
+    recording the kept nodes at every level and which reference query wins each one.
+
+    Returns (kept, winners): kept is [(ell, [node indices])] from the top level down,
+    winners is [(ell, node index, winning reference index)] for every kept node.
+    """
+    L = len(levels)
+    d = q.shape[-1]
+    U = _zha_parentless(levels)
+    A = list(U[L - 1])
+    kept, winners = [], []
+    for ell in range(L, 0, -1):
+        nodes = levels[ell - 1]
+        A = sorted(set(A))
+        if not A:
+            break
+        t = torch.stack([nd["khat"] @ q / math.sqrt(d) + nd["bhat"] for nd in (nodes[i] for i in A)])
+        sel, _, _ = _zha_top_p(t.max(-1).values, p)
+        chosen = [A[int(k)] for k in sel]
+        kept.append((ell, chosen))
+        for j, i in enumerate(chosen):
+            winners.append((ell, i, int(t[j].argmax())))
+        if ell == 1:
+            break
+        kids = []
+        for i in chosen:
+            kids.extend(nodes[i]["children"])
+        A = kids + U[ell - 2]
+    return kept, winners
+
+
+def paper_zha_reference_queries(arxiv_id="2610.42112"):
+    """Sec. VI-B / Fig. 9 / Fig. 10 / App. G-H: the learned reference-query structure.
+
+    R reference queries per KV group are the only learnable router parameters, and the
+    max-over-tangents KL objective enforces neither balanced usage nor distinctness, so
+    collapse is a real failure mode. The paper measures the opposite: a cone of directions
+    (mean pairwise cosine 0.44 over 20 KV groups), level-dependent selection shares, and
+    strongly aligned rankings at the upper levels with the chunk level diverging. The
+    published matrix and statistics are recorded; the local arm trains a router with the
+    paper's KL warmup and re-measures the same three quantities on a synthetic cache.
+    """
+    torch.manual_seed(32)
+    d, C, L, R, p = 16, 4, 6, 16, 0.9
+    T = C ** L + 1
+    n_topics, topic_norm, noise = 32, 2.0, 0.3
+    n_q, warmup_steps, lr, stride = 16, 40, 0.05, 1
+
+    g = torch.Generator().manual_seed(320)
+    topics = F.normalize(torch.randn(n_topics, d, generator=g), dim=-1)
+    n_chunks = (T - 1) // C
+    K = torch.randn(T, d, generator=g) * 0.1
+    chunk_topic = torch.arange(n_chunks) % n_topics
+    K[1:] = (topics[chunk_topic][:, None, :] * topic_norm +
+             torch.randn(n_chunks, C, d, generator=g) * noise).reshape(-1, d)
+    Q = topics[torch.arange(n_q) % n_topics] * topic_norm + torch.randn(n_q, d, generator=g) * noise
+
+    Qref = (F.normalize(torch.randn(R, d, generator=g), dim=-1) * topic_norm).requires_grad_(True)
+    opt = torch.optim.Adam([Qref], lr=lr)
+    for _ in range(warmup_steps):
+        opt.zero_grad()
+        loss = sum(_zha_level_kl(_zha_build_tree(K, C, L, Qref), Q, K))
+        loss.backward()
+        opt.step()
+    Qref = Qref.detach()
+    levels = _zha_build_tree(K, C, L, Qref)
+    nodes_per_level = [len(lv) for lv in levels]
+
+    cos = F.normalize(Qref, dim=-1) @ F.normalize(Qref, dim=-1).t()
+    off = ~torch.eye(R, dtype=torch.bool)
+    mean_cos = float(cos[off].mean())
+    norms = Qref.norm(dim=-1)
+
+    shares = torch.zeros(L, R, dtype=torch.float64)
+    kept_per_level = {ell: [] for ell in range(1, L + 1)}
+    traversed = 0
+    for i in range(0, n_q, stride):
+        q = Q[i]
+        kept, winners = _zha_traverse(levels, q, p, C)
+        toks_ref, _ = _zha_route(levels, q, p, C)
+        leaves = set()
+        for ell, chosen in kept:
+            kept_per_level[ell].append(len(chosen))
+            if ell == 1:
+                for j in chosen:
+                    leaves.update(levels[0][j]["toks"])
+        if sorted({0} | leaves) != toks_ref:
+            traversed += 1
+        for ell, _, r in winners:
+            shares[ell - 1, r] += 1.0
+    shares = shares / shares.sum(-1, keepdim=True).clamp_min(1e-30)
+
+    spear = [[round(_zha_spearman(shares[a], shares[b]), 4) for b in range(L)] for a in range(L)]
+    sep = {}
+    for gap in range(1, L):
+        vals = [spear[a][a + gap] for a in range(L - gap)]
+        sep[gap] = round(float(np.mean(vals)), 4)
+    row_mean = [round(float(np.mean([spear[a][b] for b in range(L) if b != a])), 4) for a in range(L)]
+    chunk_align, top_align = row_mean[0], row_mean[L - 1]
+    norm_corr = _zha_spearman(norms, shares.sum(0))
+    top_rate = [round(float(shares[ell].max()), 4) for ell in range(L)]
+    uniform_rate = round(1.0 / R, 4)
+    zero_share_refs = [int((shares[ell] == 0).sum()) for ell in range(L)]
+
+    published_matrix = [
+        [1.00, 0.97, 0.93, 0.88, 0.73, 0.08],
+        [0.97, 1.00, 0.97, 0.93, 0.79, 0.08],
+        [0.93, 0.97, 1.00, 0.98, 0.85, 0.10],
+        [0.88, 0.93, 0.98, 1.00, 0.90, 0.16],
+        [0.73, 0.79, 0.85, 0.90, 1.00, 0.41],
+        [0.08, 0.08, 0.10, 0.16, 0.41, 1.00],
+    ]
+    pm = np.array(published_matrix)
+    pub_adjacent = [round(float(pm[i, i + 1]), 4) for i in range(5)]
+    pub_sep = {gap: round(float(np.mean([pm[i, i + gap] for i in range(6 - gap)])), 4) for gap in range(1, 6)}
+    pub_row_mean = [round(float(np.mean([pm[i, j] for j in range(6) if j != i])), 4) for i in range(6)]
+
+    published = {
+        "case_study_geometry": "R16, C4, L6 at p = 0.9 (deep geometry, moderate sparsity)",
+        "figure10_mean_pairwise_cosine": 0.44,
+        "figure10_kv_groups_averaged": 20,
+        "figure10_interpretation": "the 16 reference queries within a KV group occupy a cone of directions rather than collapsing to identical vectors",
+        "figure10a_cosine_axis_range": [-0.25, 0.75],
+        "figure10b_norm_axis_range": [0.0, 100.0],
+        "figure10_norm_observation": "norms have some spread while remaining fairly concentrated; selection also favors smaller-norm reference queries, which give smoother weighting and may indicate that more uniform averaging of keys is advantageous at higher levels",
+        "figure9a_protocol": "within each KV group and level, reference queries are independently ranked by selection frequency; each point is the level's share of selections at that rank, averaged over layers and KV groups; ranks 1-16, rates 0%-25%, uniform reference 1/16 = 6.25%",
+        "figure9a_observation": "higher levels concentrate selections among fewer reference queries, while lower levels use them more uniformly",
+        "figure9b_levels_order": [6, 5, 4, 3, 2, 1],
+        "figure9b_spearman_matrix": published_matrix,
+        "figure9b_adjacent_level_rho_top_down": pub_adjacent,
+        "figure9b_mean_rho_to_all_other_levels_top_down": pub_row_mean,
+        "figure9b_chunk_level_mean_rho": pub_row_mean[5],
+        "figure9b_top_level_mean_rho": pub_row_mean[0],
+        "figure9b_observation": "higher levels have strongly aligned reference-query rankings; agreement generally weakens as levels become further separated, with the chunk level showing the greatest divergence from the upper levels",
+        "footnote13": "verbatim: '133 documents of at least length-32K in one training-mix shard; these are chat-formatted, mostly long mathematical reasoning, plus general chat, agentic coding, and long-document QA. At every 8th query position, we count which reference query wins each kept node. As the routers may have seen this data, Appendix G repeats the analysis on RULER.'",
+        "no_explicit_regularization": "the maximum over reference-query-mediated scores in the KL objective does not explicitly enforce balanced usage or distinct reference query representations; in the worst case they might simply collapse while still adding a constant-factor computational cost",
+        "appendixG": "Fig. 26 extends Fig. 9 to all four geometries (C4 L6, C8 L4, C16 L3, C64 L2) and two corpora (RULER at 64K, natural text at 32K); Spearman correlation between the 16 reference-query selection shares at each pair of levels, averaged over 20 groups (10 layers x 2 KV groups); adjacent levels are similar, levels farther apart have different selection priority, and this holds across all geometries",
+        "appendixH": "Figs. 30-32 compare the 16 references across the four independently trained R16 geometries C4 L6, C8 L4, C16 L3, C64 L2; a top-level node covers exactly 4096 keys in each (4^6 = 8^4 = 16^3 = 64^2). Across most layers matched references are similar across geometries while reference keys remain differentiated within each geometry, suggesting training finds a largely geometry-independent, specialized basis. Clearest for the most frequently selected references. Panels shown for layers 3, 7, 11, 15, 19, 23 x KV heads 0 and 1",
+        "conclusion": "the distribution in cosine similarity and norms suggests the reference queries have organized into a coherent and non-collapsed geometric structure",
+    }
+
+    _style()
+    out = _outdir(arxiv_id)
+    fig, axes = plt.subplots(1, 3, figsize=(14.6, 4.1))
+    im = axes[0].imshow(pm, vmin=-1, vmax=1, cmap="RdBu_r")
+    axes[0].set_xticks(range(6), [6, 5, 4, 3, 2, 1])
+    axes[0].set_yticks(range(6), [6, 5, 4, 3, 2, 1])
+    axes[0].set_xlabel("Level")
+    axes[0].set_ylabel("Level")
+    axes[0].set_title("published Fig. 9b: Spearman rho\n(C4 L6, natural text; recorded)")
+    for i in range(6):
+        for j in range(6):
+            axes[0].text(j, i, f"{pm[i, j]:.2f}".lstrip("0"), ha="center", va="center",
+                         fontsize=7, color="white" if abs(pm[i, j]) > 0.6 else "#1c1917")
+    fig.colorbar(im, ax=axes[0], fraction=0.046)
+
+    ranks = np.arange(1, R + 1)
+    for ell in range(L):
+        srt = shares[ell].sort(descending=True).values
+        axes[1].plot(ranks, 100 * srt.numpy(), "o-", ms=3, label=f"level {ell + 1}")
+    axes[1].axhline(100 * uniform_rate, color="#1c1917", ls="--", lw=0.9, label="uniform (6.25%)")
+    axes[1].set_xlabel("reference-query selection rank")
+    axes[1].set_ylabel("selection rate (%)")
+    axes[1].set_title(f"local Fig. 9a analogue: C{C} L{L} R{R}\n(DECLARED ADAPTATION: trained on topic cache)")
+    axes[1].legend(fontsize=7, ncol=2)
+
+    gaps = sorted(sep)
+    axes[2].plot(gaps, [pub_sep[gap] for gap in gaps], "o-", color="#1f4e79", label="published Fig. 9b")
+    axes[2].plot(gaps, [sep[gap] for gap in gaps], "s--", color="#b05a1f", label="local trained router")
+    axes[2].axhline(0.0, color="#1c1917", lw=0.7)
+    axes[2].set_xlabel("level separation |ell - ell'|")
+    axes[2].set_ylabel("mean Spearman rho")
+    axes[2].set_xticks(gaps)
+    axes[2].set_title(f"local mean pairwise cosine {mean_cos:.3f}\n(published 0.44 over 20 KV groups)")
+    axes[2].legend(fontsize=8)
+    plot_ok = _save(fig, out / "reference_queries.png")
+
+    return plot_ok, {
+        "published": published,
+        "local_probe": {
+            "d": d, "C": C, "L": L, "R": R, "p": p, "T": T,
+            "n_topics": n_topics, "topic_norm": topic_norm, "key_noise": noise,
+            "n_queries": n_q, "query_stride": stride, "warmup_steps": warmup_steps, "adam_lr": lr,
+            "nodes_per_level": nodes_per_level,
+            "mean_pairwise_cosine": round(mean_cos, 6),
+            "cosine_matrix": [[round(float(v), 4) for v in row] for row in cos],
+            "reference_norms": [round(float(v), 4) for v in norms],
+            "selection_shares_per_level": [[round(float(v), 6) for v in row] for row in shares],
+            "top_selection_rate_per_level": top_rate,
+            "uniform_rate": uniform_rate,
+            "kept_nodes_per_level_median": {str(ell): float(np.median(v)) if v else 0.0 for ell, v in kept_per_level.items()},
+            "spearman_matrix_local": spear,
+            "mean_rho_by_separation_local": sep,
+            "mean_rho_by_separation_published": pub_sep,
+            "mean_rho_to_all_other_levels_local": row_mean,
+            "chunk_level_mean_rho_local": chunk_align,
+            "top_level_mean_rho_local": top_align,
+            "least_aligned_level_local": int(np.argmin(row_mean)) + 1,
+            "zero_share_references_per_level": zero_share_refs,
+            "spearman_norm_vs_total_selection_share": round(norm_corr, 6),
+            "traverse_matches_route_mismatches": traversed,
+            "design": "DECLARED ADAPTATION: 32 unit topic directions, chunk c gets topic c mod 32, keys = topic x 2.0 + Gaussian noise 0.3, T = 4^6 + 1 = 4097 so the six levels hold 1024/256/64/16/4/1 nodes. 16 queries drawn from the same topics. R = 16 reference queries initialized on the unit sphere x 2.0 and trained for 40 Adam steps at lr 0.05 on L_KL = sum_ell KL with K frozen - the paper's warmup, not an untrained envelope. Selection shares count which reference wins each KEPT node over all 16 local queries (the paper samples every 8th query position across 133 documents of >=32K tokens; the local query set is 16, so no subsampling is applied). Local matrix rows run level 1 (chunk) to level 6 (top); the published Fig. 9b rows run 6 to 1, so the two are transposes of each other in orientation but both are symmetric. Level 6 has a single node, so its share vector is one-hot by construction and its KL is identically 0; it is kept in the matrix for shape parity with Fig. 9b. The published matrix is a measurement on a trained 35B router over natural text and is NOT reproduced cell-by-cell",
+            "negative_result": "Three published structural claims do not survive the local stand-in. (1) Mean pairwise cosine is 0.055, not 0.44: 40 Adam steps on a 32-topic synthetic cache leave the references near-orthogonal rather than cone-shaped, so the paper's coherent-cone geometry is a property of the real 1B-token warmup, not of the objective alone. (2) Mean Spearman does not fall monotonically with level separation (0.853/0.854/0.855/0.802/0.664 vs published 0.846/0.718/0.590/0.405/0.080): at levels 4-6 between 8 and 11 of the 16 references have EXACTLY zero share, and midrank ties dominate the correlation, inflating agreement at large separations. Adjacent-level agreement itself is close (0.853 local vs 0.846 published). (3) The chunk level is less aligned than the top level (0.791 vs 0.820) but is not the least aligned of all six - level 2 is (0.788) - and the gap is two orders of magnitude smaller than the published 0.166-vs-0.718. All three are recorded as measured. What DOES reproduce: the Fig. 9a concentration trend (top selection rate rises monotonically 0.125 -> 0.438 from chunk to top level, against a 0.0625 uniform baseline) and the smaller-norm preference (Spearman between reference norm and total selection share = -0.918)",
+        },
+        "checks": {
+            "published_matrix_is_symmetric": bool(np.allclose(pm, pm.T)),
+            "published_matrix_diagonal_is_one": bool(all(abs(pm[i, i] - 1.0) < 1e-12 for i in range(6))),
+            "published_matrix_entries_are_valid_correlations": bool(bool((pm >= -1).all()) and bool((pm <= 1).all())),
+            "published_adjacent_rho_high_at_top_and_lowest_at_the_chunk_level": bool(all(v >= 0.85 for v in pub_adjacent[:-1]) and pub_adjacent[-1] == min(pub_adjacent)),
+            "published_chunk_level_is_the_most_divergent": bool(pub_row_mean[5] == min(pub_row_mean)),
+            "published_mean_rho_falls_with_separation": bool(all(pub_sep[a] >= pub_sep[b] for a, b in zip(sorted(pub_sep), sorted(pub_sep)[1:]))),
+            "published_top_level_pair_is_near_zero": bool(pm[0, 5] == 0.08),
+            "published_cosine_is_strictly_between_zero_and_one": bool(0.0 < published["figure10_mean_pairwise_cosine"] < 1.0),
+            "published_four_geometries_share_a_4096_key_root": bool(all(cc ** ll == 4096 for cc, ll in [(4, 6), (8, 4), (16, 3), (64, 2)])),
+            "local_reference_queries_did_not_collapse": bool(mean_cos < 0.95),
+            "local_cosine_is_positive_cone_like": bool(mean_cos > 0.0),
+            "local_mean_cosine_near_published_044": bool(abs(mean_cos - published["figure10_mean_pairwise_cosine"]) < 0.15),
+            "local_selection_shares_sum_to_one_per_level": bool(bool(torch.allclose(shares.sum(-1), torch.ones(L, dtype=torch.float64)))),
+            "local_every_reference_used_at_some_level": bool(bool((shares.sum(0) > 0).all())),
+            "local_upper_levels_more_concentrated_than_uniform": bool(top_rate[-1] > uniform_rate or top_rate[L - 2] > uniform_rate),
+            "local_top_selection_rate_rises_from_chunk_to_top": bool(all(a <= b for a, b in zip(top_rate, top_rate[1:]))),
+            "local_chunk_level_closest_to_uniform": bool(top_rate[0] == min(top_rate)),
+            "local_selection_favors_smaller_norm_references": bool(norm_corr < 0.0),
+            "local_mean_rho_falls_with_separation": bool(all(sep[a] >= sep[b] - 1e-9 for a, b in zip(sorted(sep), sorted(sep)[1:]))),
+            "local_chunk_level_less_aligned_than_top_level": bool(chunk_align < top_align),
+            "local_chunk_level_is_the_least_aligned_of_all": bool(chunk_align == min(row_mean)),
+            "local_traversal_agrees_with_the_routing_helper": bool(traversed == 0),
+            "local_published_matrix_reproduced_cellwise": bool(np.allclose(np.array(spear), pm, atol=0.15)),
+        },
+        "claim": "the only learnable router parameters organize into a non-collapsed cone (mean pairwise cosine 0.44 across 20 KV groups at R16 C4 L6 p=0.9), with upper levels concentrating selection on fewer references and strongly aligned rankings (adjacent-level Spearman 0.97/0.97/0.98/0.90) while the chunk level diverges (0.41 to level 2, 0.08 to level 6)",
+        "note": "the Fig. 9b matrix, the 0.44 cosine, the 20-group count, the 133-document protocol and the App. G/H geometry set are published cells recorded verbatim; the derived row means and separation means are arithmetic on those cells, not extra measurements. Four checks are deliberately strict comparisons against a synthetic topic cache and are reported as measured rather than tuned to pass: local_mean_cosine_near_published_044, local_mean_rho_falls_with_separation, local_chunk_level_is_the_least_aligned_of_all and local_published_matrix_reproduced_cellwise. See local_probe.negative_result for the causes. The two Fig. 9/10 observations the local arm DOES reproduce are the rising concentration of selection with level and the negative norm/selection correlation; the latter is checked by sign only, since 16 references over 16 queries is too small a sample to establish its published magnitude",
+    }
+
+
+def paper_zha_repo_audit():
+    """Code-availability audit for arXiv:2610.42112v2 (no plot; plain dict)."""
+    return {
+        "official_repo_in_paper": None,
+        "repo_status": "no-verifiable-official-code",
+        "evidence": [
+            "verbatim (Sec. V, kernel discussion): 'While we do not release optimized kernels in this work' - the paper explicitly declines to release the kernel implementation",
+            "the only github/huggingface links in the PDF text layer are MathArena/aime_2026 (an evaluation DATASET) and Qwen/Qwen3.6-35B-A3B (a pretrained MODEL); neither is ZHA source code",
+            "no author repository, no code URL and no artifact DOI appears in the main text or in Appendices A-H",
+            "the roofline/latency results (Fig. 8, Fig. 24) are produced by an analytical worker-aware model, not by released kernels",
+        ],
+        "reproduction_basis": "PDF text layer (42 pp): main text + Appendices A-H. All tables and figure coordinates in this module are transcribed from that text layer; every local probe is a declared synthetic stand-in",
+        "recorded_observations": [
+            "Sec. III gives the full tangent/merge/routing mathematics, so the mechanism is reproducible from the paper alone without code",
+            "Table II pins the training recipe (1900 steps, 0.996B tokens, lr 3.2e-2, AdamW beta=(0.9,0.95), clip 1.0, no weight decay, WSD with 20 warmup steps and linear decay over the final 20% to 1% of peak, BF16 backbone / FP32 routing params)",
+            "the trainable parameter count (81,920 for Qwen R16 over 10 layers) implies 512 floats per reference per layer, but the paper does not state head_dim or the KV-group count separately, so that split is left unpinned rather than guessed",
+            "Table III's Nemotron deep per-level cells sum to 0.852 while Table II reports 0.850; the 0.002 gap is six-cell rounding and is recorded, not silently corrected",
+            "the authors warn that the ZHA level-summed KL and the MSA token-level KL 'should not be compared directly across depths or methods', so the 1.172-vs-0.120 juxtaposition is not a like-for-like quality ranking",
+            "the claimed 'around 1% or less' overhead is an amortized LATENCY figure from the roofline model, not a storage figure; the index/KV element ratio R(d+1)/(2d(C-1)) is 2.69 at R16 C4 d128, i.e. the deep geometry's index is LARGER than the KV cache it indexes",
+        ],
+        "no_claims": [
+            "no claim of reproducing AIME 2026, SWE-bench Verified, Terminal-Bench 2.1, MMLU-Pro, GPQA Diamond, RULER-13 or LongBench v2 scores",
+            "no claim of reproducing the 1900-step / 1B-token KL warmup on a 35B backbone",
+            "no claim of reproducing the measured decode latencies or the 373-417x / 52-58x speedups",
+            "no claim that the local synthetic probes reproduce Fig. 1's book measurement, Fig. 9b's Spearman matrix or Sec. VI-A's chunk-fraction medians",
+        ],
+    }
+
+
+def run_paper_42112() -> dict:
+    """Run every ZHA asset and write graded/figures/2610.42112/metrics.json."""
+    setup = paper_zha_setup()
+    assets = [
+        ("tangent_identity", paper_zha_tangent_identity),
+        ("tree_merge", paper_zha_tree_merge),
+        ("routing", paper_zha_routing),
+        ("fig1_topp_powerlaw", paper_zha_fig1_topp_powerlaw),
+        ("fig2_union_coverage", paper_zha_fig2_union_coverage),
+        ("fig5_evals", paper_zha_fig5_evals),
+        ("fig6_geometry_model", paper_zha_fig6_geometry_model),
+        ("fig7_exponent_profile", paper_zha_fig7_exponent_profile),
+        ("fig8_roofline", paper_zha_fig8_roofline),
+        ("table1_affine_vs_powerlaw", paper_zha_table1_affine_vs_powerlaw),
+        ("table3_kl", paper_zha_table3_kl),
+        ("variable_sparsity", paper_zha_variable_sparsity),
+        ("reference_queries", paper_zha_reference_queries),
+    ]
+    audit = paper_zha_repo_audit()
+    results = {
+        "arxiv": "2610.42112",
+        "title": "Subquadratic Attention with a Hierarchical Tree-Structured Indexer",
+        "authors": "Lufkin, Dawes, Speicher, Krishnamurthy, Figliolia, Millidge (Zyphra Research)",
+        "setup": setup,
+        "repo_status": audit["repo_status"],
+        "repo_audit": audit,
+    }
+    for name, fn in assets:
+        plot_ok, data = fn()
+        results[name + "_plot"] = plot_ok
+        results[name + "_data"] = data
+    out = _outdir("2610.42112")
+    (out / "metrics.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results
