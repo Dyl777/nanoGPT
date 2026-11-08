@@ -522,6 +522,14 @@ def run_pub_live(model=None, enc=None, n=400, seed=38, budget=32, **kw) -> dict:
     return bench_pub(model, enc, n=n, seed=seed, budget=budget)
 
 
+def run_dnst_live(model=None, enc=None, n=60, seed=38, naive=True,
+                  bar=0.05, **kw) -> dict:
+    guard = _model_probe_enc(model, enc, "dnst", **kw)
+    if "error" in guard:
+        return guard
+    from bench_external import bench_dnst
+    return bench_dnst(model, enc, n=n, seed=seed, naive=naive, bar=bar)
+
 # ---------------------------------------------------------------------------
 # Curve / metric graphs (live numbers, labeled vs paper claims)
 # ---------------------------------------------------------------------------
@@ -1295,6 +1303,162 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                      "RSHD ext live: tokens spent per reward point per arm "
                      "(the cost axis of the RSHD comparison)",
                      "tokens / reward", f"{name}_cost")
+    if name == "dnst":
+        # s39 (arXiv:2610.21286): per-arm accuracy, the density gaps
+        # (dLP = Var(C)-Var(W), dCav = Cav(C)-Cav(W)), and the naive-steering
+        # deltas (paper Table 4: -10.0 pp / -51.7 pp). SFT/RL regime split,
+        # EGDR, and the gap/synthetic batteries run in the notebook cells.
+        arms = measurements.get("arms") if isinstance(measurements, dict) else None
+        if isinstance(arms, dict) and arms:
+            labs, vals = [], []
+            for arm in ("A", "B", "HD", "MS"):
+                row = arms.get(arm)
+                v = finite(row.get("acc")) if isinstance(row, dict) else None
+                if v is not None:
+                    labs.append(arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "Density-of-Thought live: GSM8K accuracy per arm "
+                     "(A baseline / B hint / HD / adaptive mid-step; "
+                     "paper: naive HD -10.0 pp, mid-step -51.7 pp)",
+                     "accuracy", f"{name}_arms")
+            glabs, gvals = [], []
+            for arm in ("A", "B", "HD", "MS"):
+                row = arms.get(arm)
+                if not isinstance(row, dict):
+                    continue
+                for key, lab in (("lp_gap", "dLP"), ("cav_gap", "dCav"),
+                                 ("hent_gap", "dH")):
+                    v = finite(row.get(key))
+                    if v is not None:
+                        glabs.append("%s %s" % (arm, lab))
+                        gvals.append(v)
+            if glabs:
+                bars(glabs, gvals,
+                     "Density-of-Thought live: density gaps per arm "
+                     "(dLP = Var(C)-Var(W); dCav negative = correct denser; "
+                     "paper SFT +0.020 vs RL-distill +0.013)",
+                     "gap (correct - wrong)", f"{name}_gaps")
+
+    if name == "egdr":
+        # s39 (arXiv:2610.21286): EGDR battery on in-repo clone - per-arm
+        # accuracy (A/B/C/D/F/G; paper: A 51.7%, D +13.3 pp, F +10.0 pp),
+        # the alpha grid (monotone, 61.7% at 0.30), and the per-arm entropy
+        # gap (paper F: dH = -0.053, p = 0.019).
+        arms = measurements.get("egdr_arms") if isinstance(measurements, dict) else None
+        grid = measurements.get("egdr_alpha") if isinstance(measurements, dict) else None
+        dh = measurements.get("egdr_dh") if isinstance(measurements, dict) else None
+        if isinstance(arms, dict) and arms:
+            labs, vals = [], []
+            for arm in sorted(arms):
+                v = finite(arms[arm])
+                if v is not None:
+                    labs.append(arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "EGDR live: accuracy per arm on the density battery "
+                     "(A baseline / B hint / C cache / D hint+cache / "
+                     "F EGDR / G hint+EGDR; paper D +13.3 pp, F +10.0 pp)",
+                     "accuracy", f"{name}_arms")
+        if isinstance(grid, dict) and grid:
+            ok = [(float(k), grid[k]) for k in grid
+                  if finite(grid[k]) is not None]
+            ok.sort()
+            if ok:
+                line([k for k, _ in ok],
+                     [v for _, v in ok],
+                     "EGDR live: accuracy vs alpha "
+                     "(paper: monotone 58.3/55.0/56.7/58.3/61.7% at "
+                     "0.05..0.30 on Qwen2.5-1.5B, p=0.019 at 0.30)",
+                     "alpha", "accuracy", f"{name}_alpha")
+        if isinstance(dh, dict) and dh:
+            labs, vals = [], []
+            for arm in sorted(dh):
+                v = finite(dh[arm])
+                if v is not None:
+                    labs.append(arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "EGDR live: mean-entropy gap per arm "
+                     "(H(correct) - H(wrong); negative = correct more "
+                     "confident; paper F -0.053, G -0.041)",
+                     "entropy gap", f"{name}_dh")
+
+    if name == "dnsgap":
+        # s39 (arXiv:2610.21286): complexity-preference gap battery - mean
+        # per-token NLL per depth tier and the gap delta (paper Table 8:
+        # 0.3190 GPT-2 Small -> 0.4054 Mistral 7B, +21.3% cross-gen,
+        # e^delta 1.40 -> 1.50; Pythia scale control +13.2%).
+        tiers = measurements.get("dnsgap_tiers") if isinstance(measurements, dict) else None
+        gapd = measurements.get("dnsgap_delta") if isinstance(measurements, dict) else None
+        if isinstance(tiers, dict) and tiers:
+            labs, vals = [], []
+            for t in sorted(tiers):
+                v = finite(tiers[t])
+                if v is not None:
+                    labs.append(t)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "Density-of-Thought live: mean per-token NLL per "
+                     "complexity tier (LOW/MID/HIGH; paper Eq. 1 LP, "
+                     "dependency-depth bins 2-8 analog)",
+                     "mean per-token NLL", f"{name}_tiers")
+        if isinstance(gapd, dict) and gapd:
+            labs, vals = [], []
+            for k, lab in (("delta", "delta"), ("ratio", "e^delta")):
+                v = finite(gapd.get(k))
+                if v is not None:
+                    labs.append(lab)
+                    vals.append(v)
+            if labs:
+                bars(labs, vals,
+                     "Density-of-Thought live: complexity-preference gap "
+                     "(paper: 0.3190 -> 0.4054, +21.3% cross-gen; e^delta "
+                     "1.40 -> 1.50)", "delta / ratio", f"{name}_delta")
+
+    if name == "dnssynth":
+        # s39 (arXiv:2610.21286): synthetic depth-distribution bias - corpus
+        # KL per training arm and the Inverse/Linear asymmetry (paper
+        # Table 2: Uniform 0.0038, Linear 0.0409, Inverse 0.0967, ratio
+        # 2.4x, range 2.0-2.6x; bias +0.094 / -0.50 / +0.77).
+        kl = measurements.get("dnssynth_kl") if isinstance(measurements, dict) else None
+        bias = measurements.get("dnssynth_bias") if isinstance(measurements, dict) else None
+        ratio = measurements.get("dnssynth_ratio")
+        if isinstance(kl, dict) and kl:
+            labs, vals = [], []
+            for arm in sorted(kl):
+                v = finite(kl[arm])
+                if v is not None:
+                    labs.append(arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "Density-of-Thought live: corpus KL per synthetic "
+                     "training arm (Uniform/Linear/Inverse; paper "
+                     "0.0038 / 0.0409 / 0.0967, asymmetry 2.4x)",
+                     "KL(P(depth) || model)", f"{name}_kl")
+        if isinstance(bias, dict) and bias:
+            labs, vals = [], []
+            for arm in sorted(bias):
+                v = finite(bias[arm])
+                if v is not None:
+                    labs.append(arm)
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "Density-of-Thought live: signed depth bias per arm "
+                     "(learned P(d) vs ground truth; paper +0.094 / "
+                     "-0.50 / +0.77)", "bias", f"{name}_bias")
+        r = finite(ratio)
+        if r is not None:
+            bars(["KL(Inverse)/KL(Linear)"], [r],
+                 "Density-of-Thought live: KL asymmetry ratio (paper: "
+                 "2.4x, 2.0-2.6x across model sizes)", "ratio",
+                 f"{name}_ratio")
     return paths
 
 

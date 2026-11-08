@@ -1164,3 +1164,373 @@ def bench_pub(model, enc, n: int = 400, seed: int = 38, budget: int = 32) -> Dic
         }
     except Exception as e:  # noqa: BLE001
         return _err(e)
+# ---------------------------------------------------------------------------
+# Density of Thought (arXiv:2610.21286): LP variance + Caveman meters, and a
+# GSM8K density battery over the hook-free arms (A baseline / B hint / naive
+# high-density prompting / naive adaptive mid-step injection). EGDR and the
+# KV-cache steering arm need per-layer hooks on the compiled blocks - those
+# conditions run in the notebook pipeline cells (s39), not here.
+# ---------------------------------------------------------------------------
+
+_DNST_EPS = 1e-8
+
+# Rule-based stand-in for the paper's SpaCy grammatical-token stripping
+# (determiners, auxiliary verbs, coordinating conjunctions, intensifiers;
+# paper sec. 3.2 Caveman ratio). spaCy is not a repo dependency; the token
+# categories are identical, the tagger is a curated stoplist + dedup + punct.
+_DNST_STOP = frozenset((
+    "the", "a", "an", "this", "that", "these", "those", "my", "our", "their",
+    "its", "his", "her", "and", "or", "but", "so", "then", "also",
+    "is", "are", "was", "were", "be", "been", "being", "am", "does", "did",
+    "have", "has", "had", "will", "would", "shall", "should", "can", "could",
+    "may", "might", "must", "of", "to", "from", "by", "with", "for", "as",
+    "very", "quite", "really", "just", "only", "now", "there", "here",
+    "get", "gets", "how", "what", "when", "more", "most", "some",
+))
+_DNST_PUNCT = re.compile(r"^[\W_]+$")
+
+
+def _dens_steps(text: str) -> List[str]:
+    """Split a CoT trace into reasoning steps (paper sec. 3.1): newline
+    lines, then sentence units within a line, so per-step LP stays
+    measurable on single-run traces."""
+    steps: List[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        for p in re.split(r"(?<=[.!?;]) +", line):
+            p = p.strip()
+            if len(p) >= 2:
+                steps.append(p)
+    return steps
+
+
+def _dens_meters_from(nlls: Sequence[float], ents: Sequence[float],
+                      boun: Sequence[int], eps: float = _DNST_EPS) -> Dict[str, Any]:
+    """Density meters from a streamed generation ledger (paper sec. 3.2).
+
+    nlls/ents are per generated token (aligned to the ledger length);
+    boun holds token indices where a new reasoning step starts. LP(sk) is
+    the mean per-token NLL over step sk (paper Eq. 1); the LP variance is
+    computed on min-max-normalized step LPs (z-score normalization is
+    excluded by the paper's own design argument: it forces Var = 1.0 on
+    every chain, killing the between-chain signal)."""
+    if not nlls:
+        return {"lp_var": None, "steps": 0, "steps_lp": [], "hent": None}
+    fin_ents = [e for e in ents if e == e and abs(e) != float("inf")]
+    hent = (sum(fin_ents) / len(fin_ents)) if fin_ents else None
+    cuts = sorted({0} | {int(b) for b in boun if 0 < b < len(nlls)})
+    step_means: List[float] = []
+    for a, b in zip(cuts, list(cuts[1:]) + [len(nlls)]):
+        span = [v for v in nlls[a:b] if v == v and abs(v) != float("inf")]
+        if span:
+            step_means.append(sum(span) / len(span))
+    if len(step_means) < 2:
+        return {"lp_var": None, "steps": len(step_means), "steps_lp": step_means,
+                "hent": hent}
+    lo, hi = min(step_means), max(step_means)
+    norm = [(x - lo) / (hi - lo + eps) for x in step_means]
+    mu = sum(norm) / len(norm)
+    var = sum((x - mu) ** 2 for x in norm) / len(norm)
+    return {"lp_var": var, "steps": len(step_means), "steps_lp": step_means,
+            "hent": hent}
+
+
+def _dens_caveman(text: str) -> float:
+    """Caveman ratio rho (paper sec. 3.2): the fraction of tokens a
+    rule-based grammatical stripper removes (determiners, auxiliary verbs,
+    coordinating conjunctions, intensifiers, punctuation, adjacent dupes).
+    Lower rho = fewer predictable tokens = higher density; the paper's
+    dCav = Cav(C) - Cav(W) is negative when correct solutions are denser."""
+    toks = re.findall(r"[A-Za-z']+|\d[\d,.%]*|\S", text)
+    if not toks:
+        return 0.0
+    keep: List[str] = []
+    removed = 0
+    for tk in toks:
+        w = tk.lower().strip("' ")
+        if _DNST_PUNCT.match(w if w else tk) or w in _DNST_STOP or (
+                keep and keep[-1].lower() == w):
+            removed += 1
+            continue
+        keep.append(tk)
+    return removed / len(toks)
+
+
+def _dens_stream_generate(model, enc, prompt: str, max_new: int = 256,
+                          stop: Sequence[str] = ("\nQ:", "\n\n####", "\n\nQ"),
+                          inject_fn=None) -> Dict[str, Any]:
+    """Greedy decode with a streaming per-token NLL/entropy ledger and a
+    mid-step injection hook (paper sec. 5.1 adaptive arm).
+
+    The NLL and Shannon entropy of each generated token are read off the
+    same last-position log-softmax that chose it, so the paper's density
+    meters cost no extra forward. Mid-step injected ids are scored on the
+    next forward (teacher-forced rows within the live sliding window -
+    the same prefix-cropped convention _sum_logprob uses). Step boundaries
+    are decoded-text markers ([.;!?] or newline); marker counts introduced
+    BY an injection are consumed at the injection step so injected text
+    cannot re-trigger the boundary rule."""
+    ids = enc.encode(prompt)
+    cap = int(model.ctx_len)
+    ctx = ids[-cap:]
+    base_len = len(ids)
+    gen: List[int] = []
+    nlls: List[float] = []
+    ents: List[float] = []
+    boun: List[int] = []
+    pending: List[int] = []  # gen indices awaiting teacher-forced scoring
+    prev_marks = 0
+    for _ in range(int(max_new)):
+        off = max(0, base_len + len(gen) - cap)
+
+        def widx(g: int, _o=off) -> int:
+            return g + base_len - _o
+
+        with torch.no_grad():
+            x = torch.tensor([ctx], device=_dev(model))
+            logits = model(x)[0]
+        full = torch.log_softmax(logits.float(), dim=-1)
+        last = full[-1]
+        # settle teacher-forced rows for previously injected ids
+        for g in pending:
+            j = widx(g)
+            if 1 <= j < full.shape[0]:
+                tid = gen[g]
+                row = full[j - 1]
+                nlls[g] = -float(row[tid])
+                ents[g] = float(-(row.exp() * row).sum())
+        pending = []
+        nxt = int(torch.argmax(last))
+        nlls.append(-float(last[nxt]))
+        p = last.exp()
+        ents.append(float(-(p * last).sum()))
+        gen.append(nxt)
+        ctx = (ctx + [nxt])[-cap:]
+        text = enc.decode(gen)
+        marks = len(re.findall(r"[.;!?]|\n", text))
+        if marks > prev_marks:
+            boun.append(len(gen))
+            prev_marks = marks
+            if inject_fn is not None:
+                m_now = _dens_meters_from(nlls, ents, boun)
+                phrase = inject_fn(m_now.get("lp_var"), len(boun), text)
+                if phrase:
+                    inj = enc.encode(" " + phrase.strip() + " ")
+                    pad = len(gen)
+                    nlls.extend([float("nan")] * len(inj))
+                    ents.extend([float("nan")] * len(inj))
+                    gen.extend(inj)
+                    pending.extend(range(pad, pad + len(inj)))
+                    ctx = (ctx + inj)[-cap:]
+                    text = enc.decode(gen)
+                    prev_marks = len(re.findall(r"[.;!?]|\n", text))
+        cut = min([text.find(s) for s in stop if text.find(s) >= 0], default=-1)
+        if cut >= 0:
+            tok_cut = len(gen)
+            for k in range(1, len(gen) + 1):
+                if len(enc.decode(gen[:k])) >= cut:
+                    tok_cut = k
+                    break
+            for arr in (nlls, ents):
+                del arr[tok_cut:]
+            del gen[tok_cut:]
+            # re-filter: pending positions beyond the trim are unresolved
+            pending = [pp for pp in pending if pp < len(nlls)]
+            if pending:  # injected ids never got their teacher-forced row:
+                # drop that tail so the ledger stays fully finite
+                keep_n = min(pending)
+                del nlls[keep_n:], ents[keep_n:], gen[keep_n:]
+                text = enc.decode(gen)
+            else:
+                text = text[:cut]
+            break
+    # drop any unscored pending tail so the ledger stays aligned
+    if pending:
+        keep_n = min(pending)
+        del nlls[keep_n:], ents[keep_n:]
+        while gen and len(nlls) < len(gen):
+            gen.pop()
+        text = enc.decode(gen)
+    return {"text": text, "nlls": nlls, "ents": ents,
+            "boun": [b for b in boun if b <= len(nlls)],
+            "n_gen": len(gen)}
+
+
+def _dens_hint(model, enc, question: str, max_new: int = 48) -> str:
+    """NuRL-style abstract hint (paper sec. 5.2 B): generated from the
+    problem statement ONLY - no gold labels are used at test time."""
+    p = ("Q: " + question + "\nHint: identify the key quantities, how they "
+         "relate, and the operation that connects them. Hint:")
+    h = _greedy_generate(model, enc, p, max_new=max_new, stop=("\n", "Q:", "A:"))
+    return " ".join(h.split())[:240]
+
+
+def _dens_cot_prompt(shot: str, question: str, hint: Optional[str] = None) -> str:
+    """NuRL's hint is prepended BEFORE the question (paper sec. 5.2)."""
+    if hint:
+        return (shot + "\n\n(Hint: " + hint + ")\nQ: " + question
+                + "\nA: Let's think step by step:")
+    return shot + "\n\nQ: " + question + "\nA: Let's think step by step:"
+
+
+_DNST_HD_INSTR = ("Reason with maximal information density: use compact "
+                  "symbolic notation, pack every intermediate computation "
+                  "into each step, and avoid explanatory filler.")
+
+
+def bench_dnst(model, enc, n: int = 60, seed: int = 38, naive: bool = True,
+               bar: float = 0.05, max_new: int = 256,
+               eps: float = _DNST_EPS) -> Dict[str, Any]:
+    """Density-of-Thought battery on GSM8K (paper: N=60, greedy decoding).
+
+    Arms: A baseline greedy CoT; B NuRL-style self-generated abstract hint
+    prepended before the question; and under `naive`, the two naive arms
+    the paper shows collapse accuracy (Table 4): HD = high-density system
+    prompting ("compact, symbolic notation"), and MS = adaptive mid-step
+    injection of a corrective phrase whenever the running step-LP variance
+    deviates from the battery's own baseline median (the paper's same-set
+    calibration, acknowledged as circular in its Limitations). Per arm the
+    paper's readouts: accuracy, LP gap Var(C)-Var(W), Caveman gap
+    Cav(C)-Cav(W) and the mean-entropy gap H(correct)-H(wrong).
+
+    EGDR (entropy-gated KV routing) and the contrastive KV steering arm
+    require per-layer hooks on the compiled blocks; they live in the s39
+    notebook pipeline cells (run_dnsteg / run_dnsgap / run_dnstsynth)."""
+    try:
+        if enc is None:
+            return _err("no encoder matches the compiled vocab")
+        ds = _hf("openai/gsm8k", "main", "test")
+        rng = random.Random(seed)
+        rows = list(ds)
+        rows_sel = rng.sample(rows, n) if len(rows) > n else rows
+        shot = "\n\n".join(f"{q}\n{a}" for q, a in _GSM8K_SHOTS)
+        stop = ("\nQ:", "\n\n####", "\n\nQ")
+
+        def gold_of(r):
+            return _last_number(r["answer"].split("####")[-1].strip().replace(",", ""))
+
+        def run_arm(mk) -> Dict[str, Any]:
+            hits = parsed = thin = 0
+            lp_c: List[float] = []
+            lp_w: List[float] = []
+            cav_c: List[float] = []
+            cav_w: List[float] = []
+            h_c: List[float] = []
+            h_w: List[float] = []
+            items: List[Dict[str, Any]] = []
+            for ix, r in enumerate(rows_sel):
+                spec = mk(ix, r)
+                if spec is None:
+                    thin += 1
+                    items.append({"ok": 0, "var": None, "cav": None, "h": None})
+                    continue
+                g = _dens_stream_generate(model, enc, spec["prompt"],
+                                          max_new=max_new, stop=stop,
+                                          inject_fn=spec.get("inject"))
+                m = _dens_meters_from(g["nlls"], g["ents"], g["boun"], eps)
+                rho = _dens_caveman(g["text"])
+                got = _last_number(g["text"])
+                gold = gold_of(r)
+                ok = int(got is not None and gold is not None
+                         and abs(float(got) - float(gold)) < 1e-6)
+                parsed += int(got is not None)
+                hits += ok
+                if m["lp_var"] is not None:
+                    (lp_c if ok else lp_w).append(m["lp_var"])
+                else:
+                    thin += 1
+                (cav_c if ok else cav_w).append(rho)
+                if m["hent"] is not None:
+                    (h_c if ok else h_w).append(m["hent"])
+                items.append({
+                    "ok": ok,
+                    "var": round(m["lp_var"], 4) if m["lp_var"] is not None else None,
+                    "cav": round(rho, 4),
+                    "h": round(m["hent"], 4) if m["hent"] is not None else None})
+
+            def gap(a: List[float], b: List[float]) -> Optional[float]:
+                if not a or not b:
+                    return None
+                return sum(a) / len(a) - sum(b) / len(b)
+
+            var_all = lp_c + lp_w
+            return {
+                "acc": hits / max(1, len(rows_sel)), "n": len(rows_sel),
+                "n_correct": hits, "parsed": parsed, "skipped_thin": thin,
+                "lp_gap": gap(lp_c, lp_w), "cav_gap": gap(cav_c, cav_w),
+                "hent_gap": gap(h_c, h_w),
+                "lp_var_mean": (sum(var_all) / len(var_all)) if var_all else None,
+                "items": items,
+            }
+
+        arms: Dict[str, Dict[str, Any]] = {}
+        # A first: it also calibrates the adaptive arm's deviation target.
+        arms["A"] = run_arm(lambda ix, r: {
+            "prompt": shot + "\n\nQ: " + r["question"]
+                      + "\nA: Let's think step by step:"})
+        base_vs = sorted(it["var"] for it in arms["A"]["items"]
+                         if it["var"] is not None)
+        base_var = base_vs[len(base_vs) // 2] if base_vs else None
+
+        hints: Dict[int, str] = {}
+
+        def _mk_hint(ix, r):
+            h = _dens_hint(model, enc, r["question"])
+            hints[ix] = h
+            return {"prompt": _dens_cot_prompt(shot, r["question"], h)}
+
+        arms["B"] = run_arm(_mk_hint)
+
+        def _mk_hd(ix, r):
+            return {"prompt": _DNST_HD_INSTR + "\n\n" + shot + "\n\nQ: "
+                    + r["question"] + "\nA: Let's think step by step:"}
+
+        if naive:
+            arms["HD"] = run_arm(_mk_hd)
+
+            def _mk_ms(ix, r):
+                def inject(var, sx, txt, _bar=bar, _base=base_var):
+                    if _base is None or var is None or sx < 2:
+                        return None
+                    if abs(var - _base) > _bar:
+                        return "Note: keep every intermediate result explicit."
+                    return None
+
+                return {"prompt": shot + "\n\nQ: " + r["question"]
+                        + "\nA: Let's think step by step:", "inject": inject}
+
+            arms["MS"] = run_arm(_mk_ms)
+
+        naive_d: Dict[str, float] = {}
+        a_acc = arms["A"]["acc"]
+        if "HD" in arms:
+            naive_d["hd_delta_pp"] = round(100.0 * (arms["HD"]["acc"] - a_acc), 1)
+        if "MS" in arms:
+            naive_d["ms_delta_pp"] = round(100.0 * (arms["MS"]["acc"] - a_acc), 1)
+        return {
+            "arms": arms, "naive_deltas": naive_d, "base_var": base_var,
+            "n": len(rows_sel), "seed": seed, "bar": bar,
+            "hints_used": len(hints),
+            "provenance": f"openai/gsm8k main/test n={len(rows_sel)} seed={seed} "
+                          f"greedy streaming ledger, arms=A,B,hd,ms tokenizer="
+                          f"{getattr(enc, 'name', '?')} "
+                          f"model_vocab={model.token_embedding.num_embeddings}",
+            "claim": "paper anchors recorded, never simulated: density-correctness "
+                     "dLP = Var(C)-Var(W) on GSM8K N=60 (Table 3) - SFT "
+                     "Qwen2.5-1.5B +0.020 (UID regime), collapsing with scale "
+                     "(3B -0.003, 7B -0.001) and reversed for RL distillation "
+                     "(R1-Distill-1.5B +0.013, 7B +0.014, dual-density); naive "
+                     "steering on Qwen2.5-3B (Table 4): high-density prompting "
+                     "-10.0 pp, adaptive mid-step injection -51.7 pp; "
+                     "complexity-preference gap (Eq. 1, Table 8) 0.3190 "
+                     "(GPT-2 Small 2019) -> 0.4054 (Mistral 7B 2023), +21.3% "
+                     "cross-gen vs +13.2% Pythia-scale, e^d 1.40 -> 1.50; "
+                     "EGDR + KV-cache-steering arms run in the notebook "
+                     "pipeline cells (this suite is hook-free).",
+        }
+    except Exception as e:  # noqa: BLE001 - fail-soft contract
+        return _err(e)
+
+
