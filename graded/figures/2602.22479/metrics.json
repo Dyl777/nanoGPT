@@ -1,0 +1,1089 @@
+{
+  "arxiv": "2602.22479",
+  "title": "Efficient Continual Learning in Language Models via Thalamically Routed Cortical Columns",
+  "authors": "Afshin Khadangi (SnT, University of Luxembourg)",
+  "setup": {
+    "source": "arXiv:2602.22479v6 (Afshin Khadangi; SnT, University of Luxembourg, 17 Apr 2026, 45 pp; preprint)",
+    "method": "Efficient Continual Learning in Language Models via Thalamically Routed Cortical Columns: plasticity lives INSIDE the backbone (cortical columns + thalamic router + hippocampal store) rather than in an outside replay buffer / weight consolidation / adapter",
+    "architecture": "stack of cortical columns (RMSNorm + thalamus-modulated GQA queries + top-k_E MoE with a shared expert and load-balance aux, Eq.1-3 / B.1-B.16); a thalamic router (B.17-B.28) compresses an injection column's state, keeps a causal past-mean, runs TRN divisive competition and feeds a gated bias into LATER columns' queries (Eq.4); a hippocampal store (B.29-B.58) retrieves by exact top-k_H, writes only on delayed surprise flushed at the optimizer boundary, and replays under a PI controller (B.59-B.71)",
+    "axes": {
+      "HipRead": [
+        "materialized",
+        "chunked"
+      ],
+      "MoEDispatch": [
+        "dense_masked",
+        "sparse_gather"
+      ],
+      "CortexAttn": [
+        "materialized",
+        "sdpa"
+      ],
+      "Numeric": [
+        "fp32",
+        "fp64_oracle",
+        "amp_fp16"
+      ]
+    },
+    "axis_basis": {
+      "HipRead": "B.31-B.33 / G.121 exact-top-k_H retrieval",
+      "MoEDispatch": "B.11-B.13 / G.110 expert execution",
+      "CortexAttn": "B.4-B.8 causal GQA",
+      "Numeric": "C.2 fp16 AMP + GradScaler (CUDA-only)"
+    },
+    "objective": "CE + load-balance + temporal-difference + prediction + replay (B.72-B.74)",
+    "forgetting_metrics": "u=log PPL (C.80); F_k=max(0,u_k-u_k^post) (C.81/C.84); AUFC=(1/(t-t0)) integral F by trapezoid (C.86); BWT=mean(u^post-u) (C.82); FWT=mean(u^base-u^pre) (C.83)",
+    "verification": "App F / Fig F.5: 14 causality/state-semantics checks on a fresh clone per check (identical params and buffers)",
+    "hardware_paper": "4x V100 32GB, DDP, fp16 AMP + GradScaler; C4 -> WikiText-103 -> GSM8K for 22000 steps",
+    "published_E3_d768_L4": {
+      "params_pct": [
+        97.94,
+        0.095,
+        1.96
+      ],
+      "memory_pct": [
+        82.78,
+        0.08,
+        17.14
+      ],
+      "order": [
+        "columns",
+        "thalamus",
+        "hippocampus"
+      ]
+    },
+    "toy_spec": "local probes use CPU float32/float64 tensors; the F config vocab is UNPUBLISHED so V=256 is declared and the param count reported, never asserted equal to the paper's 8,520,244; the three tasks are synthetic rotation-cipher stand-ins (next token = (x+shift_k) mod V, shifts 0/37/73), DECLARED not C4/WikiText-103/GSM8K; work counts, bytes and fp32/fp64 agreement are verified, not wall-clock",
+    "adaptations": [
+      "no V100 / DDP / Triton: work counts, bytes and fp32/fp64 agreement, not ms",
+      "F config V=256 declared; param count reported, not asserted equal to 8,520,244",
+      "three synthetic rotation-cipher tasks declared as stand-ins",
+      "amp_fp16 on CPU is autocast-on-available-device; GradScaler CUDA-only is a declared adaptation, not a backend swap; the Numeric axis still selects it",
+      "App F PASS decided by semantic tolerance with the local fp32/CPU diff reported beside the paper's fp32/cuda anchor"
+    ]
+  },
+  "repo_status": "no GitHub URL in the text layer; W&B logs / TRC2 website labels only",
+  "repo_audit": {
+    "repo_status": "no GitHub URL in the text layer; W&B logs / TRC2 website labels only",
+    "reproduction_basis": "45-page PDF text layer, main text + Appendices B/C/E/F/G",
+    "authors": "Afshin Khadangi",
+    "affiliations": "SnT, University of Luxembourg",
+    "date": "2026-04-17",
+    "version": "v6",
+    "pages": 45,
+    "hardware_paper": "4x V100 32GB, DDP, fp16 AMP + GradScaler",
+    "gaps": [
+      "F config vocab unpublished: V=256 declared, param count reported not asserted",
+      "no V100/DDP/Triton here: work counts, bytes and fp32/fp64 agreement, not ms",
+      "three tasks are declared synthetic rotation-cipher stand-ins, not the corpora",
+      "amp_fp16 GradScaler is CUDA-only; on CPU it is a declared adaptation",
+      "App F local fp32/CPU diffs reported beside the paper's fp32/cuda anchors"
+    ]
+  },
+  "appf_plot": 1.0,
+  "appf_data": {
+    "config": {
+      "d": 128,
+      "L": 4,
+      "h": 8,
+      "h_kv": 4,
+      "V": 256,
+      "E": 4,
+      "k_E": 2,
+      "r": 16,
+      "groups": 1,
+      "eta": 1.0,
+      "N_s": 1024,
+      "d_k": 128,
+      "k_H": 4,
+      "k_W": 8,
+      "chunk": 2048,
+      "S_max": 1024,
+      "rho_top": 0.125,
+      "alpha_slow": 0.9995,
+      "shared_expert": true,
+      "lam_lb": 0.01,
+      "dropout": 0.0,
+      "rope_base": 10000.0,
+      "n_target": 8,
+      "beta_tau": 0.9,
+      "gamma": 0.99,
+      "delta_max": 5.0,
+      "L_R": 128,
+      "N_recent": 2048,
+      "N_long": 16384,
+      "ignore_index": -100,
+      "d_ff": 512,
+      "ell_inj": 2
+    },
+    "params_all": 4449334,
+    "published_params_F": 8520244,
+    "param_note": "F config vocab unpublished; local V=256 declared, count reported not asserted",
+    "probe": {
+      "B": 2,
+      "T": 256,
+      "t": 64,
+      "seed": 0
+    },
+    "checks": [
+      {
+        "name": "forward/contiguous-targets",
+        "passed": true,
+        "detail": "non-contiguous targets rejected",
+        "published_F5": "PASS"
+      },
+      {
+        "name": "eval/fwd-causal",
+        "passed": true,
+        "detail": "diff=1.847744e-06 t=64",
+        "published_F5": "diff=3.576279e-07 t=64"
+      },
+      {
+        "name": "eval/grad-causal",
+        "passed": true,
+        "detail": "leak=0.000000e+00 t=64",
+        "published_F5": "leak=0.000000e+00 t=64"
+      },
+      {
+        "name": "eval/prefix",
+        "passed": true,
+        "detail": "diff=2.801418e-06 t=64",
+        "published_F5": "diff=4.470348e-07 t=64"
+      },
+      {
+        "name": "train/fwd-causal-noflush",
+        "passed": true,
+        "detail": "diff=1.847744e-06 t=64",
+        "published_F5": "diff=0.000000e+00 t=64"
+      },
+      {
+        "name": "write-score/prefix",
+        "passed": true,
+        "detail": "prefix_diff=3.576279e-07 t_diff=0.000000e+00 tp1_diff=7.490810e-01 t=64",
+        "published_F5": "prefix_diff=0 t_diff=0 tp1_diff=2.300317e-03 t=64"
+      },
+      {
+        "name": "pending/no-effect-preflush",
+        "passed": true,
+        "detail": "pending=1 mem=0 diff=0.000000e+00",
+        "published_F5": "pending=1 mem=0 diff=0.000000e+00"
+      },
+      {
+        "name": "eval/clears-pending",
+        "passed": true,
+        "detail": "pending_before=1 pending_after=0 mem_before=0 mem_after=0 diff=0.000000e+00",
+        "published_F5": "pending_before=1 pending_after=0 mem_before=0 mem_after=0"
+      },
+      {
+        "name": "grad-accum/flush-order",
+        "passed": true,
+        "detail": "after_ms1: pending=1 mem=0 | after_ms2: pending=0 mem=377",
+        "published_F5": "after_ms1: pending=1 mem=0 | after_ms2: pending=0 mem=32"
+      },
+      {
+        "name": "memory/write-occurs-exact",
+        "passed": true,
+        "detail": "mem_count=377 n_write=377",
+        "published_F5": "mem_count=16 max_steps=32"
+      },
+      {
+        "name": "memory/persists-if-written",
+        "passed": true,
+        "detail": "mem_before_eval=377 mem_after_eval_mode=377 logit_diff=0.000000e+00",
+        "published_F5": "mem_before_eval=16 mem_after_eval_mode=16 read_diff=2.428253e-03 logit_diff=5.960464e-07"
+      },
+      {
+        "name": "replay/train-forward-write",
+        "passed": true,
+        "detail": "replay_count_before=0 after=4 long_before=0 long_after=4",
+        "published_F5": "replay_count_before=0 after=4 long_before=0 long_after=4"
+      },
+      {
+        "name": "replay/eval-no-write",
+        "passed": true,
+        "detail": "all counts 0->0 (long 0->0)",
+        "published_F5": "all counts 0 -> 0"
+      },
+      {
+        "name": "ddp/graph-coverage",
+        "passed": true,
+        "detail": "P_train = P_grad",
+        "published_F5": "PASS"
+      }
+    ],
+    "n_checks": 14,
+    "n_passed": 14,
+    "all_passed": true
+  },
+  "backend_plot": 1.0,
+  "backend_data": {
+    "selected": {
+      "HipRead": "chunked",
+      "MoEDispatch": "sparse_gather",
+      "CortexAttn": "sdpa",
+      "Numeric": "fp32"
+    },
+    "selection_source": {
+      "HipRead": "paper default (C.3 / B.32 / G.110)",
+      "MoEDispatch": "paper default (C.3 / B.32 / G.110)",
+      "CortexAttn": "paper default (C.3 / B.32 / G.110)",
+      "Numeric": "paper default (C.3 / B.32 / G.110)"
+    },
+    "agreement_max_abs_diff": {
+      "HipRead_materialized": 9.5367431640625e-07,
+      "CortexAttn_materialized": 5.900859832763672e-06,
+      "MoEDispatch_dense_masked": 1.9073486328125e-06,
+      "Numeric_fp64_vs_fp32": 4.20707650455876e-06
+    },
+    "all_agree_fp32_tol": true,
+    "hip_peak_score_numbers": {
+      "materialized": 52736,
+      "chunked": 8192,
+      "n_read": 206
+    },
+    "expert_passes": {
+      "dense_masked": 1024,
+      "sparse_gather": 512,
+      "ratio": 2.0
+    },
+    "amp_available": true,
+    "numeric_device": "cpu",
+    "note": "Arms differ only in peak storage / dispatch / rounding, not in the computed function (B.32/G.121, B.11/G.110, B.4-B.8). amp_fp16 uses autocast on the available device; GradScaler is CUDA-only and is a declared adaptation, not a backend swap."
+  },
+  "stream_plot": 1.0,
+  "stream_data": {
+    "tasks": [
+      "C4_stand_in",
+      "WikiText103_stand_in",
+      "GSM8K_stand_in"
+    ],
+    "declared_standin": "synthetic rotation-cipher tasks (next token = (x + shift_k) mod V, shifts 0/37/73) that interfere so forgetting is measurable; NOT C4/WikiText-103/GSM8K",
+    "stream_steps_per_task": 12,
+    "total_steps": 36,
+    "B": 2,
+    "T": 128,
+    "config": {
+      "d": 64,
+      "L": 3,
+      "h": 4,
+      "h_kv": 2,
+      "V": 128,
+      "E": 4,
+      "k_E": 2,
+      "r": 16,
+      "groups": 1,
+      "eta": 1.0,
+      "N_s": 256,
+      "d_k": 64,
+      "k_H": 4,
+      "k_W": 8,
+      "chunk": 32,
+      "S_max": 256,
+      "rho_top": 0.125,
+      "alpha_slow": 0.9995,
+      "shared_expert": true,
+      "lam_lb": 0.01,
+      "dropout": 0.0,
+      "rope_base": 10000.0,
+      "n_target": 8,
+      "beta_tau": 0.9,
+      "gamma": 0.99,
+      "delta_max": 5.0,
+      "L_R": 64,
+      "N_recent": 2048,
+      "N_long": 16384,
+      "ignore_index": -100,
+      "d_ff": 256,
+      "ell_inj": 2
+    },
+    "u_base": {
+      "0": 4.614523410797119,
+      "1": 5.233036994934082,
+      "2": 5.196415901184082
+    },
+    "u_pre": {
+      "0": {
+        "0": 4.614523410797119,
+        "1": 5.233036994934082,
+        "2": 5.196415901184082
+      },
+      "1": {
+        "0": 3.401585340499878,
+        "1": 5.423184871673584,
+        "2": 5.247561931610107
+      },
+      "2": {
+        "0": 3.923666477203369,
+        "1": 4.287574291229248,
+        "2": 5.507226467132568
+      }
+    },
+    "u_after_learning_task": {
+      "0": 3.401585340499878,
+      "1": 4.287574291229248,
+      "2": 4.474923133850098
+    },
+    "u_post_stream": {
+      "0": 4.595548629760742,
+      "1": 4.465756416320801,
+      "2": 4.474923133850098
+    },
+    "forgetting_F_k": {
+      "0": 0.0,
+      "1": 0.0,
+      "2": 0.0
+    },
+    "AUFC_time_normalized": 0.0,
+    "BWT": 0.11385467220688532,
+    "FWT": 0.0,
+    "router_aux_range": [
+      3.11970853805542,
+      3.9741575717926025
+    ],
+    "router_aux_final": 3.5725650787353516,
+    "write_total": 1488,
+    "write_max_per_step": 212,
+    "mem_count_final": 256,
+    "replay_final": {
+      "n_recent": 144,
+      "n_long": 144,
+      "n_seen": 144
+    },
+    "controller_final": {
+      "step": 36,
+      "f_bar": 0.0,
+      "g": 0.0,
+      "g_tilde": 0.0018768251543001362,
+      "e": 0.0008768251543001362,
+      "I": 0.015205173003879108,
+      "lambda_rep": 0.05163708380449409,
+      "B_R": 4,
+      "rho_long": 0.5035073006172005
+    },
+    "dynamics": {
+      "write": [
+        {
+          "step": 1,
+          "task": 0,
+          "n_write": 212,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.828125,
+          "tau": 0.17819137573242183,
+          "mem_count": 212
+        },
+        {
+          "step": 2,
+          "task": 0,
+          "n_write": 177,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.69140625,
+          "tau": 0.353266854584217,
+          "mem_count": 256
+        },
+        {
+          "step": 3,
+          "task": 0,
+          "n_write": 148,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.578125,
+          "tau": 0.5217766672372818,
+          "mem_count": 256
+        },
+        {
+          "step": 4,
+          "task": 0,
+          "n_write": 127,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.49609375,
+          "tau": 0.6698801517486572,
+          "mem_count": 256
+        },
+        {
+          "step": 5,
+          "task": 0,
+          "n_write": 101,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.39453125,
+          "tau": 0.8087311029434203,
+          "mem_count": 256
+        },
+        {
+          "step": 6,
+          "task": 0,
+          "n_write": 88,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.34375,
+          "tau": 0.9477365016937256,
+          "mem_count": 256
+        },
+        {
+          "step": 7,
+          "task": 0,
+          "n_write": 81,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.31640625,
+          "tau": 1.0796591758728027,
+          "mem_count": 256
+        },
+        {
+          "step": 8,
+          "task": 0,
+          "n_write": 66,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.2578125,
+          "tau": 1.196619439125061,
+          "mem_count": 256
+        },
+        {
+          "step": 9,
+          "task": 0,
+          "n_write": 56,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.21875,
+          "tau": 1.3061537146568298,
+          "mem_count": 256
+        },
+        {
+          "step": 10,
+          "task": 0,
+          "n_write": 49,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.19140625,
+          "tau": 1.4204460620880126,
+          "mem_count": 256
+        },
+        {
+          "step": 11,
+          "task": 0,
+          "n_write": 43,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.16796875,
+          "tau": 1.5276217103004455,
+          "mem_count": 256
+        },
+        {
+          "step": 12,
+          "task": 0,
+          "n_write": 39,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.15234375,
+          "tau": 1.6272022724151611,
+          "mem_count": 256
+        },
+        {
+          "step": 13,
+          "task": 1,
+          "n_write": 22,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.0859375,
+          "tau": 1.6950927734375,
+          "mem_count": 256
+        },
+        {
+          "step": 14,
+          "task": 1,
+          "n_write": 19,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.07421875,
+          "tau": 1.7429669260978697,
+          "mem_count": 256
+        },
+        {
+          "step": 15,
+          "task": 1,
+          "n_write": 17,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.06640625,
+          "tau": 1.7813838243484497,
+          "mem_count": 256
+        },
+        {
+          "step": 16,
+          "task": 1,
+          "n_write": 17,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.06640625,
+          "tau": 1.829188048839569,
+          "mem_count": 256
+        },
+        {
+          "step": 17,
+          "task": 1,
+          "n_write": 15,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.05859375,
+          "tau": 1.8743740797042847,
+          "mem_count": 256
+        },
+        {
+          "step": 18,
+          "task": 1,
+          "n_write": 15,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.05859375,
+          "tau": 1.913473379611969,
+          "mem_count": 256
+        },
+        {
+          "step": 19,
+          "task": 1,
+          "n_write": 16,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.0625,
+          "tau": 1.943476462364197,
+          "mem_count": 256
+        },
+        {
+          "step": 20,
+          "task": 1,
+          "n_write": 15,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.05859375,
+          "tau": 1.9789563417434692,
+          "mem_count": 256
+        },
+        {
+          "step": 21,
+          "task": 1,
+          "n_write": 16,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.0625,
+          "tau": 2.0091937899589536,
+          "mem_count": 256
+        },
+        {
+          "step": 22,
+          "task": 1,
+          "n_write": 15,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.05859375,
+          "tau": 2.034970593452454,
+          "mem_count": 256
+        },
+        {
+          "step": 23,
+          "task": 1,
+          "n_write": 15,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.05859375,
+          "tau": 2.0646591186523438,
+          "mem_count": 256
+        },
+        {
+          "step": 24,
+          "task": 1,
+          "n_write": 14,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.0546875,
+          "tau": 2.089780020713806,
+          "mem_count": 256
+        },
+        {
+          "step": 25,
+          "task": 2,
+          "n_write": 6,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.0234375,
+          "tau": 2.080092465877533,
+          "mem_count": 256
+        },
+        {
+          "step": 26,
+          "task": 2,
+          "n_write": 7,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.02734375,
+          "tau": 2.0750436305999758,
+          "mem_count": 256
+        },
+        {
+          "step": 27,
+          "task": 2,
+          "n_write": 5,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.01953125,
+          "tau": 2.069163417816162,
+          "mem_count": 256
+        },
+        {
+          "step": 28,
+          "task": 2,
+          "n_write": 5,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.01953125,
+          "tau": 2.0590224742889403,
+          "mem_count": 256
+        },
+        {
+          "step": 29,
+          "task": 2,
+          "n_write": 5,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.01953125,
+          "tau": 2.0518951177597047,
+          "mem_count": 256
+        },
+        {
+          "step": 30,
+          "task": 2,
+          "n_write": 3,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.01171875,
+          "tau": 2.0370874047279357,
+          "mem_count": 256
+        },
+        {
+          "step": 31,
+          "task": 2,
+          "n_write": 7,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.02734375,
+          "tau": 2.0343187332153323,
+          "mem_count": 256
+        },
+        {
+          "step": 32,
+          "task": 2,
+          "n_write": 10,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.0390625,
+          "tau": 2.0421011686325072,
+          "mem_count": 256
+        },
+        {
+          "step": 33,
+          "task": 2,
+          "n_write": 13,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.05078125,
+          "tau": 2.0491733074188234,
+          "mem_count": 256
+        },
+        {
+          "step": 34,
+          "task": 2,
+          "n_write": 12,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.046875,
+          "tau": 2.084001350402832,
+          "mem_count": 256
+        },
+        {
+          "step": 35,
+          "task": 2,
+          "n_write": 15,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.05859375,
+          "tau": 2.1285948276519777,
+          "mem_count": 256
+        },
+        {
+          "step": 36,
+          "task": 2,
+          "n_write": 17,
+          "rho_keep": 1.0,
+          "raw_write_fraction": 0.06640625,
+          "tau": 2.1808310985565185,
+          "mem_count": 256
+        }
+      ],
+      "router_aux": [
+        3.3599178791046143,
+        3.368767738342285,
+        3.1976449489593506,
+        3.11970853805542,
+        3.1794207096099854,
+        3.2100539207458496,
+        3.155322551727295,
+        3.1409430503845215,
+        3.1366007328033447,
+        3.155336618423462,
+        3.160860061645508,
+        3.1511693000793457,
+        3.258270263671875,
+        3.3508806228637695,
+        3.4648001194000244,
+        3.4266324043273926,
+        3.3356451988220215,
+        3.3033852577209473,
+        3.3187551498413086,
+        3.3544063568115234,
+        3.352423667907715,
+        3.32413387298584,
+        3.329481363296509,
+        3.3340859413146973,
+        3.5299901962280273,
+        3.6584954261779785,
+        3.9540963172912598,
+        3.9741575717926025,
+        3.7731680870056152,
+        3.5898489952087402,
+        3.4845476150512695,
+        3.4896252155303955,
+        3.5776867866516113,
+        3.539970636367798,
+        3.546501398086548,
+        3.5725650787353516
+      ],
+      "controller": [
+        {
+          "step": 4,
+          "f_bar": 0.0,
+          "g": 0.0,
+          "g_tilde": 0.0,
+          "e": 0.0,
+          "I": 0.0,
+          "lambda_rep": 0.05,
+          "B_R": 4,
+          "rho_long": 0.5
+        },
+        {
+          "step": 8,
+          "f_bar": 0.0,
+          "g": 0.0,
+          "g_tilde": 0.0,
+          "e": 0.0,
+          "I": 0.0,
+          "lambda_rep": 0.05,
+          "B_R": 4,
+          "rho_long": 0.5
+        },
+        {
+          "step": 12,
+          "f_bar": 0.0,
+          "g": 0.0,
+          "g_tilde": 0.0,
+          "e": 0.0,
+          "I": 0.0,
+          "lambda_rep": 0.05,
+          "B_R": 4,
+          "rho_long": 0.5
+        },
+        {
+          "step": 16,
+          "f_bar": 0.0,
+          "g": 0.0,
+          "g_tilde": 0.0,
+          "e": 0.0,
+          "I": 0.0,
+          "lambda_rep": 0.05,
+          "B_R": 4,
+          "rho_long": 0.5
+        },
+        {
+          "step": 20,
+          "f_bar": 0.0,
+          "g": 0.0,
+          "g_tilde": 0.0,
+          "e": 0.0,
+          "I": 0.0,
+          "lambda_rep": 0.05,
+          "B_R": 4,
+          "rho_long": 0.5
+        },
+        {
+          "step": 24,
+          "f_bar": 0.0,
+          "g": 0.0,
+          "g_tilde": 0.0,
+          "e": 0.0,
+          "I": 0.0,
+          "lambda_rep": 0.05,
+          "B_R": 4,
+          "rho_long": 0.5
+        },
+        {
+          "step": 28,
+          "f_bar": 0.07602429389953613,
+          "g": 0.014388948574159791,
+          "g_tilde": 0.010072264001911854,
+          "e": 0.009072264001911853,
+          "I": 0.009072264001911853,
+          "lambda_rep": 0.05952587720200745,
+          "B_R": 4,
+          "rho_long": 0.5362890560076474
+        },
+        {
+          "step": 32,
+          "f_bar": 0.022443532943725586,
+          "g": 0.00462057806727652,
+          "g_tilde": 0.00625608384766712,
+          "e": 0.00525608384766712,
+          "I": 0.014328347849578971,
+          "lambda_rep": 0.05597250124014607,
+          "B_R": 4,
+          "rho_long": 0.5210243353906685
+        },
+        {
+          "step": 36,
+          "f_bar": 0.0,
+          "g": 0.0,
+          "g_tilde": 0.0018768251543001362,
+          "e": 0.0008768251543001362,
+          "I": 0.015205173003879108,
+          "lambda_rep": 0.05163708380449409,
+          "B_R": 4,
+          "rho_long": 0.5035073006172005
+        }
+      ],
+      "replay": [
+        {
+          "n_recent": 4,
+          "n_long": 4,
+          "n_seen": 4
+        },
+        {
+          "n_recent": 8,
+          "n_long": 8,
+          "n_seen": 8
+        },
+        {
+          "n_recent": 12,
+          "n_long": 12,
+          "n_seen": 12
+        },
+        {
+          "n_recent": 16,
+          "n_long": 16,
+          "n_seen": 16
+        },
+        {
+          "n_recent": 20,
+          "n_long": 20,
+          "n_seen": 20
+        },
+        {
+          "n_recent": 24,
+          "n_long": 24,
+          "n_seen": 24
+        },
+        {
+          "n_recent": 28,
+          "n_long": 28,
+          "n_seen": 28
+        },
+        {
+          "n_recent": 32,
+          "n_long": 32,
+          "n_seen": 32
+        },
+        {
+          "n_recent": 36,
+          "n_long": 36,
+          "n_seen": 36
+        },
+        {
+          "n_recent": 40,
+          "n_long": 40,
+          "n_seen": 40
+        },
+        {
+          "n_recent": 44,
+          "n_long": 44,
+          "n_seen": 44
+        },
+        {
+          "n_recent": 48,
+          "n_long": 48,
+          "n_seen": 48
+        },
+        {
+          "n_recent": 52,
+          "n_long": 52,
+          "n_seen": 52
+        },
+        {
+          "n_recent": 56,
+          "n_long": 56,
+          "n_seen": 56
+        },
+        {
+          "n_recent": 60,
+          "n_long": 60,
+          "n_seen": 60
+        },
+        {
+          "n_recent": 64,
+          "n_long": 64,
+          "n_seen": 64
+        },
+        {
+          "n_recent": 68,
+          "n_long": 68,
+          "n_seen": 68
+        },
+        {
+          "n_recent": 72,
+          "n_long": 72,
+          "n_seen": 72
+        },
+        {
+          "n_recent": 76,
+          "n_long": 76,
+          "n_seen": 76
+        },
+        {
+          "n_recent": 80,
+          "n_long": 80,
+          "n_seen": 80
+        },
+        {
+          "n_recent": 84,
+          "n_long": 84,
+          "n_seen": 84
+        },
+        {
+          "n_recent": 88,
+          "n_long": 88,
+          "n_seen": 88
+        },
+        {
+          "n_recent": 92,
+          "n_long": 92,
+          "n_seen": 92
+        },
+        {
+          "n_recent": 96,
+          "n_long": 96,
+          "n_seen": 96
+        },
+        {
+          "n_recent": 100,
+          "n_long": 100,
+          "n_seen": 100
+        },
+        {
+          "n_recent": 104,
+          "n_long": 104,
+          "n_seen": 104
+        },
+        {
+          "n_recent": 108,
+          "n_long": 108,
+          "n_seen": 108
+        },
+        {
+          "n_recent": 112,
+          "n_long": 112,
+          "n_seen": 112
+        },
+        {
+          "n_recent": 116,
+          "n_long": 116,
+          "n_seen": 116
+        },
+        {
+          "n_recent": 120,
+          "n_long": 120,
+          "n_seen": 120
+        },
+        {
+          "n_recent": 124,
+          "n_long": 124,
+          "n_seen": 124
+        },
+        {
+          "n_recent": 128,
+          "n_long": 128,
+          "n_seen": 128
+        },
+        {
+          "n_recent": 132,
+          "n_long": 132,
+          "n_seen": 132
+        },
+        {
+          "n_recent": 136,
+          "n_long": 136,
+          "n_seen": 136
+        },
+        {
+          "n_recent": 140,
+          "n_long": 140,
+          "n_seen": 140
+        },
+        {
+          "n_recent": 144,
+          "n_long": 144,
+          "n_seen": 144
+        }
+      ]
+    },
+    "metric_definitions": "u=log PPL (C.80); F_k=max(0,u_k-u_k^post) (C.81/C.84); AUFC=(1/(t-t0)) integral F by trapezoid (C.86); BWT=mean(u^post-u) (C.82); FWT=mean(u^base-u^pre) (C.83)"
+  },
+  "subsystem_plot": 1.0,
+  "subsystem_data": {
+    "rows": {
+      "d128_L4": {
+        "params_pct": {
+          "columns": 97.25381762764684,
+          "thalamus": 0.11505069827766162,
+          "hippocampus": 2.6311316740754935
+        },
+        "memory_pct": {
+          "columns": 91.12296895577506,
+          "thalamus": 0.1077979401038477,
+          "hippocampus": 8.769233104121097
+        },
+        "logged_total": 4383285,
+        "embedding_head_excluded": 32896
+      },
+      "d256_L6": {
+        "params_pct": {
+          "columns": 97.82890141913464,
+          "thalamus": 0.04608946070258004,
+          "hippocampus": 2.1250091201627885
+        },
+        "memory_pct": {
+          "columns": 95.49446601038184,
+          "thalamus": 0.044989654127287365,
+          "hippocampus": 4.460544335490866
+        },
+        "logged_total": 20106549,
+        "embedding_head_excluded": 65792
+      }
+    },
+    "published_E3_d768_L4": {
+      "params_pct": [
+        97.94,
+        0.095,
+        1.96
+      ],
+      "memory_pct": [
+        82.78,
+        0.08,
+        17.14
+      ]
+    },
+    "note": "Trainable params + persistent buffers, shared tensors counted once, embedding/output-head group excluded (Table E.3). Local V=256 declared; percentages are the readout, not the published widths' exact values."
+  },
+  "complexity_plot": 1.0,
+  "complexity_data": {
+    "terms": {
+      "G105_G107_attn_projections": 268435456,
+      "G106_causal_attn_matmuls": 1073741824,
+      "G109_gate": 4194304,
+      "G110_routed_experts_sparse": 1073741824,
+      "G110_routed_experts_dense": 2147483648,
+      "G111_shared_expert": 536870912,
+      "G113_thal_compress_decompress": 16777216,
+      "G114_thal_quadratic": 2097152,
+      "G115_thal_past_mean_linear": 131072,
+      "G117_hip_query_projection": 33554432,
+      "G118_hip_similarity": 2147483648,
+      "G119_hip_topk_and_sum": 17825792,
+      "G120_hip_output_projection": 33554432,
+      "G122_predictor_fast_and_slow": 134217728,
+      "G123_value_heads": 524288,
+      "G124_deferred_write": 589824,
+      "G125_replay": 335544320,
+      "G126_total_cortical": 2952790016,
+      "G127_total_thalamic": 19005440,
+      "G128_total_hip_read": 2214592512
+    },
+    "G129_episodic_store_numbers": 262144,
+    "G130_replay_token_slots": 2359296,
+    "hip_score_tensor_materialized": 16777216,
+    "hip_score_tensor_chunked": 4194304,
+    "moe_dense_over_sparse": 2.0
+  }
+}

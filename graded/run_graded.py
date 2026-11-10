@@ -5,12 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 
-from graded.arxiv_llm_lib import run_paper_1706, run_paper_1810, run_paper_2608, run_paper_27963, run_paper_2609, run_paper_10441, run_paper_10305, run_paper_09883, run_paper_11393, run_paper_02959, run_paper_04463, run_paper_17864, run_paper_09204, run_paper_20397, run_paper_06517, run_paper_09936, run_paper_03917, run_paper_17396, run_paper_23872, run_paper_dust, run_paper_22293, run_paper_42112, run_paper_21483
+from graded.arxiv_llm_lib import run_paper_1706, run_paper_1810, run_paper_2608, run_paper_27963, run_paper_2609, run_paper_10441, run_paper_10305, run_paper_09883, run_paper_11393, run_paper_02959, run_paper_04463, run_paper_17864, run_paper_09204, run_paper_20397, run_paper_06517, run_paper_09936, run_paper_03917, run_paper_17396, run_paper_23872, run_paper_dust, run_paper_22293, run_paper_42112, run_paper_21483, run_paper_22479
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--papers", default="1,2", help="Comma list of paper indices (1=Attention, 2=BERT, 3=LayerMix, 4=SABER, 5=Grokking, 6=ConvMem, 7=RiLM, 8=WRP, 9=TASCO, 10=Ignorance, 11=SharedCircuits, 12=ImplicitPatch, 13=LBI, 14=KVCache survey, 15=SpindleKV, 16=KeepKV, 17=CQ, 18=EpiCache, 19=Training-Free Looped Transformers, 20=Dust (QLabs, no arXiv id), 21=SST (Subspace Tuning), 22=ZHA (Hierarchical Tree-Structured Indexer), 23=FAS (FlashAttention with Statistics))")
+    p.add_argument("--papers", default="1,2", help="Comma list of paper indices (1=Attention, 2=BERT, 3=LayerMix, 4=SABER, 5=Grokking, 6=ConvMem, 7=RiLM, 8=WRP, 9=TASCO, 10=Ignorance, 11=SharedCircuits, 12=ImplicitPatch, 13=LBI, 14=KVCache survey, 15=SpindleKV, 16=KeepKV, 17=CQ, 18=EpiCache, 19=Training-Free Looped Transformers, 20=Dust (QLabs, no arXiv id), 21=SST (Subspace Tuning), 22=ZHA (Hierarchical Tree-Structured Indexer), 23=FAS (FlashAttention with Statistics), 24=TRC2 (Thalamically Routed Cortical Columns))")
     args = p.parse_args()
     wanted = {int(x.strip()) for x in args.papers.split(",") if x.strip()}
     all_results = {}
@@ -60,6 +60,8 @@ def main():
         all_results["2610.42112"] = run_paper_42112()
     if 23 in wanted:
         all_results["2610.21483"] = run_paper_21483()
+    if 24 in wanted:
+        all_results["2602.22479"] = run_paper_22479()
     print(json.dumps(all_results, indent=2))
 
 

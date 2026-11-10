@@ -108,6 +108,455 @@
         "memory": "N_R"
       }
     },
+    "selected_backend": "materialized",
+    "selection_source": "default",
+    "backend_arms": {
+      "materialized": {
+        "rows": [
+          {
+            "L": 64,
+            "P": 16,
+            "R": 48,
+            "NR": 1944,
+            "closed_form": 1944,
+            "matches": true,
+            "materialized": true,
+            "error": null,
+            "analytic_matches_tier_work": true,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 7776,
+                "mem_numbers": 192,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 144,
+                "stat_ops": 144,
+                "mem_numbers": 144
+              },
+              "T3": {
+                "extra_scores": 1944,
+                "stat_ops": 1944,
+                "mem_numbers": 112
+              },
+              "T4": {
+                "extra_scores": 1944,
+                "stat_ops": 1944,
+                "mem_numbers": 1944
+              },
+              "NR": 1944,
+              "R": 48,
+              "L": 64,
+              "P": 16,
+              "dense_block_bytes_bf16": 3888,
+              "t1_state_bytes_fp32": 768,
+              "feature_bytes_per_head_layer_response_token": 20,
+              "padding": false,
+              "NR_matches_closed_form": true
+            }
+          },
+          {
+            "L": 256,
+            "P": 128,
+            "R": 128,
+            "NR": 24640,
+            "closed_form": 24640,
+            "matches": true,
+            "materialized": true,
+            "error": null,
+            "analytic_matches_tier_work": true,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 98560,
+                "mem_numbers": 512,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 384,
+                "stat_ops": 384,
+                "mem_numbers": 384
+              },
+              "T3": {
+                "extra_scores": 24640,
+                "stat_ops": 24640,
+                "mem_numbers": 384
+              },
+              "T4": {
+                "extra_scores": 24640,
+                "stat_ops": 24640,
+                "mem_numbers": 24640
+              },
+              "NR": 24640,
+              "R": 128,
+              "L": 256,
+              "P": 128,
+              "dense_block_bytes_bf16": 49280,
+              "t1_state_bytes_fp32": 2048,
+              "feature_bytes_per_head_layer_response_token": 20,
+              "padding": false,
+              "NR_matches_closed_form": true
+            }
+          },
+          {
+            "L": 1024,
+            "P": 512,
+            "R": 512,
+            "NR": 393472,
+            "closed_form": 393472,
+            "matches": true,
+            "materialized": true,
+            "error": null,
+            "analytic_matches_tier_work": true,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 1573888,
+                "mem_numbers": 2048,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 1536,
+                "stat_ops": 1536,
+                "mem_numbers": 1536
+              },
+              "T3": {
+                "extra_scores": 393472,
+                "stat_ops": 393472,
+                "mem_numbers": 1536
+              },
+              "T4": {
+                "extra_scores": 393472,
+                "stat_ops": 393472,
+                "mem_numbers": 393472
+              },
+              "NR": 393472,
+              "R": 512,
+              "L": 1024,
+              "P": 512,
+              "dense_block_bytes_bf16": 786944,
+              "t1_state_bytes_fp32": 8192,
+              "feature_bytes_per_head_layer_response_token": 20,
+              "padding": false,
+              "NR_matches_closed_form": true
+            }
+          },
+          {
+            "L": 4096,
+            "P": 2867,
+            "R": 1229,
+            "NR": 4279378,
+            "closed_form": 4279378,
+            "matches": true,
+            "materialized": true,
+            "error": null,
+            "analytic_matches_tier_work": true,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 17117512,
+                "mem_numbers": 4916,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 3687,
+                "stat_ops": 3687,
+                "mem_numbers": 3687
+              },
+              "T3": {
+                "extra_scores": 4279378,
+                "stat_ops": 4279378,
+                "mem_numbers": 5325
+              },
+              "T4": {
+                "extra_scores": 4279378,
+                "stat_ops": 4279378,
+                "mem_numbers": 4279378
+              },
+              "NR": 4279378,
+              "R": 1229,
+              "L": 4096,
+              "P": 2867,
+              "dense_block_bytes_bf16": 8558756,
+              "t1_state_bytes_fp32": 19664,
+              "feature_bytes_per_head_layer_response_token": 20,
+              "padding": false,
+              "NR_matches_closed_form": true
+            }
+          },
+          {
+            "L": 32768,
+            "P": 22938,
+            "R": 9830,
+            "NR": 273799905,
+            "closed_form": 273799905,
+            "matches": true,
+            "materialized": true,
+            "error": null,
+            "analytic_matches_tier_work": true,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 1095199620,
+                "mem_numbers": 39320,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 29490,
+                "stat_ops": 29490,
+                "mem_numbers": 29490
+              },
+              "T3": {
+                "extra_scores": 273799905,
+                "stat_ops": 273799905,
+                "mem_numbers": 42598
+              },
+              "T4": {
+                "extra_scores": 273799905,
+                "stat_ops": 273799905,
+                "mem_numbers": 273799905
+              },
+              "NR": 273799905,
+              "R": 9830,
+              "L": 32768,
+              "P": 22938,
+              "dense_block_bytes_bf16": 547599810,
+              "t1_state_bytes_fp32": 157280,
+              "feature_bytes_per_head_layer_response_token": 20,
+              "padding": false,
+              "NR_matches_closed_form": true
+            }
+          }
+        ],
+        "errors": [],
+        "attempted_every_length": true,
+        "succeeded_at_every_length": true,
+        "peak_length_attempted": 32768
+      },
+      "analytic": {
+        "rows": [
+          {
+            "L": 64,
+            "P": 16,
+            "R": 48,
+            "NR": 1944,
+            "closed_form": 1944,
+            "matches": true,
+            "materialized": false,
+            "error": null,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 7776,
+                "mem_numbers": 192,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 144,
+                "stat_ops": 144,
+                "mem_numbers": 144
+              },
+              "T3": {
+                "extra_scores": 1944,
+                "stat_ops": 1944,
+                "mem_numbers": 112
+              },
+              "T4": {
+                "extra_scores": 1944,
+                "stat_ops": 1944,
+                "mem_numbers": 1944
+              },
+              "NR": 1944,
+              "R": 48,
+              "L": 64,
+              "P": 16,
+              "dense_block_bytes_bf16": 3888,
+              "t1_state_bytes_fp32": 768,
+              "feature_bytes_per_head_layer_response_token": 20
+            }
+          },
+          {
+            "L": 256,
+            "P": 128,
+            "R": 128,
+            "NR": 24640,
+            "closed_form": 24640,
+            "matches": true,
+            "materialized": false,
+            "error": null,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 98560,
+                "mem_numbers": 512,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 384,
+                "stat_ops": 384,
+                "mem_numbers": 384
+              },
+              "T3": {
+                "extra_scores": 24640,
+                "stat_ops": 24640,
+                "mem_numbers": 384
+              },
+              "T4": {
+                "extra_scores": 24640,
+                "stat_ops": 24640,
+                "mem_numbers": 24640
+              },
+              "NR": 24640,
+              "R": 128,
+              "L": 256,
+              "P": 128,
+              "dense_block_bytes_bf16": 49280,
+              "t1_state_bytes_fp32": 2048,
+              "feature_bytes_per_head_layer_response_token": 20
+            }
+          },
+          {
+            "L": 1024,
+            "P": 512,
+            "R": 512,
+            "NR": 393472,
+            "closed_form": 393472,
+            "matches": true,
+            "materialized": false,
+            "error": null,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 1573888,
+                "mem_numbers": 2048,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 1536,
+                "stat_ops": 1536,
+                "mem_numbers": 1536
+              },
+              "T3": {
+                "extra_scores": 393472,
+                "stat_ops": 393472,
+                "mem_numbers": 1536
+              },
+              "T4": {
+                "extra_scores": 393472,
+                "stat_ops": 393472,
+                "mem_numbers": 393472
+              },
+              "NR": 393472,
+              "R": 512,
+              "L": 1024,
+              "P": 512,
+              "dense_block_bytes_bf16": 786944,
+              "t1_state_bytes_fp32": 8192,
+              "feature_bytes_per_head_layer_response_token": 20
+            }
+          },
+          {
+            "L": 4096,
+            "P": 2867,
+            "R": 1229,
+            "NR": 4279378,
+            "closed_form": 4279378,
+            "matches": true,
+            "materialized": false,
+            "error": null,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 17117512,
+                "mem_numbers": 4916,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 3687,
+                "stat_ops": 3687,
+                "mem_numbers": 3687
+              },
+              "T3": {
+                "extra_scores": 4279378,
+                "stat_ops": 4279378,
+                "mem_numbers": 5325
+              },
+              "T4": {
+                "extra_scores": 4279378,
+                "stat_ops": 4279378,
+                "mem_numbers": 4279378
+              },
+              "NR": 4279378,
+              "R": 1229,
+              "L": 4096,
+              "P": 2867,
+              "dense_block_bytes_bf16": 8558756,
+              "t1_state_bytes_fp32": 19664,
+              "feature_bytes_per_head_layer_response_token": 20
+            }
+          },
+          {
+            "L": 32768,
+            "P": 22938,
+            "R": 9830,
+            "NR": 273799905,
+            "closed_form": 273799905,
+            "matches": true,
+            "materialized": false,
+            "error": null,
+            "tiers": {
+              "T1": {
+                "extra_scores": 0,
+                "stat_ops": 1095199620,
+                "mem_numbers": 39320,
+                "state_per_row": 4,
+                "state_grows_with_L": false
+              },
+              "T2": {
+                "extra_scores": 29490,
+                "stat_ops": 29490,
+                "mem_numbers": 29490
+              },
+              "T3": {
+                "extra_scores": 273799905,
+                "stat_ops": 273799905,
+                "mem_numbers": 42598
+              },
+              "T4": {
+                "extra_scores": 273799905,
+                "stat_ops": 273799905,
+                "mem_numbers": 273799905
+              },
+              "NR": 273799905,
+              "R": 9830,
+              "L": 32768,
+              "P": 22938,
+              "dense_block_bytes_bf16": 547599810,
+              "t1_state_bytes_fp32": 157280,
+              "feature_bytes_per_head_layer_response_token": 20
+            }
+          }
+        ],
+        "errors": [],
+        "attempted_every_length": true,
+        "succeeded_at_every_length": true,
+        "peak_length_attempted": 32768
+      },
+      "agreement": {
+        "compared_lengths": 5,
+        "all_agree": true
+      }
+    },
     "geometry_rows": [
       {
         "L": 64,
@@ -117,6 +566,7 @@
         "closed_form": 1944,
         "matches": true,
         "materialized": true,
+        "error": null,
         "analytic_matches_tier_work": true,
         "tiers": {
           "T1": {
@@ -160,6 +610,7 @@
         "closed_form": 24640,
         "matches": true,
         "materialized": true,
+        "error": null,
         "analytic_matches_tier_work": true,
         "tiers": {
           "T1": {
@@ -203,6 +654,7 @@
         "closed_form": 393472,
         "matches": true,
         "materialized": true,
+        "error": null,
         "analytic_matches_tier_work": true,
         "tiers": {
           "T1": {
@@ -246,6 +698,7 @@
         "closed_form": 4279378,
         "matches": true,
         "materialized": true,
+        "error": null,
         "analytic_matches_tier_work": true,
         "tiers": {
           "T1": {
@@ -288,7 +741,9 @@
         "NR": 273799905,
         "closed_form": 273799905,
         "matches": true,
-        "materialized": false,
+        "materialized": true,
+        "error": null,
+        "analytic_matches_tier_work": true,
         "tiers": {
           "T1": {
             "extra_scores": 0,
@@ -318,7 +773,9 @@
           "P": 22938,
           "dense_block_bytes_bf16": 547599810,
           "t1_state_bytes_fp32": 157280,
-          "feature_bytes_per_head_layer_response_token": 20
+          "feature_bytes_per_head_layer_response_token": 20,
+          "padding": false,
+          "NR_matches_closed_form": true
         }
       }
     ],
@@ -329,9 +786,16 @@
       "analytic_tiers_match_the_substrate": true,
       "T4_memory_dominates": true,
       "T1_state_independent_of_L": true,
-      "T3_memory_is_R_plus_L_not_NR": true
+      "T3_memory_is_R_plus_L_not_NR": true,
+      "both_arms_attempted_every_length": true,
+      "arms_agree_where_both_succeeded": true
     },
-    "declared_adaptation": "Table 1's entries are pure arithmetic in (R, L, N_R). The closed form is verified by MATERIALIZING the response block at L up to 4096; the L=32768 row is computed analytically because the visibility matrix alone would need ~2.5 GiB on this host. No kernel timing is claimed anywhere."
+    "host_capability": {
+      "materialized_arm_succeeded_at_32768": true,
+      "materialized_arm_errors": [],
+      "note": "This is a measurement of what this host could allocate, not a correctness assertion. The materialized arm attempted L=32768 and the recorded exception is the outcome. Selecting the analytic arm is a path decision, not a repair."
+    },
+    "backend_choice": "FASBackend is a declared OPTAL axis, not a host-side substitution. The materialized arm builds the response block at every length INCLUDING L=32768 and records the actual allocator exception when the host cannot hold it; the analytic arm evaluates N_R = R*P + R(R+1)/2 in closed form. Both arms run and both are reported, and the path declares which one is the endpoint. No kernel timing is claimed anywhere."
   },
   "algorithm1_plot": 1.0,
   "algorithm1_data": {

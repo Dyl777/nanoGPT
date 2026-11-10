@@ -1653,6 +1653,125 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                     line([x for x, _ in pts], [y for _, y in pts],
                          "ZHA growth probe: %s (live, count-level only)" % ylab,
                          "decode step T", ylab, f"{name}_{tag}")
+
+    if name == "trc2":
+        # s42 (arXiv:2602.22479): App F / Fig F.5 verification, the four
+        # backend-arm agreement + cost evidence, the three-task continual stream
+        # (AUFC/BWT/FWT), App E controller dynamics, Table E.3 subsystem
+        # accounting, and App G per-term complexity.
+        def _dict(key):
+            v = measurements.get(key) if isinstance(measurements, dict) else None
+            return v if isinstance(v, dict) else {}
+        af, ba, cs = _dict("appF_verification"), _dict("backend_arms"), _dict("continual_stream")
+        sa, cx = _dict("subsystem_accounting"), _dict("complexity_appG")
+
+        def logbars(labels, vals, title, ylabel, stem):
+            fig, ax = plt.subplots(figsize=(7.2, 3.6))
+            ax.bar([str(x) for x in labels], vals, color="#4c72b0")
+            ax.set_yscale("log")
+            ax.set_title(title)
+            ax.set_ylabel(ylabel)
+            ax.tick_params(axis="x", rotation=20)
+            paths.append(_save_fig(fig, stem))
+
+        checks = af.get("checks")
+        if isinstance(checks, list) and checks:
+            rows = [c for c in checks if isinstance(c, dict)]
+            labs = [c.get("name", "?") for c in rows]
+            vals = [1 if c.get("passed") else 0 for c in rows]
+            if labs:
+                bars(labs, vals,
+                     "TRC2 live: App F / Fig F.5 verification (%s/%s checks pass)"
+                     % (af.get("n_passed", sum(vals)), af.get("n_checks", len(labs))),
+                     "pass (1) / fail (0)", f"{name}_appf")
+
+        agree = ba.get("agreement_max_abs_diff")
+        if isinstance(agree, dict) and agree:
+            labs, vals = [], []
+            for k in sorted(agree):
+                v = finite(agree[k])
+                if v is not None and v > 0:
+                    labs.append(k)
+                    vals.append(v)
+            if vals:
+                logbars(labs, vals,
+                        "TRC2 live: backend-arm max abs diff vs reference "
+                        "(fp32 tol 1e-3; arms differ in storage/dispatch/rounding only)",
+                        "max abs diff (log)", f"{name}_backend")
+
+        ua, up = cs.get("u_after_learning_task"), cs.get("u_post_stream")
+        tasks = cs.get("tasks") or []
+        if isinstance(ua, dict) and isinstance(up, dict) and ua:
+            keys = sorted(ua, key=lambda x: int(x) if str(x).isdigit() else 0)
+            labs = [tasks[int(k)] if str(k).isdigit() and int(k) < len(tasks) else str(k) for k in keys]
+            a_vals = [finite(ua[k]) for k in keys]
+            p_vals = [finite(up.get(k)) for k in keys]
+            if any(v is not None for v in a_vals):
+                fig, ax = plt.subplots(figsize=(7.2, 3.6))
+                xs = list(range(len(keys)))
+                ax.bar([x - 0.2 for x in xs], [v if v is not None else 0 for v in a_vals],
+                       width=0.4, color="#4c72b0", label="after learning task")
+                ax.bar([x + 0.2 for x in xs], [v if v is not None else 0 for v in p_vals],
+                       width=0.4, color="#c44e52", label="post-stream")
+                ax.set_xticks(xs)
+                ax.set_xticklabels(labs, rotation=15)
+                ax.set_title("TRC2 live: continual-stream log-PPL (AUFC=%.3g BWT=%.3g FWT=%.3g)"
+                             % (cs.get("AUFC_time_normalized") or 0, cs.get("BWT") or 0, cs.get("FWT") or 0))
+                ax.set_ylabel("log PPL (lower better)")
+                ax.legend(fontsize=7)
+                paths.append(_save_fig(fig, f"{name}_stream"))
+
+        dyn = cs.get("dynamics")
+        ctrl = dyn.get("controller") if isinstance(dyn, dict) else None
+        if isinstance(ctrl, list) and ctrl:
+            rows = [r for r in ctrl if isinstance(r, dict)]
+            xs = [finite(r.get("step")) for r in rows]
+            fig, ax = plt.subplots(figsize=(7.0, 3.6))
+            plotted = False
+            for key, lab in (("e", "forgetting error e"), ("I", "integral I"),
+                             ("lambda_rep", "replay weight")):
+                ys = [finite(r.get(key)) for r in rows]
+                pts = [(x, y) for x, y in zip(xs, ys) if x is not None and y is not None]
+                if pts:
+                    ax.plot([x for x, _ in pts], [y for _, y in pts], marker="o", label=lab)
+                    plotted = True
+            if plotted:
+                ax.set_title("TRC2 live: App E PI controller on forgetting (toy stream)")
+                ax.set_xlabel("step")
+                ax.set_ylabel("controller state")
+                ax.legend(fontsize=7)
+                paths.append(_save_fig(fig, f"{name}_controller"))
+
+        rows = sa.get("rows")
+        if isinstance(rows, dict) and rows:
+            labs, vals = [], []
+            for rn in sorted(rows):
+                pp = rows[rn].get("params_pct") if isinstance(rows[rn], dict) else None
+                if not isinstance(pp, dict):
+                    continue
+                for sub in ("columns", "thalamus", "hippocampus"):
+                    v = finite(pp.get(sub))
+                    if v is not None and v > 0:
+                        labs.append("%s %s" % (rn, sub))
+                        vals.append(v)
+            if vals:
+                logbars(labs, vals,
+                        "TRC2 live: Table E.3 subsystem parameter share "
+                        "(log; embedding/output-head excluded)",
+                        "params % (log)", f"{name}_subsystem")
+
+        terms = cx.get("terms")
+        if isinstance(terms, dict) and terms:
+            labs, vals = [], []
+            for k in sorted(terms):
+                v = finite(terms[k])
+                if v is not None and v > 0:
+                    labs.append(k)
+                    vals.append(v)
+            if vals:
+                logbars(labs, vals,
+                        "TRC2 live: App G per-term work at declared (B,T) (log)",
+                        "work counts (log)", f"{name}_complexity")
     return paths
 
 

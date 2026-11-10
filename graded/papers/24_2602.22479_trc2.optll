@@ -1,0 +1,124 @@
+@PL::Python
+@Task::Arxiv_2602_22479_TRC2
+@Modulu::TRC2
+@Modulu::HipRead
+@Modulu::MoEDispatch
+@Modulu::CortexAttn
+@Modulu::Numeric
+
+@Technique::TRC2::[reproduce]
+@Technique::HipRead::[materialized, chunked]
+@Technique::MoEDispatch::[dense_masked, sparse_gather]
+@Technique::CortexAttn::[materialized, sdpa]
+@Technique::Numeric::[fp32, fp64_oracle, amp_fp16]
+
+@Comment::[Paper: Efficient Continual Learning in Language Models via Thalamically Routed Cortical Columns (Afshin Khadangi; SnT, University of Luxembourg, arXiv:2602.22479v6, 17 Apr 2026, 45 pp, preprint; no GitHub URL in the text layer - W&B logs / TRC2 website labels only). TRC2 puts catastrophic-forgetting protection INSIDE the backbone rather than in an outside replay buffer / weight consolidation / adapter. A stack of cortical columns (RMSNorm + thalamus-modulated GQA queries + top-k_E MoE with a shared expert and a load-balance auxiliary, Eq.1-3 / B.1-B.16) is wired to two subcortical subsystems. A thalamic router (B.17-B.28) compresses an injection column's layer-5 state, keeps a causal past-mean, runs TRN divisive competition, and feeds a gated bias back into the QUERIES of later columns (Eq.4: Q <- Q + Z W_Q^thal). A hippocampal store (B.29-B.58) retrieves event-selectively by exact top-k_H over a circular window, forms a gated feedback term, and WRITES only on delayed surprise: a learning-progress signal r = max(0, c_fast - c_slow) and a lagged slow-predictor surprise gate a per-token write score, a threshold tau adapts to hit a target write count, and the selected (K,V) pair stays PENDING until the optimizer boundary flushes it (B.48-B.52, App F). A ring/reservoir replay (B.59-B.62) is mixed into the loss by a PI controller (B.63-B.71) that drives measured forgetting toward a target bar. The objective is CE + load-balance + temporal-difference + prediction + replay (B.72-B.74). Forgetting is read on log-PPL: F_k = max(0, u_k - u_k^post), the TIME-NORMALIZED area AUFC = (1/(t-t0)) integral F (C.80-C.86), BWT and FWT. The paper trains C4 -> WikiText-103 -> GSM8K for 22000 steps on 4x V100 32GB (DDP, fp16 AMP + GradScaler); App F gives a 14-check causality/state-semantics terminal log (Figure F.5), App G a per-term complexity accounting, Table E.3 the subsystem parameter/memory split (at d768-l4: columns 97.94% of params but 82.78% of memory, hippocampus 1.96% of params but 17.14% of memory). Graded scope: App F's 14 checks on a fresh clone per check, the four backend arm-pairs' max-abs agreement and peak-storage/dispatch cost, a three-task continual stream under the SELECTED arms (AUFC/BWT/FWT + write/router/replay/controller dynamics), Table E.3 subsystem accounting at d128-l4 and d256-l6, App G per-term complexity at a declared (B,T), and a repo audit. The four compute-path choices are DECLARED BACKEND AXES (HipRead, MoEDispatch, CortexAttn, Numeric), each an explicit Modulu/Technique wrapped in its own @Impl gate per the standing rule - never a silent device/backend substitution: HipRead materialized forms the full retrieval-score tensor then exact top-k_H while chunked scans the store in pieces carrying best_v/best_i (same arithmetic, lower peak); MoEDispatch dense_masked runs all E experts and masks while sparse_gather runs only the k_E selected (same output, expert-pass count differs by E/k_E); CortexAttn materialized forms the causal score matrix while sdpa uses fused scaled-dot-product-attention (same GQA function); Numeric fp32 default, fp64_oracle casts a fresh net to double for an agreement oracle, amp_fp16 uses autocast on the AVAILABLE device (GradScaler CUDA-only is a declared adaptation, not a backend swap). Paper-scale runs are NOT re-run: no V100, no DDP, no Triton, so work counts, bytes and fp32/fp64 agreement are verified rather than wall-clock; the F config vocab is UNPUBLISHED so V=256 is declared and the param count reported, never asserted equal to 8,520,244; the three tasks are synthetic rotation-cipher stand-ins (next token = (x + shift_k) mod V, shifts 0/37/73), DECLARED not C4/WikiText-103/GSM8K; App F PASS is decided by semantic tolerance with the local fp32/CPU diff reported beside the paper's fp32/cuda anchor. The substrate is the SAME algebra as notebook section s42, embedded verbatim in graded/arxiv_llm_lib.py.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_trc2_setup,
+    trc2_backend_arm,
+    paper_trc2_appf,
+    paper_trc2_backend,
+    paper_trc2_stream,
+    paper_trc2_subsystem,
+    paper_trc2_complexity,
+    paper_trc2_repo_audit,
+    run_paper_22479,
+)
+
+@Impl::TRC2::reproduce{
+_ = "reproduce App F 14 causality/state-semantics checks + four-axis backend agreement and peak-storage/dispatch cost + three-task continual stream AUFC/BWT/FWT and write/router/replay/controller dynamics + Table E.3 subsystem accounting + App G per-term complexity + repo audit"
+@}
+
+@Impl::HipRead::materialized{
+# B.31/G.121: form the full (B*T) x S_max retrieval-score tensor, then exact top-k_H.
+trc2_hipread_materialized = trc2_backend_arm("HipRead", "materialized")
+@}
+
+@Impl::HipRead::chunked{
+# B.31-B.33/G.121: scan the store in chunk-sized pieces carrying best_v/best_i;
+# same exact top-k_H arithmetic, peak O(B*T*chunk) instead of O(B*T*S_max).
+trc2_hipread_chunked = trc2_backend_arm("HipRead", "chunked")
+@}
+
+@Impl::MoEDispatch::dense_masked{
+# B.11/G.110: run all E experts and mask the non-selected; expert-pass count E per token.
+trc2_moedispatch_dense_masked = trc2_backend_arm("MoEDispatch", "dense_masked")
+@}
+
+@Impl::MoEDispatch::sparse_gather{
+# B.11-B.13/G.110: gather and run only the k_E selected experts per token; same
+# output, expert-pass count k_E (E/k_E = 2.0 at E4 k_E2).
+trc2_moedispatch_sparse_gather = trc2_backend_arm("MoEDispatch", "sparse_gather")
+@}
+
+@Impl::CortexAttn::materialized{
+# B.4-B.8: form the causal GQA score matrix with the thalamic query bias explicitly.
+trc2_cortexattn_materialized = trc2_backend_arm("CortexAttn", "materialized")
+@}
+
+@Impl::CortexAttn::sdpa{
+# B.4-B.8: torch fused scaled-dot-product-attention; same GQA function and bias.
+trc2_cortexattn_sdpa = trc2_backend_arm("CortexAttn", "sdpa")
+@}
+
+@Impl::Numeric::fp32{
+# C.2 default: float32 throughout.
+trc2_numeric_fp32 = trc2_backend_arm("Numeric", "fp32")
+@}
+
+@Impl::Numeric::fp64_oracle{
+# C.2: cast a fresh net to double for an exactness oracle; agreement vs fp32 reported.
+trc2_numeric_fp64_oracle = trc2_backend_arm("Numeric", "fp64_oracle")
+@}
+
+@Impl::Numeric::amp_fp16{
+# C.2: autocast fp16 on the AVAILABLE device; GradScaler is CUDA-only and is a
+# declared adaptation, not a backend swap. On CPU amp_available=False is recorded.
+trc2_numeric_amp_fp16 = trc2_backend_arm("Numeric", "amp_fp16")
+@}
+
+@Graded::Setup{
+# Protocol: TRC2 is its OWN architecture (not an edit to the nanoGPT body); the live checkpoint is read for provenance only. Four backend axes (HipRead/MoEDispatch/CortexAttn/Numeric) are ALTERNATIVE within an axis and compete with no nanoGPT Impl site. Forgetting on log-PPL: F_k, time-normalized AUFC (C.86), BWT (C.82), FWT (C.83). CPU float32/float64; V=256 declared; synthetic rotation-cipher tasks declared; work counts/bytes/agreement verified, not wall-clock.
+setup = paper_trc2_setup()
+@}::endpoints::[setup=setup]
+
+@Graded::AppF{
+# App F / Figure F.5: 14 causality/state-semantics checks on a fresh clone per check (identical params and buffers): contiguous-targets, eval/train forward-causal, grad-causal, prefix, write-score prefix, pending-no-effect-preflush, eval-clears-pending, grad-accum flush-order, write-occurs-exact, persists-if-written, replay train-forward-write / eval-no-write, DDP graph-coverage. Each reports the LOCAL fp32/CPU diff beside the published fp32/cuda anchor; PASS is decided by semantic tolerance. The F config vocab is unpublished so V=256 is declared and the param count reported, not asserted equal to 8,520,244.
+plot_ok, af = paper_trc2_appf()
+@}::endpoints::[plot_ok=plot_ok, af=af]
+
+@Graded::Backend{
+# The four backend arm-pairs' max-abs agreement (fp32 tol 1e-3) and the peak-storage / expert-pass cost evidence: HipRead materialized vs chunked (same exact top-k_H, peak score numbers differ), CortexAttn materialized vs sdpa, MoEDispatch dense_masked vs sparse_gather (expert-pass ratio E/k_E = 2.0), Numeric fp64 vs fp32. Arms differ only in peak storage / dispatch / rounding, not in the computed function (B.32/G.121, B.11/G.110, B.4-B.8). The selected arms are read from the live OPTAL path environment, never from assignment order.
+plot_ok, ba = paper_trc2_backend()
+@}::endpoints::[plot_ok=plot_ok, ba=ba]
+
+@Graded::Stream{
+# A three-task continual stream (synthetic rotation-cipher stand-ins for C4 -> WikiText-103 -> GSM8K, shifts 0/37/73, that interfere so forgetting is measurable) trained under the SELECTED backend arms: log-PPL F_k (C.81/C.84), time-normalized AUFC (C.86), BWT (C.82), FWT (C.83), and the write / router-aux / replay / PI-controller dynamics of App E. Replay is sampled BEFORE the current batch is written (B.60); the pending write is flushed only at the optimizer boundary (B.48-B.52).
+plot_ok, st = paper_trc2_stream()
+@}::endpoints::[plot_ok=plot_ok, st=st]
+
+@Graded::Subsystem{
+# Table E.3: subsystem parameter and memory accounting at d128-l4 and d256-l6 (trainable params + persistent buffers, shared tensors counted once, embedding/output-head group excluded). Published d768-l4 anchor: columns 97.94% of params but 82.78% of memory, thalamus 0.095% / 0.08%, hippocampus 1.96% / 17.14%. Local V=256 declared; percentages are the readout, not the published widths' exact values.
+plot_ok, sa = paper_trc2_subsystem()
+@}::endpoints::[plot_ok=plot_ok, sa=sa]
+
+@Graded::Complexity{
+# App G: per-term work counts at a declared (B,T) - attention projections and causal matmuls, gate, routed experts sparse vs dense, shared expert, thalamic compress/decompress and quadratic and past-mean terms, hippocampal query/similarity/read, write, replay, controller - plus the episodic-store numbers (G.129), replay token slots (G.130), hip score tensor materialized vs chunked, and the MoE dense-over-sparse ratio.
+plot_ok, cx = paper_trc2_complexity()
+@}::endpoints::[plot_ok=plot_ok, cx=cx]
+
+@Graded::RepoAudit{
+# The paper's text layer carries no GitHub URL (W&B / TRC2 website labels only). Reproduction basis is the 45-page PDF text layer, main text plus Appendices B/C/E/F/G. Records the declared adaptations: unpublished F vocab (V=256), no V100/DDP/Triton (work counts/bytes/agreement not ms), synthetic rotation-cipher tasks, amp_fp16 GradScaler CUDA-only, and App F local diffs reported beside the paper's anchors.
+repo = paper_trc2_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::TRC2Paper::[Setup, AppF, Backend, Stream, Subsystem, Complexity, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, setup, af, ba, st, sa, cx, repo]
