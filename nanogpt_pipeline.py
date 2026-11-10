@@ -1161,6 +1161,152 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                      "(App. F; toy thresholds at N=12)",
                      "cells assigned the leaf", f"{name}_census")
 
+    if name == "fas":
+        # s41 (arXiv:2610.21483): Table 1's tier work accounting, Q1's
+        # fused-fp32 vs dense-bf16 accuracy, App C's associative merge, the
+        # nine detection sets, the additions with Holm over the dataset-proxy
+        # pairs, and App M's cross-domain transfer.
+        leg_a = measurements.get("leg_a") if isinstance(measurements, dict) else None
+        leg_b = measurements.get("leg_b") if isinstance(measurements, dict) else None
+        leg_a = leg_a if isinstance(leg_a, dict) else {}
+        leg_b = leg_b if isinstance(leg_b, dict) else {}
+
+        def logbars(labels, vals, title, ylabel, stem):
+            fig, ax = plt.subplots(figsize=(6.8, 3.6))
+            ax.bar([str(x) for x in labels], vals, color="#4c72b0")
+            ax.set_yscale("log")
+            ax.set_title(title)
+            ax.set_ylabel(ylabel)
+            ax.tick_params(axis="x", rotation=20)
+            paths.append(_save_fig(fig, stem))
+
+        tw = leg_a.get("tier_work_at_32K")
+        if isinstance(tw, dict):
+            labs, vals = [], []
+            for tier in ("T1", "T2", "T3", "T4"):
+                row = tw.get(tier)
+                if not isinstance(row, dict):
+                    continue
+                v = finite(row.get("mem_numbers"))
+                if v is not None and v > 0:
+                    labs.append(tier)
+                    vals.append(v)
+            if vals:
+                logbars(labs, vals,
+                        "FAS live: Table 1 numbers written per tier at L=32K "
+                        "(T4 = the materialized block; log scale)",
+                        "numbers written (log)", f"{name}_tiers")
+
+        q1 = leg_a.get("Q1_accuracy_random_gaussian")
+        ps = q1.get("per_statistic") if isinstance(q1, dict) else None
+        if isinstance(ps, dict) and ps:
+            pairs = []
+            for k in sorted(ps):
+                row = ps[k]
+                if not isinstance(row, dict):
+                    continue
+                d, f = finite(row.get("dense_mae")), finite(row.get("fused_mae"))
+                if d is not None and f is not None and d > 0 and f > 0:
+                    pairs.append((k, d, f))
+            if pairs:
+                fig, ax = plt.subplots(figsize=(7.0, 3.6))
+                xs = list(range(len(pairs)))
+                ax.bar([x - 0.2 for x in xs], [p[1] for p in pairs], width=0.4,
+                       color="#c44e52", label="dense bf16 map")
+                ax.bar([x + 0.2 for x in xs], [p[2] for p in pairs], width=0.4,
+                       color="#4c72b0", label="fused fp32 registers")
+                ax.set_yscale("log")
+                ax.set_xticks(xs)
+                ax.set_xticklabels([p[0] for p in pairs], rotation=20)
+                ax.set_title("FAS live: Q1 MAE vs fp64 - fused fp32 registers "
+                             "vs dense bf16 map (log scale)")
+                ax.set_ylabel("MAE vs fp64 (log)")
+                ax.legend(fontsize=7)
+                paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+        mc = leg_a.get("appC_merge_split_kv")
+        if isinstance(mc, dict):
+            labs, vals = [], []
+            for sp in ("split2", "split3", "split4"):
+                row = mc.get(sp)
+                if not isinstance(row, dict):
+                    continue
+                for key, lab in (("max_abs_diff", "merge vs full"),
+                                 ("associativity_max_abs_diff", "associativity")):
+                    raw = row.get(key)
+                    if isinstance(raw, dict):
+                        nums = [finite(x) for x in raw.values()]
+                        nums = [x for x in nums if x is not None]
+                        v = max(nums) if nums else None
+                    else:
+                        v = finite(raw)
+                    if v is not None and v > 0:
+                        labs.append("%s %s" % (sp, lab))
+                        vals.append(v)
+            if vals:
+                logbars(labs, vals,
+                        "FAS live: App C merge over disjoint key sets - max abs "
+                        "diff vs the single pass (log; exact zeros omitted)",
+                        "max abs diff (log)", f"{name}_merge")
+
+        summ = leg_b.get("summary")
+        if isinstance(summ, dict) and summ:
+            labs, vals = [], []
+            for dom in sorted(summ):
+                row = summ[dom] if isinstance(summ[dom], dict) else None
+                sets = row.get("sets") if isinstance(row, dict) else None
+                if not isinstance(sets, dict):
+                    continue
+                for sn in sorted(sets):
+                    sr = sets[sn]
+                    v = finite(sr.get("test_f1")) if isinstance(sr, dict) else None
+                    if v is not None:
+                        labs.append("d%s %s" % (dom, sn))
+                        vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "FAS live: test F1 of the nine feature sets per domain "
+                     "(Sec 5.2; toy world, one compiled proxy)",
+                     "test F1", f"{name}_detect")
+            labs, vals = [], []
+            for dom in sorted(summ):
+                row = summ[dom] if isinstance(summ[dom], dict) else None
+                adds = row.get("additions") if isinstance(row, dict) else None
+                if not isinstance(adds, dict):
+                    continue
+                for an in sorted(adds):
+                    a = adds[an]
+                    if not isinstance(a, dict):
+                        continue
+                    v = finite(a.get("delta_f1"))
+                    if v is not None:
+                        sig = "*" if a.get("significant_gain") else ""
+                        labs.append("d%s %s%s" % (dom, an, sig))
+                        vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "FAS live: delta F1 from adding attention features "
+                     "(* = Holm-significant gain over the dataset-proxy pairs)",
+                     "delta test F1", f"{name}_additions")
+
+        cd = leg_b.get("cross_domain")
+        dets = cd.get("detectors") if isinstance(cd, dict) else None
+        if isinstance(dets, dict) and dets:
+            labs, vals = [], []
+            for dn in sorted(dets):
+                row = dets[dn]
+                if not isinstance(row, dict):
+                    continue
+                v = finite(row.get("mean_drop_fit_to_other"))
+                if v is not None:
+                    labs.append("%s (%s)" % (dn, row.get("tier", "?")))
+                    vals.append(v)
+            if vals:
+                bars(labs, vals,
+                     "FAS live: App M mean AUROC loss fit->other domains "
+                     "(RAUQ/INTRYGUE transfer; head-selecting detectors do not)",
+                     "mean AUROC drop", f"{name}_transfer")
+
     if name == "etc":
         # s38 (arXiv:2610.21204): the think-dose battery - dose-response
         # delta per class/arm, the trace trajectory census, the early-read

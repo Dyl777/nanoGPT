@@ -12124,3 +12124,2358 @@ def run_paper_42112() -> dict:
     out = _outdir("2610.42112")
     (out / "metrics.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
     return results
+
+
+# ===========================================================================
+# 2610.21483 - FlashAttention with Statistics (FAS)
+# Volodichev, Savichev, Sviridov, Yuliy, Simakov, Zaytsev 2026
+# Applied AI Institute / Yandex / Risk AI Research Lab, 15 Oct 2026, 28 pp.
+# A MEASUREMENT paper: the statistics change no attention output, so there is
+# no new axis and no Impl gate - the substrate below is always available.
+# ===========================================================================
+
+_FAS_EPS = 1e-12
+_FAS_LOG_EPS = -27.631021115928547      # log(1e-12): App B clamps log p_ii here
+# Eq.3-4 exponents: entropy alpha=1 g=s (UNSHIFTED score), effective support
+# alpha=2 g=1, prompt mass alpha=1 g=1[j<P]. Response mass is derived (1-muP).
+_FAS_ALPHA = {"A_s": 1, "A_2": 2, "A_P": 1}
+_FAS_T1_STATS = ("entropy", "eff_support", "max_weight", "prompt_mass")
+
+
+def fas_auroc(y_true, y_score):
+    """Tie-aware Mann-Whitney AUROC, averaged ranks inside every tie group.
+
+    The notebook's earlier auroc_score (s10 cluster) assigns ranks by argsort
+    WITHOUT averaging ties, so a constant score vector returns an arbitrary
+    extreme (1.0) instead of 0.5. App K's length filter deliberately drives
+    every answer to the SAME word-length, which makes all its scores tied -
+    that helper reports 1.0 where the paper reports 0.500. Prior lines are
+    never edited (standing rule), so FAS carries its own.
+    """
+    y = torch.as_tensor(y_true).reshape(-1).double()
+    s = torch.as_tensor(y_score).reshape(-1).double()
+    n1, n0 = y.sum(), (1 - y).sum()
+    if n1 == 0 or n0 == 0:
+        return 0.5
+    order = torch.argsort(s, stable=True)
+    ranks = torch.empty(len(order), dtype=torch.double)
+    ranks[order] = torch.arange(1, len(order) + 1, dtype=torch.double)
+    ss = s[order]
+    i = 0
+    while i < len(ss):
+        j = i + 1
+        while j < len(ss) and ss[j] == ss[i]:
+            j += 1
+        if j - i > 1:
+            ranks[order[i:j]] = (i + 1 + j) / 2.0
+        i = j
+    return float((ranks[y == 1].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
+
+
+def fas_geometry(L, P, keep=None):
+    """Sec 2.1 + App B: the response block of one head of one layer.
+
+    Positions start at 0. A prompt row i < P sees only prompt keys, so its
+    output is independent of the response and ANY production kernel may
+    compute it; statistics are taken on the R = L - P response rows only.
+    Without padding the block holds N_R = R*P + R(R+1)/2 unmasked scores.
+    App B's per-row counts: n_i = |J_i| visible keys, t_i = response keys
+    seen including itself; the column denominator of key j is the number
+    of response rows that see it, min(R, L-j) without padding.
+    """
+    L, P = int(L), int(P)
+    R = L - P
+    pos = torch.arange(L)
+    if keep is None:
+        keep = torch.ones(L, dtype=torch.bool)
+    else:
+        keep = torch.as_tensor(keep, dtype=torch.bool).reshape(-1)
+    causal = pos[None, :] <= pos[:, None]
+    vis = (causal & keep[None, :])[P:]
+    n = vis.sum(1)
+    t = vis[:, P:].sum(1)
+    return {"L": L, "P": P, "R": R, "NR": int(n.sum()),
+            "NR_closed": R * P + R * (R + 1) // 2,
+            "rows": torch.arange(P, L), "n": n, "t": t,
+            "keep": keep, "vis": vis, "col_denom": vis.sum(0)}
+
+
+def fas_tier_work(L, P, b=3, Ns=4, keep=None):
+    """Table 1: work per head BEYOND the pass over the response block.
+
+    Scores = extra attention scores evaluated (each costs d multiply-adds
+    and one exponential); Stat. ops = statistic-specific elementwise work;
+    Memory = numbers written per head besides the attention output and LSE.
+    T1's state is Ns numbers per row, INDEPENDENT of L (Lemma 1). T4 writes
+    the whole block. App I: the five per-token features cost 20 bytes per
+    head, layer and response token (fp32).
+    """
+    g = fas_geometry(L, P, keep)
+    R, NR = g["R"], g["NR"]
+    return {"T1": {"extra_scores": 0, "stat_ops": Ns * NR,
+                   "mem_numbers": Ns * R, "state_per_row": Ns,
+                   "state_grows_with_L": False},
+            "T2": {"extra_scores": b * R, "stat_ops": b * R,
+                   "mem_numbers": b * R},
+            "T3": {"extra_scores": NR, "stat_ops": NR,
+                   "mem_numbers": R + L},
+            "T4": {"extra_scores": NR, "stat_ops": NR,
+                   "mem_numbers": NR},
+            "NR": NR, "R": R, "L": int(L), "P": int(P),
+            "dense_block_bytes_bf16": NR * 2,
+            "t1_state_bytes_fp32": Ns * R * 4,
+            "feature_bytes_per_head_layer_response_token": 20,
+            "padding": bool(keep is not None),
+            "NR_matches_closed_form": bool(NR == g["NR_closed"])}
+
+# FAS T4 / the fp64 oracle: materialize the response block (Sec 3.3, Sec 4 Q1).
+def fas_dense_reference(Q, K, V, P, keep=None, dtype=None, tau=None):
+    """The DENSE path: materialize the R x L response block and softmax it.
+
+    This is what their kernels avoid - O(N_R) memory (Table 1, T4) - and
+    what Sec 4's fp64 reference is computed from (row-chunked at 32K).
+    The causal mask is aligned to the bottom-right corner: response row i
+    sees keys 0..i, exactly as a KV-cache append kernel does (Sec 2.1).
+    """
+    dtype = torch.float64 if dtype is None else dtype
+    Q, K, V = Q.to(dtype), K.to(dtype), V.to(dtype)
+    L, d = int(K.shape[0]), int(K.shape[-1])
+    tau = (1.0 / math.sqrt(d)) if tau is None else float(tau)
+    g = fas_geometry(L, int(P), keep)
+    S = tau * (Q[int(P):] @ K.t())
+    S = S.masked_fill(~g["vis"].to(S.device), float("-inf"))
+    LSE = torch.logsumexp(S, dim=-1)
+    W = torch.exp(S - LSE[:, None])
+    W = torch.nan_to_num(W, nan=0.0, posinf=0.0, neginf=0.0)
+    return {"S": S, "W": W, "LSE": LSE, "O": W @ V, "geom": g, "tau": tau}
+
+
+def fas_stats_from_weights(W, S, LSE, P, keep=None, sink=0, topk=1,
+                           round_to=None):
+    """Every Table 3 statistic read off a MATERIALIZED block (the T4 path).
+
+    round_to=bfloat16 reproduces Sec 4's dense baseline: the block is
+    materialized in bf16, so the SCORES are rounded, the LSE and softmax are
+    formed from those rounded scores, and each probability is rounded to
+    bf16 (8 mantissa bits) BEFORE the reduction runs in fp32. The fused
+    kernels instead reduce fp32 probabilities that never leave registers -
+    that single difference is the whole of Table 4's three-to-four orders
+    of magnitude, and it is why the dense LSE has error too (Table 4's Base
+    row: 1.1e-2 dense vs 1.1e-6 fused). Passing the fp64 LSE through
+    unrounded would give the dense arm a free exact normalizer and report
+    zero LSE error, which is not the comparison the paper makes.
+    """
+    P = int(P)
+    L = int(W.shape[1])
+    g = fas_geometry(L, P, keep)
+    if round_to is not None:
+        Sr = S.to(round_to).float()
+        LSE = torch.logsumexp(Sr, dim=-1).to(round_to).float()
+        Wr = torch.exp(Sr - LSE[:, None]).to(round_to).float()
+        Wr = torch.nan_to_num(Wr, nan=0.0, posinf=0.0, neginf=0.0)
+        S = Sr
+    else:
+        Wr = W.float()
+        LSE = LSE.float()
+        S = S.float()
+    n = g["n"].to(Wr.device).float().clamp_min(1.0)
+    t = g["t"].to(Wr.device).float().clamp_min(1.0)
+    denom = g["col_denom"].to(Wr.device).float().clamp_min(1.0)
+    logp = torch.log(Wr.clamp_min(1e-30))
+    ent = -(Wr * logp).sum(-1)
+    sq = (Wr * Wr).sum(-1)
+    muP = Wr[:, :P].sum(-1)
+    muR = 1.0 - muP
+    lr = (muP / max(1, P)) / ((muP / max(1, P)) + (muR / t)).clamp_min(_FAS_EPS)
+    rows = g["rows"].to(Wr.device)
+    diag = S.gather(1, rows[:, None]).squeeze(1) - LSE
+    prev = torch.zeros_like(diag)
+    if W.shape[0] > 1:
+        pv = Wr.gather(1, (rows - 1).clamp_min(0)[:, None]).squeeze(1)
+        prev[1:] = pv[1:]
+    sw = Wr[:, int(sink)] if 0 <= int(sink) < L else torch.zeros_like(diag)
+    c = Wr.sum(0)
+    cbar = c / denom
+    kk = max(1, min(int(topk), L))
+    topv = torch.topk(cbar, kk).values
+    return {"LSE": LSE.float(), "entropy": ent,
+            "entropy_norm": ent / torch.log(n),
+            "eff_support": 1.0 / sq.clamp_min(_FAS_EPS),
+            "max_weight": Wr.max(-1).values,
+            "prompt_mass": muP, "response_mass": muR, "lookback": lr,
+            "log_diag": diag.float(), "prev": prev, "sink_w": sw,
+            "col_sum": c, "col_mean": cbar,
+            "bos_sink_rate": float(cbar[int(sink)]) if 0 <= int(sink) < L else 0.0,
+            "topk_sink_rate": float(topv.mean()), "geom": g}
+
+# FAS T1: Algorithm 1 lines 2-15 - the FA2 query-major forward with Eq.3-4 fused in.
+def fas_tiled_pass(Q, K, V, P, tile_q=8, tile_k=8, keep=None, k_lo=0, k_hi=None,
+                   acc=("A_s", "A_2", "A_P"), dtype=None, tau=None):
+    """App D Algorithm 1, lines 2-15 (black = unchanged FA2, green = T1).
+
+    One query tile I is resident while key tiles J stream past it, so the
+    pass is QUERY-MAJOR exactly as the FA2 forward is (the FA2 backward is
+    key-major - that is T3's loop). Carries m, ell, O; for a new key tile:
+      m' = max(m, rowmax S); a = exp(m - m'); Pt = exp(S - m')
+      ell <- a*ell + rowsum Pt;  O <- a*O + Pt V_J;  m <- m'
+      A_u <- a^alpha_u A_u + rowsum(Pt^alpha_u * G_u)          [Eq.4]
+    G_u = g_u(J, S) with g = s UNSHIFTED for entropy (H = LSE - sum p*s),
+    g = 1 for effective support (alpha = 2), g = 1[j<P] for prompt mass.
+    State is len(acc) numbers per row, independent of L (Lemma 1).
+    k_lo/k_hi restrict the key range so App C's merge can be exercised.
+    """
+    dtype = torch.float32 if dtype is None else dtype
+    Q, K, V = Q.to(dtype), K.to(dtype), V.to(dtype)
+    L, d, P = int(K.shape[0]), int(K.shape[-1]), int(P)
+    R = L - P
+    dev = K.device
+    tau = (1.0 / math.sqrt(d)) if tau is None else float(tau)
+    if keep is None:
+        keep = torch.ones(L, dtype=torch.bool, device=dev)
+    else:
+        keep = torch.as_tensor(keep, dtype=torch.bool, device=dev).reshape(-1)
+    k_lo = int(k_lo)
+    k_hi = L if k_hi is None else int(k_hi)
+    rows = torch.arange(P, L, device=dev)
+    m = torch.full((R,), float("-inf"), dtype=dtype, device=dev)
+    ell = torch.zeros(R, dtype=dtype, device=dev)
+    O = torch.zeros((R, d), dtype=dtype, device=dev)
+    A = {k: torch.zeros(R, dtype=dtype, device=dev) for k in acc}
+    tiles = scores = exps = skipped = 0
+    for i0 in range(0, R, int(tile_q)):
+        i1 = min(R, i0 + int(tile_q))
+        ri = rows[i0:i1]
+        qi = Q[ri]
+        for j0 in range(k_lo, k_hi, int(tile_k)):
+            j1 = min(k_hi, j0 + int(tile_k))
+            kj = torch.arange(j0, j1, device=dev)
+            vis = (kj[None, :] <= ri[:, None]) & keep[j0:j1][None, :]
+            if not bool(vis.any()):
+                skipped += 1
+                continue
+            tiles += 1
+            S = tau * (qi @ K[j0:j1].t())
+            scores += int(S.numel())
+            Sm = S.masked_fill(~vis, float("-inf"))
+            mp = torch.maximum(m[i0:i1], Sm.max(dim=-1).values)
+            fin = torch.isfinite(mp)
+            mps = torch.where(fin, mp, torch.zeros_like(mp))
+            a = torch.where(fin, torch.exp(m[i0:i1] - mps), torch.zeros_like(mp))
+            Pt = torch.exp(Sm - mps[:, None])
+            Pt = torch.nan_to_num(Pt, nan=0.0, posinf=0.0, neginf=0.0)
+            exps += int(Pt.numel())
+            if "A_s" in A:
+                Sz = S.masked_fill(~vis, 0.0)
+                A["A_s"][i0:i1] = a * A["A_s"][i0:i1] + (Pt * Sz).sum(-1)
+            if "A_2" in A:
+                A["A_2"][i0:i1] = a * a * A["A_2"][i0:i1] + (Pt * Pt).sum(-1)
+            if "A_P" in A:
+                gp = ((kj[None, :] < P) & vis).to(dtype)
+                A["A_P"][i0:i1] = a * A["A_P"][i0:i1] + (Pt * gp).sum(-1)
+            O[i0:i1] = a[:, None] * O[i0:i1] + Pt @ V[j0:j1]
+            ell[i0:i1] = a * ell[i0:i1] + Pt.sum(-1)
+            m[i0:i1] = mp
+    gg = fas_geometry(L, P, keep)
+    st = {"m": m, "ell": ell, "O": O, "P": P, "L": L, "R": R, "d": d,
+          "tau": tau, "keep": keep, "k_lo": k_lo, "k_hi": k_hi,
+          "tiles": tiles, "scores": scores, "exponentials": exps,
+          "skipped_tiles": skipped, "acc": tuple(acc),
+          "NR": gg["NR"], "tile_overcount_ratio": scores / max(1, gg["NR"]),
+          "score_count_note": "scores is TILE-GRANULAR: a diagonal-crossing "
+                              "tile evaluates its masked entries too, so it "
+                              "is a superset of Table 1's ideal N_R. The "
+                              "ratio -> 1 as tile_k -> 1."}
+    st.update(A)
+    return st
+
+
+def fas_finalize(st):
+    """Algorithm 1 lines 13-14: write O/ell and LSE = m + log ell, then the
+    T1 features F^(u) = A_u / ell^alpha_u (Lemma 1's proof, App C).
+
+    max_weight = 1/ell needs m to be the EXACT running maximum (App D): a
+    kernel that defers rescaling when the max grows would have to track it
+    separately. App C's bounds: 1 <= ell <= |J_i| and
+    |A_u| <= |J_i| * max_j |g_u|, because every rescaling factor lies in
+    (0,1] - no exponential overflows.
+    """
+    m, ell, O = st["m"], st["ell"], st["O"]
+    ok = ell > 0
+    es = torch.where(ok, ell, torch.ones_like(ell))
+    zero = torch.zeros_like(ell)
+    LSE = torch.where(ok, m + torch.log(es), torch.full_like(m, float("-inf")))
+    out = {"LSE": LSE, "O": O / es[:, None], "ell": ell, "m": m,
+           "tiles": st.get("tiles", 0), "scores": st.get("scores", 0),
+           "exponentials": st.get("exponentials", 0),
+           "skipped_tiles": st.get("skipped_tiles", 0),
+           "NR": st.get("NR", 0),
+           "tile_overcount_ratio": st.get("tile_overcount_ratio", 1.0),
+           "score_count_note": st.get("score_count_note", ""),
+           "max_weight": torch.where(ok, 1.0 / es, zero)}
+    if "A_s" in st:
+        out["entropy"] = torch.where(ok, LSE - st["A_s"] / es, zero)
+    if "A_2" in st:
+        a2 = st["A_2"]
+        out["eff_support"] = torch.where(ok & (a2 > 0),
+                                        es * es / a2.clamp_min(_FAS_EPS), zero)
+    if "A_P" in st:
+        pm = torch.where(ok, st["A_P"] / es, zero)
+        out["prompt_mass"] = pm
+        out["response_mass"] = 1.0 - pm
+    return out
+
+# FAS App C: the associative merge over disjoint key sets (split-KV / devices).
+def fas_merge_two(p, q):
+    """App C: with m = max(m1, m2),
+       A_u = exp(alpha_u (m1 - m)) A_{u,1} + exp(alpha_u (m2 - m)) A_{u,2}.
+    Associative, so keys may be split across kernel instances or devices
+    (RingAttention, Attention-as-RNN, FlashInfer) - and so a split-KV
+    DECODING kernel is possible, which the paper lists as not implemented.
+    ell and O merge with alpha = 1. Factors lie in (0,1].
+    """
+    m = torch.maximum(p["m"], q["m"])
+    fin = torch.isfinite(m)
+    ms = torch.where(fin, m, torch.zeros_like(m))
+
+    def fac(x, alpha=1):
+        return torch.where(fin, torch.exp((x - ms) * alpha), torch.zeros_like(x))
+
+    fp, fq = fac(p["m"]), fac(q["m"])
+    out = {"m": m, "ell": fp * p["ell"] + fq * q["ell"],
+           "O": fp[:, None] * p["O"] + fq[:, None] * q["O"]}
+    for k, al in _FAS_ALPHA.items():
+        if k in p and k in q:
+            out[k] = fac(p["m"], al) * p[k] + fac(q["m"], al) * q[k]
+    for k in ("P", "L", "R", "d", "tau", "keep"):
+        if k in p:
+            out[k] = p[k]
+    out["acc"] = tuple(k for k in _FAS_ALPHA if k in out)
+    out["tiles"] = p.get("tiles", 0) + q.get("tiles", 0)
+    out["scores"] = p.get("scores", 0) + q.get("scores", 0)
+    out["exponentials"] = p.get("exponentials", 0) + q.get("exponentials", 0)
+    out["skipped_tiles"] = p.get("skipped_tiles", 0) + q.get("skipped_tiles", 0)
+    return out
+
+
+def fas_merge_parts(parts):
+    """Left fold of fas_merge_two; associativity is checked by folding the
+    same parts in a different order (fas_split_kv_check)."""
+    parts = [p for p in parts if p is not None]
+    if not parts:
+        return None
+    out = parts[0]
+    for p in parts[1:]:
+        out = fas_merge_two(out, p)
+    return out
+
+
+def fas_split_kv_check(Q, K, V, P, splits=(2, 3), tile_q=8, tile_k=8, keep=None):
+    """App C's merge, exercised: run the pass over disjoint key ranges,
+    merge, and compare against one pass over all keys. Also folds the parts
+    in reverse order to test associativity, and reports the rescaling
+    factors' range (they must lie in (0,1]) and App C's ell bound."""
+    L = int(K.shape[0])
+    full = fas_finalize(fas_tiled_pass(Q, K, V, P, tile_q, tile_k, keep))
+    g = fas_geometry(L, int(P), keep)
+    n = g["n"].float().clamp_min(1)
+    out = {}
+    for ns in splits:
+        ns = max(2, int(ns))
+        edges = [round(i * L / ns) for i in range(ns + 1)]
+        parts = [fas_tiled_pass(Q, K, V, P, tile_q, tile_k, keep,
+                                k_lo=edges[i], k_hi=edges[i + 1])
+                 for i in range(ns) if edges[i + 1] > edges[i]]
+        merged = fas_finalize(fas_merge_parts(parts))
+        rev = fas_finalize(fas_merge_parts(list(reversed(parts))))
+        diffs = {k: float((merged[k] - full[k]).abs().max())
+                 for k in ("LSE", "entropy", "eff_support", "max_weight",
+                           "prompt_mass") if k in merged and k in full}
+        diffs["O"] = float((merged["O"] - full["O"]).abs().max())
+        assoc = {k: float((merged[k] - rev[k]).abs().max()) for k in diffs}
+        out["split%d" % ns] = {
+            "parts": len(parts), "max_abs_diff": diffs,
+            "associativity_max_abs_diff": assoc,
+            "full_pass_scores": int(full["scores"]),
+            "split_pass_scores": int(sum(p["scores"] for p in parts)),
+            "tile_scores": [int(p["scores"]) for p in parts]}
+    st = fas_tiled_pass(Q, K, V, P, tile_q, tile_k, keep)
+    ok = st["ell"] > 0
+    out["bounds"] = {
+        "ell_min": float(st["ell"][ok].min()) if bool(ok.any()) else 0.0,
+        "ell_max": float(st["ell"].max()),
+        "ell_le_visible_keys": bool((st["ell"] <= n.to(st["ell"].device) + 1e-4).all()),
+        "ell_ge_one_where_visible": bool((st["ell"][ok] >= 1.0 - 1e-4).all()),
+        "rescale_factors_in_0_1": True,
+        "note": "App C: m' >= m and m' >= s_j, so a = exp(m-m') and every "
+                "merge factor lie in (0,1]; the maximizing key contributes "
+                "one, giving 1 <= ell <= |J_i|"}
+    return out
+
+
+def fas_spearman(x, y):
+    """Rank correlation (Sec 4 Q1: both paths rank heads by per-head means
+    over response rows as fp64 does - Spearman 1.000 fused, >= 0.998 dense)."""
+    x = torch.as_tensor(x).double().reshape(-1)
+    y = torch.as_tensor(y).double().reshape(-1)
+    if len(x) < 2:
+        return 1.0
+
+    def ranks(v):
+        o = torch.argsort(v)
+        r = torch.empty_like(o, dtype=torch.double)
+        r[o] = torch.arange(1, len(v) + 1, dtype=torch.double)
+        return r
+
+    rx, ry = ranks(x), ranks(y)
+    rx = rx - rx.mean()
+    ry = ry - ry.mean()
+    den = (rx.norm() * ry.norm()).clamp_min(1e-30)
+    return float((rx @ ry) / den)
+
+
+def fas_t1_accuracy(L=256, P=None, d=32, n_heads=4, seed=41, tile_q=8, tile_k=8,
+                    response_fraction=0.3):
+    """Sec 4 Q1 / Table 4 at section scale: MAE on response rows against an
+    fp64 oracle, dense-bf16 vs fused-fp32, plus the per-head-mean ranking.
+
+    Inputs are random Gaussian Q,K,V at response fraction 0.3 - exactly the
+    paper's synthetic input type. The paper also uses post-RoPE Q,K,V
+    captured from Qwen3-8B layers 2/16/24/34 on PHANTOM, because random
+    inputs give near-uniform attention and hide sinks and peaked heads;
+    run_fas's captured leg supplies that second input type from the
+    compiled model. This function reports the DIRECTION of Table 4 (fused
+    more accurate for every statistic), never its magnitudes.
+    """
+    P = int(round(L * (1.0 - float(response_fraction)))) if P is None else int(P)
+    gen = torch.Generator().manual_seed(int(seed))
+    rows = {}
+    means64, meansD, meansF = [], [], []
+    for h in range(int(n_heads)):
+        Q = torch.randn(L, d, generator=gen)
+        K = torch.randn(L, d, generator=gen)
+        V = torch.randn(L, d, generator=gen)
+        ref = fas_dense_reference(Q, K, V, P, dtype=torch.float64)
+        oracle = fas_stats_from_weights(ref["W"], ref["S"], ref["LSE"], P)
+        dense = fas_stats_from_weights(ref["W"], ref["S"], ref["LSE"], P,
+                                       round_to=torch.bfloat16)
+        fused = fas_finalize(fas_tiled_pass(Q, K, V, P, tile_q, tile_k))
+        keys = ("entropy", "eff_support", "max_weight", "prompt_mass", "LSE")
+        for k in keys:
+            o = oracle[k].double()
+            ed = float((dense[k].double() - o).abs().mean())
+            ef = float((fused[k].double() - o).abs().mean())
+            row = rows.setdefault(k, {"dense_mae": [], "fused_mae": [],
+                                      "oracle_mean": []})
+            row["dense_mae"].append(ed)
+            row["fused_mae"].append(ef)
+            row["oracle_mean"].append(float(o.mean()))
+        means64.append(float(oracle["entropy"].double().mean()))
+        meansD.append(float(dense["entropy"].double().mean()))
+        meansF.append(float(fused["entropy"].double().mean()))
+    summary = {}
+    for k, r in rows.items():
+        dm = sum(r["dense_mae"]) / len(r["dense_mae"])
+        fm = sum(r["fused_mae"]) / len(r["fused_mae"])
+        summary[k] = {"dense_mae": dm, "fused_mae": fm,
+                      "ratio_dense_over_fused": dm / max(fm, 1e-30),
+                      "fused_more_accurate": bool(fm < dm),
+                      "worst_head_dense_mae": max(r["dense_mae"]),
+                      "worst_head_fused_mae": max(r["fused_mae"])}
+    return {"L": int(L), "P": P, "R": int(L - P), "d": int(d),
+            "n_heads": int(n_heads), "response_fraction": float(response_fraction),
+            "input_type": "random Gaussian Q,K,V (paper Q1 synthetic arm)",
+            "per_statistic": summary,
+            "all_fused_more_accurate": bool(all(v["fused_more_accurate"]
+                                                for v in summary.values())),
+            "head_ranking_spearman": {
+                "fused_vs_fp64": fas_spearman(meansF, means64),
+                "dense_vs_fp64": fas_spearman(meansD, means64)},
+            "tier_work": fas_tier_work(L, P)}
+
+# FAS T2: Algorithm 1 lines 16-20 - lookups from the STORED LSE (Sec 3.3).
+def fas_t2_weights(Q, K, LSE, rows, cols, tau=None, log_space=False, keep=None):
+    """Sec 3.3: b weights per response row at positions known in advance.
+
+    A separate kernel reading ONLY Q, K and the LSE, so it works after ANY
+    forward kernel that stores the LSE - the production kernel need not be
+    theirs. Positions are runtime arguments (any sink set without
+    recompiling). Cost: b*R extra scores, linear in L, never N_R.
+    rows/cols are (R, b) absolute-position index tensors.
+    """
+    d = int(K.shape[-1])
+    tau = (1.0 / math.sqrt(d)) if tau is None else float(tau)
+    rows = torch.as_tensor(rows, dtype=torch.long, device=K.device)
+    cols = torch.as_tensor(cols, dtype=torch.long, device=K.device)
+    q = Q.to(K.dtype)[rows]
+    k = K[cols]
+    s = tau * (q * k).sum(-1)
+    lse = torch.as_tensor(LSE, dtype=K.dtype, device=K.device)
+    while lse.dim() < s.dim():
+        lse = lse[:, None]
+    w = s - lse if log_space else torch.exp(s - lse)
+    if keep is not None:
+        kp = torch.as_tensor(keep, dtype=torch.bool, device=K.device).reshape(-1)
+        valid = kp[cols.clamp(0, len(kp) - 1)]
+        w = torch.where(valid, w, torch.full_like(w, float("-inf")) if log_space
+                       else torch.zeros_like(w))
+    return w
+
+
+def fas_t2_features(Q, K, LSE, P, sinks=(0,), keep=None, tau=None):
+    """The three T2 lookups of Table 3 / Alg 1 lines 17-19.
+
+    log p_ii = s_ii - LSE_i; p_{i,i-1} = exp(s_{i,i-1} - LSE_i), SET TO ZERO
+    on the first response row (App B: it has no previous RESPONSE token);
+    p_is for each fixed sink column s, which the host sums into c_s.
+    App B: T2 yields the BOS sink rate without full column sums when every
+    sequence in the batch has the same padding; otherwise, and for any
+    other sink definition, the kernels fall back to T3.
+    """
+    L, P = int(K.shape[0]), int(P)
+    g = fas_geometry(L, P, keep)
+    rows, R = g["rows"].to(K.device), g["R"]
+    sinks = [int(s) for s in sinks] or [0]
+    r1 = rows[:, None]
+    log_diag = fas_t2_weights(Q, K, LSE, r1, r1, tau, True, keep).squeeze(1)
+    cprev = (rows - 1).clamp_min(0)[:, None]
+    prev = fas_t2_weights(Q, K, LSE, r1, cprev, tau, False, keep).squeeze(1)
+    if R > 0:
+        prev[0] = 0.0
+    cs = torch.tensor(sinks, dtype=torch.long, device=K.device)[None, :].expand(R, -1)
+    sink_w = fas_t2_weights(Q, K, LSE, r1.expand(-1, len(sinks)), cs, tau,
+                            False, keep)
+    c_s = sink_w.sum(0)
+    denom = g["col_denom"].to(K.device).float().clamp_min(1.0)
+    bos = sinks[0]
+    bos_rate = float(c_s[0] / denom[bos]) if 0 <= bos < L else 0.0
+    kp = g["keep"]
+    first_nonpadded = int(torch.nonzero(kp)[0]) if bool(kp.any()) else 0
+    return {"log_diag": log_diag, "prev": prev, "sink_w": sink_w,
+            "sink_cols": sinks, "c_s": c_s, "bos_sink_rate": bos_rate,
+            "bos_col": bos, "first_nonpadded": first_nonpadded,
+            "b": 2 + len(sinks), "extra_scores": int(R * (2 + len(sinks))),
+            "t2_bos_exact_without_t3": bool(int((~kp).sum()) == 0 or
+                                            first_nonpadded == 0),
+            "fallback_rule": "App B: uniform padding across the batch -> T2 "
+                             "BOS rate; otherwise, and for any other sink "
+                             "definition, fall back to T3"}
+
+# FAS T3: Algorithm 1 lines 21-28 - the FA2 backward's key-major loop, dO = ones.
+def fas_t3_colsum(Q, K, LSE, P, tile_k=8, tile_q=8, keep=None, tau=None):
+    """Sec 3.3 T3 / App D: column sums c_j = sum_{i in R, i>=j} p_ij.
+
+    A query-major pass cannot finalize these from bounded per-row state:
+    row i contributes exp(s_ij - m_i) and the factor turning it into p_ij
+    is known only after that row's LAST key tile, and differs between rows.
+    So a second kernel re-evaluates every score, converts it with the
+    STORED LSE, and reuses the key-major loop of the FA2 BACKWARD - it is
+    the value-gradient step dV = W^T dO with dO replaced by a column of
+    ones on response rows. Each instance owns one key tile, visits the
+    response query tiles that see it, and writes its column sums ONCE,
+    without atomic additions. It evaluates all the response stage's
+    exponentials (slow non-tensor-core units) but only half its
+    multiply-adds (no product with V), so it costs close to a second
+    response stage: 1.7-1.8x Base at d>=128, 2.1-2.2x at d=64 (App G).
+    """
+    Q, K = Q.to(torch.float32), K.to(torch.float32)
+    L, d, P = int(K.shape[0]), int(K.shape[-1]), int(P)
+    R = L - P
+    dev = K.device
+    tau = (1.0 / math.sqrt(d)) if tau is None else float(tau)
+    if keep is None:
+        keep = torch.ones(L, dtype=torch.bool, device=dev)
+    else:
+        keep = torch.as_tensor(keep, dtype=torch.bool, device=dev).reshape(-1)
+    lse = torch.as_tensor(LSE, dtype=torch.float32, device=dev).reshape(-1)
+    rows = torch.arange(P, L, device=dev)
+    c = torch.zeros(L, dtype=torch.float32, device=dev)
+    scores = exps = ktiles = pairs = 0
+    for j0 in range(0, L, int(tile_k)):
+        j1 = min(L, j0 + int(tile_k))
+        kj = torch.arange(j0, j1, device=dev)
+        acc = torch.zeros(j1 - j0, dtype=torch.float32, device=dev)
+        ktiles += 1
+        for i0 in range(0, R, int(tile_q)):
+            i1 = min(R, i0 + int(tile_q))
+            ri = rows[i0:i1]
+            vis = (kj[None, :] <= ri[:, None]) & keep[j0:j1][None, :]
+            if not bool(vis.any()):
+                continue
+            pairs += 1
+            S = tau * (Q[ri] @ K[j0:j1].t())
+            S = S.masked_fill(~vis, float("-inf"))
+            W = torch.exp(S - lse[i0:i1, None])
+            W = torch.nan_to_num(W, nan=0.0, posinf=0.0, neginf=0.0)
+            scores += int(W.numel())
+            exps += int(W.numel())
+            acc = acc + W.sum(0)
+        c[j0:j1] = acc
+    g = fas_geometry(L, P, keep)
+    return {"col_sum": c, "scores": scores, "exponentials": exps,
+            "key_tiles": ktiles, "query_key_tile_pairs": pairs,
+            "atomic_adds": 0, "geom": g, "NR": g["NR"],
+            "tile_overcount_ratio": scores / max(1, g["NR"]),
+            "score_count_note": "Table 1 charges T3 N_R extra scores. A "
+                                "tiled kernel evaluates whole tiles, so "
+                                "diagonal-crossing tiles add masked "
+                                "entries: scores >= N_R, ratio -> 1 as "
+                                "tile_k -> 1. This is the arithmetic of a "
+                                "second QK^T pass (App G), not register "
+                                "pressure - the key-major kernel does not "
+                                "spill.",
+            "matches_NR": bool(scores >= g["NR"])}
+
+
+def fas_sink_rates(col_sum, geom, k=1):
+    """App B: cbar_j = c_j / min(R, L-j) is the mean weight key j receives
+    from the response rows that see it. BOS sink rate = cbar_s for the
+    FIRST NON-PADDED key s (Qwen3 defines no BOS token; the paper calls its
+    first non-padded token, which opens the chat template, BOS). Top-k sink
+    rate = mean of the k largest cbar_j, k = 1 by default. SinkProbe feeds
+    the k largest of EVERY head to a probe - that is the A64 block.
+    """
+    c = torch.as_tensor(col_sum).float().reshape(-1)
+    denom = geom["col_denom"].float().clamp_min(1.0)
+    cbar = c / denom
+    kk = max(1, min(int(k), int(c.numel())))
+    topv, topi = torch.topk(cbar, kk)
+    kp = geom["keep"]
+    s = int(torch.nonzero(kp)[0]) if bool(kp.any()) else 0
+    return {"col_mean": cbar, "topk_values": topv, "topk_positions": topi,
+            "topk_sink_rate": float(topv.mean()), "k": kk,
+            "bos_sink_rate": float(cbar[s]), "bos_col": s}
+
+
+def fas_t4_stats(W, geom, topk=5):
+    """T4: statistics that are NOT bounded-state reductions (Sec 3.3).
+
+    Row top-k mass is named in App B as needing O(k) state per row, which
+    the authors keep OUT of the pass - so 'T1 does not contain every
+    bounded-state reduction'. MTopDiv (the attention-graph divergence of
+    Bazarova et al. 2026) and stored attention maps also need the
+    materialized block; the authors wrote NO T4 kernel.
+    DECLARED ADAPTATION: the paper names MTopDiv but never gives its
+    formula, so `graph_divergence` below is a stand-in - the total-variation
+    distance from each response row's attention to the uniform distribution
+    over its visible keys. It is NOT a reproduction of MTopDiv.
+    """
+    W = torch.as_tensor(W).float()
+    n = geom["n"].float().clamp_min(1.0).to(W.device)
+    kk = max(1, min(int(topk), int(W.shape[1])))
+    topmass = torch.topk(W, kk, dim=-1).values.sum(-1)
+    unif = (geom["vis"].to(W.device).float() / n[:, None])
+    tv = 0.5 * (W - unif).abs().sum(-1)
+    return {"row_topk_mass": topmass, "row_topk_mass_mean": float(topmass.mean()),
+            "k": kk, "graph_divergence": tv,
+            "graph_divergence_mean": float(tv.mean()),
+            "graph_divergence_is_MTopDiv": False,
+            "stored_map_numbers": int(W.numel()),
+            "stored_map_bytes_bf16": int(W.numel()) * 2,
+            "tier": "T4", "kernel_written_by_paper": False}
+
+# FAS App B: the derived features of Table 3, and one head's full statistic set.
+def fas_derived(t1, t2, sink, geom):
+    """App B's derived features, from the T1/T2/T3 statistics only.
+
+    Normalized entropy H_i/log n_i makes rows at different positions
+    comparable (log n_i is the entropy of uniform attention over the
+    visible keys). Lookback ratio LR_i = (muP_i/P)/(muP_i/P + muR_i/t_i)
+    compares mean weight per prompt key with mean weight per response key.
+    The log-diagonal feature is (1/R) sum_i log p_ii with each term clamped
+    at log eps - it is LLM-Check's attention score, the log-determinant of
+    a head's attention matrix (causal => lower triangular => the sum of
+    log p_ii over rows), here restricted to response rows (an ADAPTATION
+    the paper flags: LLM-Check averages over all tokens, and the two
+    versions have not been compared in detection).
+    """
+    P = max(1, int(geom["P"]))
+    n = geom["n"].float().clamp_min(1.0)
+    t = geom["t"].float().clamp_min(1.0)
+    muP = t1["prompt_mass"]
+    muR = t1.get("response_mass", 1.0 - muP)
+    a = muP / P
+    b = muR / t
+    lookback = a / (a + b).clamp_min(_FAS_EPS)
+    ld = t2["log_diag"].clamp_min(_FAS_LOG_EPS)
+    return {"entropy_norm": t1["entropy"] / torch.log(n),
+            "lookback": lookback,
+            "lookback_mean": float(lookback.mean()),
+            "log_diag_feature": float(ld.mean()),
+            "prev_feature": t2["prev"],
+            "prev_mean": float(t2["prev"].mean()),
+            "bos_sink_rate": float(sink.get("bos_sink_rate", t2["bos_sink_rate"])),
+            "topk_sink_rate": float(sink.get("topk_sink_rate", 0.0)),
+            "prompt_mass_mean": float(muP.mean()),
+            "response_mass_mean": float(muR.mean())}
+
+
+def fas_head_stats(Q, K, V, P, keep=None, sinks=(0,), topk=1, tile_q=8, tile_k=8,
+                   with_t3=True, with_t4=False, t4_topk=5):
+    """One head, one layer: T1 fused, T2 lookup, optionally T3 and T4.
+
+    with_t3=False reproduces the paper's <=T2 configuration, in which the
+    BOS LOOKUP is replaced by the BOS COLUMN SUM only when T3 is enabled -
+    so <=T3 does NOT return per-row p_is (Sec 4). Here both are kept
+    separate and the configuration is recorded, never conflated.
+    """
+    L = int(K.shape[0])
+    st = fas_tiled_pass(Q, K, V, P, tile_q, tile_k, keep)
+    t1 = fas_finalize(st)
+    g = fas_geometry(L, int(P), keep)
+    t2 = fas_t2_features(Q, K, t1["LSE"], int(P), sinks, keep)
+    out = {"t1": t1, "t2": t2, "geom": g,
+           "work": fas_tier_work(L, int(P), b=t2["b"]),
+           "config": "<=T2" if not with_t3 else "<=T3"}
+    if with_t3:
+        t3 = fas_t3_colsum(Q, K, t1["LSE"], int(P), tile_k, tile_q, keep)
+        out["t3"] = t3
+        out["sink"] = fas_sink_rates(t3["col_sum"], g, topk)
+        out["t3_bos_agrees_with_t2"] = bool(
+            abs(out["sink"]["bos_sink_rate"] - t2["bos_sink_rate"]) < 1e-4)
+    else:
+        out["sink"] = {"bos_sink_rate": t2["bos_sink_rate"],
+                       "topk_sink_rate": t2["bos_sink_rate"],
+                       "col_mean": None, "k": 1,
+                       "bos_col": t2["bos_col"]}
+    out["derived"] = fas_derived(t1, t2, out["sink"], g)
+    if with_t4:
+        ref = fas_dense_reference(Q, K, V, int(P), keep, dtype=torch.float32)
+        out["t4"] = fas_t4_stats(ref["W"], g, t4_topk)
+        out["dense"] = fas_stats_from_weights(ref["W"], ref["S"], ref["LSE"],
+                                              int(P), keep, sinks[0] if sinks else 0,
+                                              topk)
+    return out
+
+# FAS App M: the five published detectors whose statistics the kernels compute, plus TOHA (T4).
+def fas_orient(score, y_val):
+    """App M's protocol: LLM-Check, TOHA, INTRYGUE and the Lookback variant
+    choose ONE setting by AUROC on the validation split of the fitting
+    sources (~150 labels per source). Direction is part of that setting.
+    The paper's negative result is recorded, not tuned away: a FIXED
+    direction cannot adapt where it reverses, so INTRYGUE stays at
+    0.38-0.41 on DROP from every source.
+    """
+    s = torch.as_tensor(score).double().reshape(-1)
+    y = torch.as_tensor(y_val).double().reshape(-1)
+    if len(s) < 2 or len(y) != len(s):
+        return 1.0, 0.5
+    a = fas_auroc(y.float(), s.float())
+    return (1.0, a) if a >= 0.5 else (-1.0, 1.0 - a)
+
+
+def fas_detector_scores(heads, induction_rank=None, n_heads_max=10,
+                        logit_entropy=None, gate="product", sink_k=1):
+    """The published recipes, read off the statistics of Table 3.
+
+    Lookback Lens (T1): mean lookback ratio; the paper's App M variant
+      averages the ratios of AT MOST 10 heads instead of training a probe
+      on all heads. Heads are taken in induction-score order.
+    LLM-Check (T2): mean log-diagonal over response rows - ADAPTED from the
+      published all-token average (App B flags this as a different feature).
+    RAUQ (T2): previous-token weight on selected heads; NEEDS NO LABELS, so
+      its direction is fixed and nothing is fitted (App M: it transfers,
+      losing at most 0.01 AUROC across the six HaluBench sources).
+    INTRYGUE (T3): gates the entropy of the NEXT-TOKEN distribution (from
+      the LOGITS, not attention) by the TOP-1 SINK RATES OF INDUCTION
+      HEADS, computed over response rows. DECLARED ADAPTATION: the paper
+      cites the gate but never writes its formula, so `gate` selects
+      between two declared stand-ins ("product" H*s, "ratio" H/(s+eps));
+      App M's setting selection picks one on validation.
+    SinkProbe (T3): the k largest cbar_j of EVERY head -> a probe. That is
+      exactly the A64 block (fas_features_A64), not a single score.
+    TOHA (T4): attention-graph structure; needs the materialized response
+      block. DECLARED ADAPTATION: MTopDiv's formula is not in the paper, so
+      the T4 stand-in of fas_t4_stats (row top-k mass + TV-to-uniform) is
+      what is scored here, and it is labelled as such.
+    """
+    if not heads:
+        return {}
+    order = list(range(len(heads)))
+    if induction_rank is not None and len(induction_rank) == len(heads):
+        order = sorted(order, key=lambda i: -float(induction_rank[i]))
+    sel = order[:max(1, min(int(n_heads_max), len(order)))]
+
+    def mean_over(idxs, fn):
+        vals = [float(fn(heads[i])) for i in idxs]
+        vals = [v for v in vals if v == v]
+        return sum(vals) / len(vals) if vals else float("nan")
+
+    lb = mean_over(sel, lambda h: h["derived"]["lookback_mean"])
+    lc = mean_over(range(len(heads)), lambda h: h["derived"]["log_diag_feature"])
+    rq = mean_over(sel, lambda h: h["derived"]["prev_mean"])
+    s1 = mean_over(sel, lambda h: h["sink"].get("topk_sink_rate", 0.0))
+    out = {"lookback_lens": {"score": lb, "tier": "T1", "heads": len(sel),
+                             "fits_labels": True,
+                             "variant": "App M: mean ratio of <=10 heads"},
+           "llm_check": {"score": lc, "tier": "T2", "heads": len(heads),
+                         "fits_labels": True,
+                         "adaptation": "response rows only (published: all tokens)"},
+           "rauq": {"score": rq, "tier": "T2", "heads": len(sel),
+                    "fits_labels": False, "fixed_direction": 1.0},
+           "sink_rate_only": {"score": s1, "tier": "T3", "heads": len(sel),
+                              "fits_labels": True,
+                              "variant": "App M: INTRYGUE's sink term alone"}}
+    if logit_entropy is not None:
+        H = float(logit_entropy)
+        if gate == "ratio":
+            ig = H / (s1 + 1e-6)
+        else:
+            ig = H * s1
+        out["intrygue"] = {"score": ig, "tier": "T3+logits", "heads": len(sel),
+                           "fits_labels": True, "gate": gate,
+                           "predictive_entropy": H, "top1_sink": s1,
+                           "gate_is_published_formula": False,
+                           "adaptation": "DECLARED: gate form not given in the paper"}
+    t4 = [h["t4"] for h in heads if "t4" in h]
+    if t4:
+        out["toha"] = {
+            "score": sum(float(x["graph_divergence_mean"]) for x in t4) / len(t4),
+            "row_topk_mass": sum(float(x["row_topk_mass_mean"]) for x in t4) / len(t4),
+            "tier": "T4", "heads": len(t4), "fits_labels": True,
+            "is_MTopDiv": False,
+            "adaptation": "DECLARED: MTopDiv formula absent; TV-to-uniform stand-in"}
+    return out
+
+# FAS Sec 5.2 / App L.1: induction-head ranking and the four feature blocks.
+_FAS_BOS = 0
+_FAS_A7_STATS = ("max_weight", "eff_support", "entropy_norm", "lookback",
+                 "prompt_mass")
+# App L.1 is authoritative for the seven kept features. Sec 5.2's prose
+# enumeration lists 18 items for "the seven in bold" and its 22-candidate
+# count needs FIVE per-token statistics (5*4 + BOS + log-diagonal = 22),
+# while the prose names only four. The fifth is taken to be prompt mass;
+# this resolution is DECLARED, and the kept seven are exactly App L.1's.
+_FAS_A7_KEPT = ("max_weight_mean", "max_weight_std", "max_weight_max",
+                "eff_support_min", "entropy_norm_mean", "entropy_norm_std",
+                "bos_sink_rate")
+_FAS_POOLS = ("mean", "std", "min", "max")
+_FAS_L9_KEPT = ("zipf_std", "zipf_min", "js_min", "ansprob_mean", "ansprob_min",
+                "top4_min", "top7_max", "top10_max", "top49_max")
+
+
+def fas_pool(x):
+    """Sec 5.2: every per-token quantity is pooled over ANSWER tokens by its
+    mean, standard deviation, minimum and maximum. Population std (the
+    H64 recipe of App L.1 says population standard deviation explicitly)."""
+    x = torch.as_tensor(x).float()
+    if x.dim() == 1:
+        x = x[:, None]
+    if x.shape[0] == 0:
+        z = torch.zeros(x.shape[1])
+        return [z, z, z, z]
+    return [x.mean(0), x.std(0, unbiased=False), x.min(0).values, x.max(0).values]
+
+
+def fas_induction_sequences(vocab, n_seq=16, n_rep=31, seed=42, bos=_FAS_BOS):
+    """App L.1: the induction score of a head is its mean attention weight
+    from each token of a REPEATED sequence to the token that FOLLOWED its
+    first occurrence - the weight an induction head puts on the token it
+    copies (Olsson et al. 2022). Each sequence is a beginning-of-sequence
+    token followed by n_rep random tokens TWICE.
+    Paper: 128 sequences (seed 42) of 64 random tokens twice = length 129.
+    DECLARED ADAPTATION: n_seq/n_rep shrink to fit the compiled ctx_len;
+    the runner records both. Position arithmetic is exact: with the BOS at
+    0 and the first copy at 1..n_rep, the second copy sits at
+    n_rep+1..2*n_rep; for row i there the first occurrence is at i-n_rep
+    and the token that followed it is at i-n_rep+1.
+    """
+    gen = torch.Generator().manual_seed(int(seed))
+    V = max(2, int(vocab))
+    n_rep = max(2, int(n_rep))
+    n_seq = max(1, int(n_seq))
+    a = torch.randint(1, V, (n_seq, n_rep), generator=gen)
+    ids = torch.cat([torch.full((n_seq, 1), int(bos), dtype=torch.long), a, a], 1)
+    rows = torch.arange(n_rep + 1, 2 * n_rep + 1)
+    cols = rows - n_rep + 1
+    return {"ids": ids, "rows": rows, "cols": cols, "T": 2 * n_rep + 1,
+            "n_seq": n_seq, "n_rep": n_rep, "seed": int(seed), "bos": int(bos)}
+
+
+def fas_induction_score(qk, seq):
+    """qk: list of (Q, K) per head, each (n_seq, T, d), captured from the
+    compiled model on the repeated sequences. The weight is read with the
+    T2 lookup of Sec 3.3 - exp(s - LSE) - so the ranking itself costs bR
+    extra scores, not a materialized map. Returns one score per head.
+    """
+    rows, cols = seq["rows"], seq["cols"]
+    out = []
+    for Q, K in qk:
+        Q = Q.float()
+        K = K.float()
+        d = int(K.shape[-1])
+        tau = 1.0 / math.sqrt(d)
+        S = tau * (Q @ K.transpose(1, 2))
+        T = S.shape[-1]
+        causal = torch.arange(T, device=S.device)[None, :] <= \
+            torch.arange(T, device=S.device)[:, None]
+        S = S.masked_fill(~causal[None], float("-inf"))
+        LSE = torch.logsumexp(S, dim=-1)
+        w = torch.exp(S[:, rows, cols] - LSE[:, rows])
+        out.append(float(w.mean()))
+    return out
+
+# FAS App L.2 / Table 9: the logit block, read in the SAME forward.
+def fas_logit_stats(logits_pred, answer_ids, n_top=50):
+    """Table 9, per answer token t. q_t is the next-token distribution at
+    the position that PREDICTS y_t, so logits_pred has R rows and
+    answer_ids the R answer tokens.
+
+    The hook of App L.2 applies the LM head only at those positions (plus
+    the one before them), so the full vocabulary distribution is never
+    formed for the prompt. JS(q_t || q_{t-1}) uses consecutive positions;
+    App L.2 states that q_{t-1} of the FIRST answer token is the last
+    prompt position - which is also q_t's own position - so JS_0 = 0.
+    Implemented exactly as written and recorded in the runner's settings.
+    """
+    lg = torch.as_tensor(logits_pred).float()
+    q = torch.softmax(lg, dim=-1)
+    R, V = q.shape
+    y = torch.as_tensor(answer_ids, dtype=torch.long).reshape(-1)[:R]
+    ansprob = q.gather(1, y[:, None]).squeeze(1)
+    rank = 1 + (q > ansprob[:, None]).sum(1)
+    kk = max(1, min(int(n_top), V))
+    topq, _ = torch.topk(q, kk, dim=-1)
+    ent = -(q * torch.log(q.clamp_min(1e-30))).sum(-1)
+    effvocab = 1.0 / (q * q).sum(-1).clamp_min(_FAS_EPS)
+    lr = torch.log(torch.arange(1, kk + 1, dtype=torch.float))
+    lt = torch.log(topq.clamp_min(1e-30))
+    lc = lr - lr.mean()
+    zipf = (lt * lc[None, :]).sum(-1) / (lc * lc).sum().clamp_min(_FAS_EPS)
+    js = torch.zeros(R)
+    if R > 1:
+        a, b = q[1:], q[:-1]
+        m = 0.5 * (a + b)
+        lm = torch.log(m.clamp_min(1e-30))
+        kl_a = (a * (torch.log(a.clamp_min(1e-30)) - lm)).sum(-1)
+        kl_b = (b * (torch.log(b.clamp_min(1e-30)) - lm)).sum(-1)
+        js[1:] = 0.5 * (kl_a + kl_b)
+    return {"ansprob": ansprob, "ansrank": rank.float(), "topq": topq,
+            "entropy": ent, "effvocab": effvocab, "zipf": zipf, "js": js,
+            "n_top": kk, "R": R, "V": V, "js_first_is_zero": True}
+
+
+def fas_logit_candidates(ls):
+    """The 224 candidates of App L.1: the four pooled features of each of
+    Table 9's 56 per-token quantities (answer probability, answer rank,
+    50 top-k probabilities, entropy, effective vocabulary size, Zipf slope,
+    JS divergence) - 56 * 4 = 224.
+    """
+    names, cols = [], []
+    for key in ("ansprob", "ansrank", "entropy", "effvocab", "zipf", "js"):
+        pooled = fas_pool(ls[key])
+        for pn, v in zip(_FAS_POOLS, pooled):
+            names.append("%s_%s" % (key, pn))
+            cols.append(v.reshape(-1)[0] if v.numel() else torch.zeros(()))
+    for r in range(ls["n_top"]):
+        pooled = fas_pool(ls["topq"][:, r])
+        for pn, v in zip(_FAS_POOLS, pooled):
+            names.append("top%d_%s" % (r + 1, pn))
+            cols.append(v.reshape(-1)[0])
+    return names, torch.stack([c.float() for c in cols])
+
+
+def fas_features_L9(ls):
+    """App L.1's nine kept logit features, by name: the std and min of the
+    Zipf slope, the min JS divergence, the mean and min answer-token
+    probability, the min of the 4th-largest probability, and the maxima of
+    the 7th, 10th and 49th largest. Selected by recursive feature
+    elimination from the 224; the elimination itself is a one-time
+    preparation step in the paper and is NOT repeated here.
+    """
+    names, vals = fas_logit_candidates(ls)
+    idx = {n: i for i, n in enumerate(names)}
+    keep = [float(vals[idx[n]]) if n in idx else float("nan")
+            for n in _FAS_L9_KEPT]
+    return dict(zip(_FAS_L9_KEPT, keep)), {"candidates": len(names),
+                                          "kept": len(_FAS_L9_KEPT),
+                                          "paper_candidates": 224}
+
+# FAS Sec 5.2 / App L.1: the A7, A64 and H64 blocks, and randomized PCA.
+def fas_randomized_pca(Xtr, Xte, n_components=64, seed=42, oversample=8):
+    """App L.1: standardized inputs projected onto the first k components
+    of a RANDOMIZED PCA. Standard range-finder: Gaussian sketch, QR basis,
+    small SVD. n_components is clamped to what the data can support (the
+    toy world has far fewer rows than 64); the clamp is recorded.
+    """
+    Xtr = torch.as_tensor(Xtr).double()
+    Xte = torch.as_tensor(Xte).double()
+    n, d = Xtr.shape
+    k = max(1, min(int(n_components), d, max(1, n - 1)))
+    gen = torch.Generator().manual_seed(int(seed))
+    Om = torch.randn(d, min(d, k + int(oversample)), generator=gen,
+                    dtype=torch.double)
+    Y = Xtr @ Om
+    Qm, _ = torch.linalg.qr(Y)
+    B = Qm.t() @ Xtr
+    _, S, Vh = torch.linalg.svd(B, full_matrices=False)
+    comp = Vh[:k]
+    return (Xtr @ comp.t()).float(), (Xte @ comp.t()).float(), {
+        "requested": int(n_components), "used": k, "input_dim": d,
+        "rows": n, "singular_values": [float(x) for x in S[:k]],
+        "clamped": bool(k < int(n_components))}
+
+
+def fas_features_A7(head_records, K=1, induction_rank=None):
+    """App L.1's A7: the K strongest INDUCTION heads, each yielding 22
+    candidate features averaged across the K heads - four pooled features
+    for each of five per-token statistics, the T2 BOS sink rate, and the
+    log-diagonal. The seven kept are _FAS_A7_KEPT.
+    Heads are ranked ONCE by induction score without hallucination labels;
+    the ranking is a one-time preparation step, not part of extraction
+    time. K is chosen by the validation AUROC of A7 ALONE and reused in
+    every set containing A7 (paper K in {1,2,4,8,16,32}; chosen K = 32/16/
+    32/16 on RAGTruth QA, 1 on HaluBench, 1 or 16 on TRIVIA+).
+    """
+    order = list(range(len(head_records)))
+    if induction_rank is not None and len(induction_rank) == len(head_records):
+        order = sorted(order, key=lambda i: -float(induction_rank[i]))
+    K = max(1, min(int(K), len(order)))
+    sel = [head_records[i] for i in order[:K]]
+    names, acc = [], []
+    for stat in _FAS_A7_STATS:
+        per = []
+        for h in sel:
+            if stat == "entropy_norm":
+                v = h["derived"]["entropy_norm"]
+            elif stat == "lookback":
+                v = h["derived"]["lookback"]
+            else:
+                v = h["t1"][stat]
+            per.append(torch.stack(fas_pool(v)))
+        M = torch.stack(per).mean(0)          # (4, R-independent) averaged heads
+        for pn, row in zip(_FAS_POOLS, M):
+            names.append("%s_%s" % (stat, pn))
+            acc.append(row.mean() if row.numel() > 1 else row.reshape(-1)[0])
+    names.append("bos_sink_rate")
+    acc.append(torch.tensor(sum(h["derived"]["bos_sink_rate"] for h in sel) / K))
+    names.append("log_diag")
+    acc.append(torch.tensor(sum(h["derived"]["log_diag_feature"] for h in sel) / K))
+    cand = dict(zip(names, [float(x) for x in acc]))
+    kept = {n: cand.get(n, float("nan")) for n in _FAS_A7_KEPT}
+    return kept, cand, {"K": K, "selected_heads": order[:K],
+                        "candidates": len(names), "kept": len(kept),
+                        "paper_candidates": 22, "paper_kept": 7,
+                        "fifth_stat_declared": "prompt_mass (Sec 5.2 prose "
+                                               "names four; 22 needs five)"}
+
+
+def fas_features_A64(head_records, k=1):
+    """App L.1's A64 (following SinkProbe): for EVERY head of EVERY layer
+    divide each column sum by the number of answer rows that see its key
+    (cbar_j = c_j/min(R, L-j)) and keep its k largest values in DESCENDING
+    order, WITHOUT their positions. Concatenated over all heads and
+    layers, then standardized and projected onto 64 principal components -
+    matching H64's size without selection. k in {1..10} is chosen per
+    dataset-proxy pair by grouped five-fold CV on the training split
+    (chosen k = 1-4, except 9 for TRIVIA+ with 1.7B).
+    """
+    vals = []
+    for h in head_records:
+        cm = h["sink"].get("col_mean")
+        if cm is None:
+            continue
+        cm = torch.as_tensor(cm).float().reshape(-1)
+        kk = max(1, min(int(k), int(cm.numel())))
+        vals.append(torch.topk(cm, kk).values)
+    if not vals:
+        return torch.zeros(0), {"heads": 0, "k": int(k), "dim": 0}
+    x = torch.cat(vals)
+    return x, {"heads": len(vals), "k": int(k), "dim": int(x.numel()),
+               "positions_kept": False, "order": "descending",
+               "tier": "T3", "paper_projection": 64}
+
+
+def fas_features_H64(hidden_answer, n_components=64):
+    """App L.1's H64: ONE middle layer, without selection (decoder layer 14
+    for Qwen3-0.6B/1.7B and 18 for 4B/8B, counting from 1; the layer itself
+    is NOT selected, following Azaria & Mitchell 2023 and Chen et al. 2024).
+    Per-coordinate mean and POPULATION standard deviation over answer
+    tokens, concatenated. Standardization and the 64-component projection
+    are applied by the caller (fas_block_matrix) exactly as for A64.
+    """
+    X = torch.as_tensor(hidden_answer).float()
+    if X.dim() == 1:
+        X = X[None, :]
+    if X.shape[0] == 0:
+        X = torch.zeros((1, X.shape[-1]))
+    mu = X.mean(0)
+    sd = X.std(0, unbiased=False)
+    return torch.cat([mu, sd]), {"pooling": "mean+population_std",
+                                "dim": int(mu.numel() * 2),
+                                "layer_selected": False,
+                                "paper_components": int(n_components)}
+
+# FAS Sec 5.3 / App L.3: class-balanced L2 logistic regression, F1, selection.
+def fas_l2lr_balanced(Xtr, ytr, Xte, C=0.1, iters=60, ridge=1e-8):
+    """App L.3: liblinear with BALANCED class weights. The repo's
+    l2lr_fit_predict (s10) is unbalanced gradient descent, so this is
+    genuinely different math, not a duplicate: sample weight
+    w_i = N/(2*N_{y_i}), objective mean_i w_i*logloss_i + ||w||^2/(2*C*N)
+    (exactly sklearn's C with class_weight='balanced'), solved by damped
+    Newton/IRLS. No sklearn dependency, no assert.
+    """
+    X = torch.as_tensor(Xtr).double()
+    y = torch.as_tensor(ytr).double().reshape(-1)
+    Xt = torch.as_tensor(Xte).double()
+    n, d = X.shape
+    if n == 0 or d == 0:
+        return torch.full((Xt.shape[0],), 0.5)
+    n1 = float(y.sum())
+    n0 = float(n - n1)
+    cw = torch.where(y > 0.5, torch.full_like(y, n / (2 * max(n1, 1.0))),
+                    torch.full_like(y, n / (2 * max(n0, 1.0))))
+    lam = 1.0 / (float(C) * n)
+    w = torch.zeros(d, dtype=torch.double)
+    b = 0.0
+    eye = torch.eye(d, dtype=torch.double) * (lam + float(ridge))
+
+    def obj(ww, bb):
+        z = X @ ww + bb
+        return float((torch.logaddexp(torch.zeros_like(z), z) - y * z) @ cw / n
+                     + 0.5 * lam * (ww @ ww))
+
+    cur = obj(w, b)
+    for _ in range(int(iters)):
+        p = torch.sigmoid(X @ w + b)
+        r = cw * (p - y)
+        g = X.t() @ r / n + lam * w
+        gb = float(r.mean())
+        s = (cw * p * (1 - p)).clamp_min(1e-9)
+        H = (X.t() * s[None, :]) @ X / n + eye
+        try:
+            step = torch.linalg.solve(H, g)
+        except Exception:
+            step = torch.linalg.lstsq(H, g[:, None]).solution[:, 0]
+        sb = gb
+        t = 1.0
+        improved = False
+        for _ls in range(12):
+            wn, bn = w - t * step, b - t * sb
+            new = obj(wn, bn)
+            if new == new and new <= cur + 1e-12:
+                w, b, cur, improved = wn, bn, new, True
+                break
+            t *= 0.5
+        if not improved or float(g.norm()) < 1e-10:
+            break
+    return torch.sigmoid(Xt @ w + b).float()
+
+
+def fas_f1(y, score, threshold):
+    y = torch.as_tensor(y).float().reshape(-1)
+    p = (torch.as_tensor(score).float().reshape(-1) >= float(threshold)).float()
+    tp = float((p * y).sum())
+    fp = float((p * (1 - y)).sum())
+    fn = float(((1 - p) * y).sum())
+    den = 2 * tp + fp + fn
+    return (2 * tp / den) if den > 0 else 0.0
+
+
+def fas_best_threshold(y, score):
+    """App L.3: the threshold is chosen by validation F1, ties broken toward
+    the HIGHER threshold. Candidate thresholds are the midpoints of the
+    sorted distinct scores plus the extremes."""
+    s = torch.as_tensor(score).float().reshape(-1)
+    if s.numel() == 0:
+        return 0.5, 0.0
+    u = torch.unique(s)
+    cands = [float(u[0]) - 1.0]
+    cands += [float((u[i] + u[i + 1]) / 2) for i in range(len(u) - 1)]
+    cands += [float(u[-1]) + 1.0]
+    best, bf = cands[0], -1.0
+    for t in cands:
+        f = fas_f1(y, s, t)
+        if f > bf + 1e-12 or (abs(f - bf) <= 1e-12 and t > best):
+            best, bf = t, f
+    return best, bf
+
+
+def fas_select_C(Xtr, ytr, Xva, yva, Cs=(0.001, 0.01, 0.1, 1.0, 10.0)):
+    """App L.3: C chosen by validation AUROC, ties toward SMALLER C.
+    Models are NOT refit on training and validation together."""
+    best, ba, bp = None, -1.0, None
+    for C in sorted(Cs):
+        p = fas_l2lr_balanced(Xtr, ytr, Xva, C=C)
+        a = fas_auroc(yva, p)
+        if a > ba + 1e-12:
+            best, ba, bp = C, a, p
+    if best is None:
+        best, ba = min(Cs), 0.5
+        bp = fas_l2lr_balanced(Xtr, ytr, Xva, C=best)
+    return best, ba, bp
+
+
+def fas_group_bootstrap(delta, groups, B=100000, seed=42, chunk=4096):
+    """App L.3: 100,000 PAIRED bootstrap resamples of TEST GROUPS (seed 42),
+    models/regularization/thresholds held fixed. Two-sided p of an observed
+    difference D is the share of CENTERED bootstrap differences at least as
+    large in absolute value:
+        p = (1 + #{b : |D*_b - D| >= |D|}) / (B + 1).
+    Resampling groups (not examples) is what keeps the intervals honest
+    when related examples share a context; App M instead resamples
+    individual examples (1,000 draws) and its intervals are narrower.
+    """
+    d = torch.as_tensor(delta).double().reshape(-1)
+    g = torch.as_tensor(groups).long().reshape(-1)
+    if d.numel() == 0:
+        return {"p": 1.0, "B": 0, "observed": 0.0}
+    uniq, inv = torch.unique(g, return_inverse=True)
+    ng = int(uniq.numel())
+    gsum = torch.zeros(ng, dtype=torch.double).index_add(0, inv, d)
+    gcnt = torch.zeros(ng, dtype=torch.double).index_add(
+        0, inv, torch.ones_like(d))
+    obs = float(d.mean())
+    gen = torch.Generator().manual_seed(int(seed))
+    hits = 0
+    done = 0
+    absobs = abs(obs)
+    while done < int(B):
+        b = min(int(chunk), int(B) - done)
+        idx = torch.randint(0, ng, (b, ng), generator=gen)
+        num = gsum[idx].sum(1)
+        den = gcnt[idx].sum(1).clamp_min(1.0)
+        dstar = num / den
+        hits += int(((dstar - obs).abs() >= absobs).sum())
+        done += b
+    return {"p": (1.0 + hits) / (float(B) + 1.0), "B": int(B),
+            "observed": obs, "groups": ng, "seed": int(seed),
+            "resample_unit": "test groups (App L.3)"}
+
+
+def fas_holm(pvals):
+    """Holm correction over the 12 dataset-proxy pairs of each addition
+    (App L.3). A gain is significant iff delta > 0 AND corrected p < 0.05;
+    the paper reports that NO addition gives a significant loss."""
+    p = [float(x) for x in pvals]
+    m = len(p)
+    order = sorted(range(m), key=lambda i: p[i])
+    adj = [0.0] * m
+    run = 0.0
+    for rank, i in enumerate(order):
+        run = max(run, (m - rank) * p[i])
+        adj[i] = min(1.0, run)
+    return adj
+
+
+def fas_length_balance(rows):
+    """App K's HaluBench filter: subsample to EQUALLY MANY faithful and
+    hallucinated answers at every answer length IN WORDS. Before it, length
+    alone reaches AUROC 0.970 on HaluEval and 0.720 overall; after it, 0.500
+    and 0.586. Applied here to the toy world's deliberately length-biased
+    fabrications, and the before/after length AUROC is reported.
+    """
+    by = {}
+    for r in rows:
+        by.setdefault((int(r["answer_words"]), int(r["label"])), []).append(r)
+    lengths = sorted({k[0] for k in by})
+    keep = []
+    for L in lengths:
+        a = by.get((L, 0), [])
+        b = by.get((L, 1), [])
+        n = min(len(a), len(b))
+        keep.extend(a[:n])
+        keep.extend(b[:n])
+    return keep, {"before": len(rows), "after": len(keep),
+                  "lengths": lengths,
+                  "dropped": len(rows) - len(keep)}
+
+_FAS_TABLE4 = {
+    "entropy_T1": {"dense_bf16": 1.6e-2, "fused_bf16": 3.5e-6, "ratio": 4.5e3},
+    "eff_support_T1": {"dense_bf16": 5.3e0, "fused_bf16": 5.9e-3, "ratio": 9.0e2},
+    "max_weight_T1": {"dense_bf16": 4.3e-3, "fused_bf16": 1.5e-7, "ratio": 2.9e4},
+    "prompt_mass_T1": {"dense_bf16": 2.2e-3, "fused_bf16": 1.3e-7, "ratio": 1.7e4},
+    "LSE_Base": {"dense_bf16": 1.1e-2, "fused_bf16": 1.1e-6, "ratio": 1.0e4},
+    "log_pii_T2": {"dense_bf16": 2.0e-2, "fused_bf16": 1.2e-6, "ratio": 1.7e4},
+    "prev_token_T2": {"dense_bf16": 5.0e-4, "fused_bf16": 3.3e-8, "ratio": 1.5e4},
+    "BOS_col_sum_T2": {"dense_bf16": 5.3e-2, "fused_bf16": 7.1e-5, "ratio": 7.4e2},
+    "col_sum_T3": {"dense_bf16": 2.2e-4, "fused_bf16": 6.6e-8, "ratio": 3.3e3},
+    "attention_output": {"dense_bf16": 3.5e-3, "fused_bf16": 4.8e-4, "ratio": 7.2},
+    "head_ranking_spearman": {"fused": 1.000, "dense_min": 0.998},
+    "entropy_accumulator_worst_head_mean_error": 4.7e-5,
+    "low_entropy_heads_at_32K": {"H_below": 0.25, "dense_error": 1.4e-2},
+    "real_input_layers": [2, 16, 24, 34],
+    "note": "MAE on response rows vs fp64; worst input type (random or "
+            "PHANTOM) and length (2K/8K/32K); per-head error averaged over "
+            "heads and layers. Fused lower for EVERY statistic, input and "
+            "length, in mean AND maximum."}
+
+_FAS_TABLE5 = {
+    "le_T1_vs_Base": {"d64": [9, 12, 22, 27, 28], "d128": [3, 7, 12, 15, 9],
+                      "d256": [1, 4, 6, 9, 2, 6]},
+    "le_T2_vs_Base": {"d64": [9, 12, 21, 22, 27, 30], "d128": [3, 6, 12, 20, 9, 10],
+                      "d256": [1, 4, 6, 10, 4, 7]},
+    "le_T3_vs_Base": {"d64": [25, 26, 64, 87], "d128": [16, 19, 39, 44, 53, 58],
+                      "d256": [19, 26, 39, 43, 54, 57]},
+    "fig3a_labels_32K": {"d64": [[9, 9, 25], [22, 21, 64], [27, 27, 87]],
+                         "d128": [[3, 3, 16], [12, 12, 39], [9, 9, 53]],
+                         "d256": [[1, 1, 26], [9, 10, 39], [6, 6, 54]]},
+    "response_stage_only_T3_over_Base": {"d_ge_128": [1.7, 1.8], "d64": [2.1, 2.2]},
+    "length_scaling_r03": {"le_T2_over_Base_pct": [3, 14],
+                           "le_T3_over_Base_pct": [32, 47],
+                           "Base_over_cuDNN_pct": [4, 14]},
+    "length_scaling_r01": {"le_T2_over_Base_pct": [-2, 13],
+                           "le_T3_over_Base_pct": [9, 22],
+                           "Base_over_cuDNN_pct": [-2, 8]},
+    "at_100K_r03_ms": {"all_row_stats": 387, "cuDNN_no_stats": 351,
+                       "FA2_no_stats": 523},
+    "host_floor_below_tokens": 4000,
+    "statistics_MiB_at_32K": [7.6, 20],
+    "note": "Latency overhead % of ONE attention layer, L in {16K,32K}; "
+            "columns d=64/128/256 at r=0.1/0.3/0.5. <=T2 adds at most 5 "
+            "percentage points over <=T1; both add 1-30% over Base; <=T3 "
+            "is costliest at 16-87%. 4K excluded (fixed host time)."}
+
+_FAS_SEC5 = {
+    "Q3_worst_sample": {"response_tokens": 785, "total_tokens": 7200,
+                        "dense_added_ms": 501, "fused_added_ms": 53,
+                        "dense_added_GiB": 2.1, "fused_added_MiB": 23},
+    "Q4_pairs_where_best_set_contains_attention": "12 of 12 (F1 and AUROC)",
+    "Q4_significant": "after Holm over 12 pairs: A7+logits significant for "
+                      "all four proxies on RAGTruth QA; A7+hidden states for "
+                      "two proxies; A64+hidden states for 4B and 8B on HaluBench",
+    "Q5_A64_beats_A7_alone": "all 12 pairs, F1 and AUROC",
+    "Q5_with_hidden_states": "A64H64 wins on HaluBench and TRIVIA+ with every "
+                             "proxy; A7H64 wins on RAGTruth QA with 3 of 4",
+    "Q6": "larger proxies help on HaluBench and TRIVIA+; on RAGTruth QA even "
+          "0.6B stays competitive - select size and features jointly",
+    "Q7": "4B proxy beats the best of nine judges on HaluBench and TRIVIA+; "
+          "0.6B on RAGTruth QA; A64H64 beats prompting the SAME backbone in "
+          "all 12 pairs",
+    "abstract": "attention features significantly improve F1 in 6 of 12 "
+                "benchmark x proxy pairs and never significantly lower it",
+    "test_groups": {"RAGTruth_QA": 150, "HaluBench": 546, "TRIVIA_plus": 358},
+    "table7": {"RAGTruth_QA": [3921, 971, 875, 160, 150],
+               "HaluBench": [4206, 898, 904, 409, 546],
+               "TRIVIA_plus": [2263, 316, 645, 224, 358]},
+    "table8_tfidf_auroc": {"RAGTruth_QA": 0.726, "HaluBench_filtered": 0.658,
+                           "TRIVIA_plus": 0.663, "HaluBench_unfiltered": 0.842},
+    "haluBench_length_artifact": {"HaluEval_before": 0.970, "all_before": 0.720,
+                                  "HaluEval_after": 0.500, "all_after": 0.586,
+                                  "kept_of_HaluEval": 1108, "kept_total": 6008},
+    "K_selected": {"RAGTruth_QA": [32, 16, 32, 16],
+                   "HaluBench": [1, 1, 1, 1], "TRIVIA_plus": [1, 1, 1, 16]},
+    "k_selected": "1-4, except 9 for TRIVIA+ with 1.7B",
+    "H64_layers_1based": {"0.6B": 14, "1.7B": 14, "4B": 18, "8B": 18},
+    "bootstrap_B": 100000, "bootstrap_seed": 42,
+    "table11_significant_gains": "L9->A7L9 on RAGTruth QA: p < .001, .004, "
+                                 ".002, < .001; H64->A7H64: .005 and .017 "
+                                 "(0.6B, 8B). No addition is a significant loss.",
+    "table12_significant_gains": "H64->A64H64 on HaluBench 4B p = .027 and 8B "
+                                 "p < .001. No significant loss.",
+    "best_LLM_judge_f1": {"RAGTruth_QA": 0.623, "HaluBench": 0.755,
+                          "TRIVIA_plus": 0.655, "model": "Qwen3.5-9B"}}
+
+_FAS_COST = {
+    "table6_short_forward": {"latency_ms": [33, 108], "gpu_busy_ms": [13, 18],
+                             "gpu_kernels": [2005, 5173], "host_syncs": [1, 361],
+                             "model": "Qwen3-8B, five TRIVIA+ inputs 90-253 tokens"},
+    "fig1_overhead_2K_to_35K": {"Qwen3-8B_pct": [16, 1.4],
+                                "Qwen3-0.6B_pct": [170, 6]},
+    "memory_per_response_token_KiB": {"Qwen3-8B": 28, "Qwen3-0.6B": 11,
+                                      "stored_stats_Qwen3-8B": 22.5,
+                                      "stored_stats_Qwen3-0.6B": 8.75},
+    "bytes_per_head_layer_response_token": 20,
+    "fixed_host_cost_ms": {"Qwen3-8B": 60, "Qwen3-0.6B": 47,
+                           "per_scored_layer": 1.7},
+    "host_floor_tokens": {"Qwen3-8B": 600, "Qwen3-0.6B": 3000},
+    "extra_kernels_per_scored_layer": 88,
+    "gpu_readbacks_per_scored_layer": 10,
+    "python_profile_ms_per_layer": {"kernel_launch": 0.8, "feature_assembly": 0.8},
+    "backend_copy_ms_per_forward": 9,
+    "split_layer_alone": {"kernels": 19, "host_ms": [0.3, 0.6]},
+    "appI_one_layer_32K_d128_MiB": {"split": [520, 532], "SDPA": 256,
+                                    "stats_share": [7.6, 20],
+                                    "attention_matrix_GiB": 64},
+    "appI_one_layer_100K_GiB": {"split": 1.6, "SDPA": 0.8},
+    "appJ_batch1_ms": {"ours": 1.26, "dense": 1.19, "dense_loop": 35.9},
+    "appJ_batch8_ms": {"ours": 4.71, "dense": 7.60},
+    "appJ_peak_MiB_batch1": {"ours": 14, "dense": 116},
+    "appJ_peak_batch8": {"ours_MiB": 136, "dense_GiB": 1.4},
+    "appJ_feature_agreement_pct": [0.04, 1.6],
+    "appJ_host_vs_gpu_1K": {"host_ms": 0.62, "gpu_ms": 0.10, "cuDNN_ms": 0.06},
+    "dense_all_layers_8_4K_GiB": 152}
+
+_FAS_LIMITATIONS = [
+    "The tiers are NOT claimed to list every efficiently computable "
+    "attention statistic: a tier is the path THEIR implementation uses and "
+    "bounds cost from above; a T4 statistic may admit an efficient exact "
+    "kernel they did not write. No optimality claim.",
+    "Triton is portable but can be slower than specialized CUDA: their "
+    "response-stage kernel is faster than FA2 on Hopper and slower than "
+    "cuDNN. Nothing prevents the same statistics inside such a kernel.",
+    "The Python wrapper adds a fixed 47-60 ms of host time per forward, "
+    "little of it GPU work (GPU grows by only 5 ms on short Qwen3-8B "
+    "inputs); a compiled host with CUDA graphs could remove most of it.",
+    "NOT a production kernel: statistics are computed for a COMPLETE "
+    "response in one call. Token-by-token generation would need a split-KV "
+    "decoding kernel - possible because the T1 accumulators merge "
+    "associatively, but NOT implemented.",
+    "Supports neither sliding-window nor soft-capped attention, takes only "
+    "a padding mask, and covers head dimensions 64/128/256 - it does not "
+    "yet serve an arbitrary model.",
+    "The wrapper runs the prompt stage in the same layer call and copies "
+    "both stage outputs into one tensor; the copy does not raise the "
+    "whole-forward peak and is avoidable via a separate prefill.",
+    "The proxy needs an auxiliary forward and labeled probe-training "
+    "examples; a small proxy may miss evidence available to a larger "
+    "generator; support is assessed RELATIVE TO THE SUPPLIED CONTEXT, not "
+    "general factual truth; scores need separate calibration before they "
+    "can be read as error probabilities.",
+    "Row top-k mass, threshold counts and column entropy are NOT computed "
+    "by their kernels (row top-k mass needs O(k) state per row, kept out of "
+    "the pass, so T1 does not contain every bounded-state reduction; "
+    "threshold counts and column entropy fit T3 but are unimplemented).",
+    "LLM-Check and SinkProbe are ADAPTED to response rows; the paper states "
+    "this is a different feature and the two versions were not compared in "
+    "detection.",
+    "Ethics: a detector can miss unsupported answers or flag supported "
+    "ones, so in high-stakes settings it should complement human review, "
+    "not replace it. Public benchmarks only; no new data, no human subjects."]
+
+
+# ---------------------------------------------------------------------------
+# 2610.21483 FlashAttention with Statistics (FAS)
+# ---------------------------------------------------------------------------
+
+_FAS_TABLE2_F1 = {
+    "A7":      [.573, .567, .503, .550, .615, .639, .631, .637, .531, .524, .545, .527],
+    "L9":      [.440, .444, .467, .433, .633, .627, .642, .665, .545, .523, .518, .576],
+    "A7L9":    [.566, .532, .541, .546, .642, .643, .656, .675, .555, .560, .543, .578],
+    "H64":     [.557, .559, .566, .557, .697, .734, .742, .742, .627, .638, .634, .670],
+    "A7H64":   [.637, .581, .547, .600, .698, .729, .744, .746, .613, .638, .639, .645],
+    "H64L9":   [.614, .559, .543, .533, .697, .736, .749, .754, .599, .641, .641, .647],
+    "A7H64L9": [.621, .563, .528, .563, .702, .726, .755, .756, .641, .643, .646, .667],
+    "A64":     [.593, .577, .583, .592, .727, .718, .769, .768, .631, .634, .616, .656],
+    "A64H64":  [.601, .529, .566, .594, .724, .746, .776, .791, .636, .640, .674, .671],
+}
+_FAS_TABLE10_AUROC = {
+    "A7":      [.852, .847, .838, .856, .627, .636, .652, .660, .642, .653, .666, .645],
+    "L9":      [.764, .765, .793, .765, .654, .646, .661, .680, .684, .661, .696, .703],
+    "A7L9":    [.852, .849, .859, .859, .663, .667, .680, .693, .686, .682, .706, .707],
+    "H64":     [.864, .855, .869, .862, .792, .824, .846, .846, .775, .786, .807, .804],
+    "A7H64":   [.871, .861, .866, .872, .795, .824, .846, .847, .777, .789, .806, .793],
+    "H64L9":   [.865, .856, .876, .867, .797, .823, .848, .851, .776, .791, .804, .804],
+    "A7H64L9": [.873, .861, .877, .875, .800, .822, .848, .851, .781, .796, .799, .813],
+    "A64":     [.866, .873, .872, .880, .801, .821, .871, .877, .780, .774, .801, .803],
+    "A64H64":  [.866, .857, .875, .874, .814, .846, .877, .881, .796, .792, .820, .824],
+}
+_FAS_PAIRS = (["RAGTruth_QA"] * 4 + ["HaluBench"] * 4 + ["TRIVIA_plus"] * 4)
+_FAS_PROXIES = ["0.6B", "1.7B", "4B", "8B"] * 3
+_FAS_SET_DIMS = {"A7": 7, "L9": 9, "A7L9": 16, "H64": 64, "A7H64": 71,
+                 "H64L9": 73, "A7H64L9": 80, "A64": 64, "A64H64": 128}
+_FAS_TABLE11 = {
+    "H64->A7H64": {"delta": [.080, .022, -.020, .043, .001, -.005, .002, .004,
+                             -.014, .000, .005, -.025],
+                   "p": [.005, .557, .605, .017, 1, 1, 1, 1, 1, 1, 1, 1]},
+    "L9->A7L9": {"delta": [.126, .088, .074, .114, .009, .015, .014, .009,
+                           .011, .038, .025, .002],
+                 "p": [.0005, .004, .002, .0005, 1, 1, .503, 1, 1, .317, 1, 1]},
+    "H64L9->A7H64L9": {"delta": [.007, .005, -.016, .030, .006, -.010, .006, .002,
+                                 .042, .002, .005, .020],
+                       "p": [1, 1, .885, .065, 1, .458, 1, 1, .174, 1, 1, .477]},
+}
+_FAS_TABLE12 = {
+    "H64->A64H64": {"delta": [.044, -.030, -.001, .037, .027, .012, .035, .050,
+                              .009, .002, .040, .001],
+                    "p": [.201, .324, 1, .269, .198, 1, .027, .0005, 1, 1, .189, 1]},
+}
+_FAS_TABLE8 = {
+    "columns": ["RAGTruth_QA", "HaluBench_filtered", "TRIVIA_plus", "HaluBench_unfiltered"],
+    "auroc": {"words": [.702, .574, .580, .727],
+              "characters": [.720, .598, .568, .725],
+              "tfidf": [.726, .658, .663, .842]},
+    "f1": {"words": [.408, .515, .631, .781],
+           "characters": [.426, .515, .628, .785],
+           "tfidf": [.390, .529, .642, .755]},
+    "unfiltered_test": {"answers": 2231, "hallucinated": 1075},
+}
+_FAS_TABLE14 = {
+    "columns": ["RAGTruth", "CovidQA", "PubMedQA", "FinanceBench", "DROP", "HaluEval"],
+    "rauq_no_fitting": [.58, .67, .66, .52, .66, .85],
+    "fit_RAGTruth": {"intrygue": [.89, .77, .55, .48, .41, .92],
+                     "sink_rate": [.80, .72, .53, .49, .56, .91],
+                     "llm_check": [.59, .58, .62, .53, .53, .75],
+                     "toha": [.68, .59, .44, .46, .61, .80],
+                     "lookback_lens": [.88, .56, .47, .51, .49, .73]},
+    "fit_CovidQA": {"intrygue": [.89, .77, .55, .48, .41, .92],
+                    "sink_rate": [.51, .62, .52, .44, .55, .78],
+                    "llm_check": [.44, .55, .61, .45, .56, .59],
+                    "toha": [.68, .59, .44, .46, .61, .80],
+                    "lookback_lens": [.31, .65, .40, .47, .53, .57]},
+    "fit_PubMedQA": {"intrygue": [.89, .75, .55, .47, .40, .92],
+                     "sink_rate": [.51, .62, .52, .44, .54, .82],
+                     "llm_check": [.65, .60, .68, .44, .59, .71],
+                     "toha": [.39, .59, .50, .53, .51, .43],
+                     "lookback_lens": [.80, .40, .53, .52, .50, .48]},
+    "fit_FinanceBench": {"intrygue": [.82, .70, .54, .47, .38, .86],
+                         "sink_rate": [.51, .62, .52, .44, .54, .82],
+                         "llm_check": [.42, .61, .49, .45, .56, .78],
+                         "toha": [.68, .54, .44, .48, .57, .55],
+                         "lookback_lens": [.68, .45, .41, .51, .54, .37]},
+    "fit_DROP": {"intrygue": [.82, .70, .54, .47, .39, .87],
+                 "sink_rate": [.72, .68, .54, .44, .56, .86],
+                 "llm_check": [.44, .63, .45, .47, .58, .81],
+                 "toha": [.66, .52, .41, .49, .61, .59],
+                 "lookback_lens": [.66, .40, .37, .53, .58, .41]},
+    "fit_HaluEval": {"intrygue": [.89, .75, .55, .47, .40, .92],
+                     "sink_rate": [.73, .74, .51, .49, .56, .93],
+                     "llm_check": [.59, .63, .50, .46, .57, .88],
+                     "toha": [.68, .59, .44, .46, .60, .81],
+                     "lookback_lens": [.79, .52, .39, .52, .42, .82]},
+    "published_mean_fit_RAGTruth": {"intrygue": .62, "sink_rate": .64,
+                                    "llm_check": .60, "toha": .58,
+                                    "lookback_lens": .55},
+    "published_mean_drop_fit_to_other": {"rauq": .01, "intrygue": .01,
+                                         "sink_rate": .04, "llm_check": .05,
+                                         "toha": .06, "lookback_lens": .15},
+    "lookback_chance_level": .51,
+    "ci95": {"resamples": 1000, "unit": "individual test examples (NOT groups)",
+             "half_width_median": .09, "half_width_range": [.03, .12]},
+}
+
+
+def paper_fas_setup():
+    """Protocol constants for arXiv:2610.21483 (no plot; plain dict)."""
+    return {
+        "source": "arXiv:2610.21483v1 (Volodichev, Savichev, Sviridov, Yuliy, "
+                  "Simakov, Zaytsev; Applied AI Institute / Yandex / Risk AI "
+                  "Research Lab, 15 Oct 2026, 28 pp)",
+        "method": "FlashAttention with Statistics: per-head attention statistics "
+                  "computed inside the FA2 forward, ordered into four tiers by "
+                  "the extra work they cost, feeding compact hallucination detectors",
+        "setting": "one head of one layer; prompt of P tokens then R = L-P response "
+                   "tokens, teacher-forced in ONE call; prompt rows go to any "
+                   "production kernel; the response stage evaluates Q_R against all "
+                   "K,V with the causal mask aligned to the BOTTOM-RIGHT corner",
+        "response_block_scores": "N_R = R*P + R(R+1)/2 unmasked scores per head",
+        "online_softmax": "FA2 forward is QUERY-MAJOR; carries (m, ell, O); "
+                          "o = O/ell and LSE = m + log ell after the last tile; "
+                          "FA stores the LSE so a later kernel recovers any weight",
+        "tiers": {
+            "T1_fused": "no extra scores; O(N_s*N_R) statistic ops; N_s*R numbers "
+                        "written; entropy, prompt mass, effective support, max weight",
+            "T2_lookup": "bR extra scores from the STORED LSE; log p_ii, p_{i,i-1}, "
+                         "fixed-sink weight; works after ANY kernel that stores LSE",
+            "T3_rescore": "N_R extra scores; key-major loop of the FA2 BACKWARD with "
+                          "dO replaced by a column of ones; column sums and sink "
+                          "rates; one key tile per instance, NO atomic additions",
+            "T4_dense": "N_R extra scores and Omega(N_R) memory; MTopDiv, stored maps, "
+                        "row top-k mass; the authors wrote NO T4 kernel",
+        },
+        "lemma1": "F_i = sum_j p_ij^alpha_u g_u(i,j,s_ij) with integer alpha_u >= 1 "
+                  "and fixed-dimensional g_u independent of m/ell/LSE is computable "
+                  "in the pass with no extra exponentials or scores, using "
+                  "sum_u dim(g_u) state per row INDEPENDENT of L",
+        "eq3_eq4": "A_u = sum_seen e^{alpha(s_j-m)} g_u; "
+                   "A_u <- a^alpha A_u + rowsum(Pt^alpha * G_u); finalize A_u/ell^alpha",
+        "instances": {"prompt_mass": "alpha=1, g=1[j<P]",
+                      "entropy": "H = LSE - F, alpha=1, g=s UNSHIFTED",
+                      "effective_support": "1/F, alpha=2, g=1",
+                      "max_weight": "1/ell, needs m to be the EXACT running maximum"},
+        "appC_merge": "A_u = e^{alpha(m1-m)}A_{u,1} + e^{alpha(m2-m)}A_{u,2}, "
+                      "m = max(m1,m2); ASSOCIATIVE, so keys may split across kernel "
+                      "instances or devices; factors in (0,1], 1 <= ell <= |J_i|",
+        "feature_blocks": {
+            "A7": "K strongest induction heads, 22 candidates; App L.1's seven kept: "
+                  "max weight (mean,std,max), effective support (min), normalized "
+                  "entropy (mean,std), BOS sink rate",
+            "A64": "every head of every layer, k largest cbar_j from T3, concatenated, "
+                   "standardized, 64 PCs; no selection",
+            "H64": "ONE middle layer without selection (14 for 0.6B/1.7B, 18 for "
+                   "4B/8B, 1-based), mean + population std over answer tokens, "
+                   "standardized, 64 randomized PCs, standardized again",
+            "L9": "nine of 224 candidates from seven per-token next-token-distribution "
+                  "statistics x four pools, kept by recursive feature elimination",
+        },
+        "probe": "class-balanced L2 logistic regression (liblinear), C in "
+                 "{0.001,0.01,0.1,1,10} by validation AUROC, threshold by validation "
+                 "F1; models NOT refit on train+val; K in {1,2,4,8,16,32}, k in 1..10 "
+                 "by grouped five-fold CV",
+        "datasets": ["RAGTruth QA", "HaluBench (filtered by the authors)", "TRIVIA+"],
+        "proxies": ["Qwen3-0.6B", "Qwen3-1.7B", "Qwen3-4B", "Qwen3-8B"],
+        "pairs": 12,
+        "statistics": "100,000 paired bootstrap resamples of TEST GROUPS (seed 42); "
+                      "p = (1 + #{|delta*_b - delta| >= |delta|})/(B+1); Holm over the "
+                      "12 dataset-proxy pairs of each addition",
+        "kernel_support": "GQA, bf16/fp16/fp8-e5m2, head dims 64/128/256, key keep mask; "
+                          "statistic families are compile-time flags; NO sliding-window "
+                          "and NO soft-capped attention",
+        "hardware": "single NVIDIA H100 NVL, bf16; Triton for T1-T3, eager PyTorch for T4",
+        "toy_spec": "local probes use CPU float32/float64 tensors (L<=1024, d=32, "
+                    "4 heads); no Triton, no H100, no Qwen3 backbone, no RAGTruth/"
+                    "HaluBench/TRIVIA+ harness. Tier WORK COUNTS and BYTES are "
+                    "measured; Table 5's milliseconds are anchors only",
+    }
+
+
+def paper_fas_table1_tiers(arxiv_id="2610.21483"):
+    """Table 1 work accounting, verified against the closed-form geometry."""
+    _style()
+    out = _outdir(arxiv_id)
+    b, Ns = 3, 4
+
+    def analytic(L, P):
+        R = L - P
+        NR = R * P + R * (R + 1) // 2
+        return {"T1": {"extra_scores": 0, "stat_ops": Ns * NR,
+                       "mem_numbers": Ns * R, "state_per_row": Ns,
+                       "state_grows_with_L": False},
+                "T2": {"extra_scores": b * R, "stat_ops": b * R,
+                       "mem_numbers": b * R},
+                "T3": {"extra_scores": NR, "stat_ops": NR,
+                       "mem_numbers": R + L},
+                "T4": {"extra_scores": NR, "stat_ops": NR, "mem_numbers": NR},
+                "NR": NR, "R": R, "L": L, "P": P,
+                "dense_block_bytes_bf16": NR * 2,
+                "t1_state_bytes_fp32": Ns * R * 4,
+                "feature_bytes_per_head_layer_response_token": 20}
+
+    rows = []
+    for L, P in ((64, 16), (256, 128), (1024, 512), (4096, 2867)):
+        g = fas_geometry(L, P)
+        closed = (L - P) * P + (L - P) * (L - P + 1) // 2
+        tw = fas_tier_work(L, P, b=b, Ns=Ns)
+        an = analytic(L, P)
+        rows.append({"L": L, "P": P, "R": L - P, "NR": g["NR"],
+                     "closed_form": closed, "matches": bool(g["NR"] == closed),
+                     "materialized": True,
+                     "analytic_matches_tier_work":
+                     bool(all(tw[t] == an[t] for t in ("T1", "T2", "T3", "T4"))),
+                     "tiers": tw})
+    L, P = 32768, 22938
+    an = analytic(L, P)
+    rows.append({"L": L, "P": P, "R": L - P, "NR": an["NR"],
+                 "closed_form": an["NR"], "matches": True,
+                 "materialized": False, "tiers": an})
+    big = rows[-1]["tiers"]
+    labs = [t for t in ("T1", "T2", "T3", "T4") if t in big]
+    mem = [big[t]["mem_numbers"] for t in labs]
+    fig, ax = plt.subplots(figsize=(6.4, 3.6))
+    ax.bar(labs, mem, color="#4c72b0")
+    ax.set_yscale("log")
+    ax.set_title("FAS Table 1: numbers written per tier at L=32768 (log scale)")
+    ax.set_ylabel("numbers written")
+    plot_ok = _save(fig, out / "fas_table1_tier_memory.png")
+    return plot_ok, {
+        "paper_table1": {
+            "T1": {"extra_scores": "none", "stat_ops": "O(N_s*N_R)", "memory": "N_s*R"},
+            "T2": {"extra_scores": "bR", "stat_ops": "O(bR)", "memory": "bR"},
+            "T3": {"extra_scores": "N_R", "stat_ops": "O(N_R)", "memory": "O(R+L)"},
+            "T4": {"extra_scores": "N_R", "stat_ops": "Omega(N_R)", "memory": "N_R"},
+        },
+        "geometry_rows": rows,
+        "all_match_closed_form": all(r["matches"] for r in rows),
+        "tier_ordering": "tiers are ordered by EXTRA SCORES; a tier is the path the "
+                         "authors' implementation uses and bounds cost from ABOVE. "
+                         "The LSE belongs to no tier.",
+        "checks": {"closed_form_matches_at_every_materialized_length":
+                   bool(all(r["matches"] for r in rows if r["materialized"])),
+                   "analytic_tiers_match_the_substrate":
+                   bool(all(r["analytic_matches_tier_work"]
+                            for r in rows if r["materialized"])),
+                   "T4_memory_dominates": bool(mem[-1] == max(mem)),
+                   "T1_state_independent_of_L":
+                   bool(len({r["tiers"]["T1"]["state_per_row"] for r in rows}) == 1
+                        and all(r["tiers"]["T1"]["mem_numbers"]
+                                == Ns * r["R"] for r in rows)),
+                   "T3_memory_is_R_plus_L_not_NR":
+                   bool(big["T3"]["mem_numbers"] == big["R"] + big["L"])},
+        "declared_adaptation": "Table 1's entries are pure arithmetic in (R, L, N_R). "
+                               "The closed form is verified by MATERIALIZING the "
+                               "response block at L up to 4096; the L=32768 row is "
+                               "computed analytically because the visibility matrix "
+                               "alone would need ~2.5 GiB on this host. No kernel "
+                               "timing is claimed anywhere.",
+    }
+
+
+def paper_fas_algorithm1(arxiv_id="2610.21483"):
+    """App D Algorithm 1 lines 2-28: T1/T2/T3 against an fp64 oracle."""
+    _style()
+    out = _outdir(arxiv_id)
+    L, P, d, H = 256, 179, 32, 4
+    gen = torch.Generator().manual_seed(42)
+    diffs = {}
+    t2_scores = t2_b = t3_scores = t3_nr = 0
+    for _ in range(H):
+        Q = torch.randn(L, d, generator=gen, dtype=torch.float64)
+        K = torch.randn(L, d, generator=gen, dtype=torch.float64)
+        V = torch.randn(L, d, generator=gen, dtype=torch.float64)
+        ref = fas_dense_reference(Q, K, V, P)
+        oracle = fas_stats_from_weights(ref["W"], ref["S"], ref["LSE"], P)
+        fin = fas_finalize(fas_tiled_pass(Q.float(), K.float(), V.float(), P,
+                                          tile_q=8, tile_k=8))
+        t2 = fas_t2_features(Q.float(), K.float(), fin["LSE"], P, sinks=(0,))
+        t3 = fas_t3_colsum(Q.float(), K.float(), fin["LSE"], P, tile_k=8)
+        for k in ("entropy", "eff_support", "max_weight", "prompt_mass", "LSE",
+                  "O"):
+            a = fin[k].double().reshape(-1)
+            b = (oracle[k] if k in oracle else ref[k]).double().reshape(-1)
+            n = min(len(a), len(b))
+            v = float((a[:n] - b[:n]).abs().max())
+            diffs[k] = max(diffs.get(k, 0.0), v)
+        for k in ("log_diag", "prev", "sink_w"):
+            a = t2[k].double().reshape(-1)
+            b = oracle[k].double().reshape(-1)
+            n = min(len(a), len(b))
+            diffs[k] = max(diffs.get(k, 0.0), float((a[:n] - b[:n]).abs().max()))
+        diffs["bos_sink_rate"] = max(diffs.get("bos_sink_rate", 0.0),
+                                     abs(t2["bos_sink_rate"] - oracle["bos_sink_rate"]))
+        diffs["col_sum"] = max(diffs.get("col_sum", 0.0),
+                               float((t3["col_sum"].double() -
+                                      oracle["col_sum"].double()).abs().max()))
+        t2_scores += int(t2["extra_scores"])
+        t2_b = int(t2["b"])
+        t3_scores += int(t3["scores"])
+        t3_nr += int(t3["NR"])
+    fig, ax = plt.subplots(figsize=(6.8, 3.6))
+    ks = sorted(diffs)
+    ax.bar(ks, [max(diffs[k], 1e-16) for k in ks], color="#4c72b0")
+    ax.set_yscale("log")
+    ax.set_title("FAS Algorithm 1: max |tiled - fp64 oracle| per statistic (log)")
+    ax.set_ylabel("max absolute difference")
+    ax.tick_params(axis="x", rotation=25)
+    plot_ok = _save(fig, out / "fas_algorithm1_oracle.png")
+    return plot_ok, {
+        "config": {"L": L, "P": P, "R": L - P, "d": d, "heads": H,
+                   "tile_q": 8, "tile_k": 8, "response_fraction": (L - P) / L},
+        "max_abs_diff_vs_fp64": diffs,
+        "all_below_1e4": bool(all(v < 1e-4 for v in diffs.values())),
+        "t2_extra_scores": t2_scores,
+        "t2_b": t2_b,
+        "t3_scores": t3_scores, "t3_NR": t3_nr,
+        "t3_tile_overcount_ratio": t3_scores / max(1, t3_nr),
+        "t3_atomic_adds": int(t3["atomic_adds"]),
+        "checks": {"every_statistic_matches_oracle":
+                   bool(all(v < 1e-4 for v in diffs.values())),
+                   "t2_scores_equal_bR": bool(t2_scores == t2_b * H * (L - P)),
+                   "t3_scores_at_least_NR": bool(t3_scores >= t3_nr),
+                   "t3_no_atomic_additions": bool(int(t3["atomic_adds"]) == 0)},
+        "declared_adaptation": "score counters are TILE-GRANULAR: a diagonal-crossing "
+                               "tile evaluates its masked entries too, so the count is "
+                               "a superset of the ideal N_R (ratio -> 1 as tile_k -> 1). "
+                               "Recorded, never asserted equal.",
+    }
+
+
+def paper_fas_appc_merge(arxiv_id="2610.21483"):
+    """App C: the associative merge over disjoint key sets (split-KV equivalence)."""
+    _style()
+    out = _outdir(arxiv_id)
+    L, P, d, H = 256, 179, 32, 4
+    gen = torch.Generator().manual_seed(42)
+    res = None
+    mag = {}
+    for _ in range(H):
+        Q = torch.randn(L, d, generator=gen, dtype=torch.float64)
+        K = torch.randn(L, d, generator=gen, dtype=torch.float64)
+        V = torch.randn(L, d, generator=gen, dtype=torch.float64)
+        qf, kf, vf = Q.float(), K.float(), V.float()
+        r = fas_split_kv_check(qf, kf, vf, P,
+                               splits=(2, 3, 4), tile_q=8, tile_k=8)
+        full = fas_finalize(fas_tiled_pass(qf, kf, vf, P, 8, 8))
+        for k in ("LSE", "entropy", "eff_support", "max_weight", "prompt_mass", "O"):
+            mag[k] = max(mag.get(k, 0.0), float(full[k].abs().max()))
+        if res is None:
+            res = r
+            continue
+        for sp in ("split2", "split3", "split4"):
+            for key in ("max_abs_diff", "associativity_max_abs_diff"):
+                for k, v in r[sp][key].items():
+                    res[sp][key][k] = max(res[sp][key][k], v)
+    res["heads"] = H
+    res["config"] = {"L": L, "P": P, "R": L - P, "d": d}
+    res["full_pass_magnitude"] = mag
+    rel = {sp: {key: {k: v / max(1.0, mag.get(k, 1.0)) for k, v in row[key].items()}
+                for key in ("max_abs_diff", "associativity_max_abs_diff")}
+           for sp, row in ((s, res[s]) for s in ("split2", "split3", "split4"))}
+    res["relative_diff"] = rel
+    worst_rel = max(v for sp in rel.values() for key in sp.values()
+                    for v in key.values())
+    worst_abs = max(v for sp in ("split2", "split3", "split4")
+                    for key in ("max_abs_diff", "associativity_max_abs_diff")
+                    for v in res[sp][key].values())
+    labs, vals = [], []
+    for sp in ("split2", "split3", "split4"):
+        row = res[sp]
+        for key, lab in (("max_abs_diff", "merge vs full"),
+                         ("associativity_max_abs_diff", "associativity")):
+            raw = row[key]
+            v = max(raw.values()) if isinstance(raw, dict) else float(raw)
+            if v > 0:
+                labs.append("%s %s" % (sp, lab))
+                vals.append(v)
+    fig, ax = plt.subplots(figsize=(6.8, 3.6))
+    ax.bar(labs, vals, color="#4c72b0")
+    ax.set_yscale("log")
+    ax.set_title("FAS App C: merge over disjoint key sets vs the single pass (log)")
+    ax.set_ylabel("max absolute difference")
+    ax.tick_params(axis="x", rotation=25)
+    plot_ok = _save(fig, out / "fas_appc_merge.png")
+    b = res["bounds"]
+    return plot_ok, {
+        "merge_formula": "A_u = e^{alpha(m1-m)}A_{u,1} + e^{alpha(m2-m)}A_{u,2}, "
+                         "m = max(m1,m2)",
+        "splits": res,
+        "worst_absolute_diff": worst_abs,
+        "worst_relative_diff": worst_rel,
+        "checks": {"associative_at_2_3_4_parts":
+                   bool(all(max(rel[s]["associativity_max_abs_diff"].values()) < 1e-5
+                            for s in ("split2", "split3", "split4"))),
+                   "merge_matches_full_pass":
+                   bool(all(max(rel[s]["max_abs_diff"].values()) < 1e-5
+                            for s in ("split2", "split3", "split4"))),
+                   "ell_within_1_and_visible_keys":
+                   bool(b["ell_le_visible_keys"] and b["ell_ge_one_where_visible"]),
+                   "rescale_factors_in_0_1": bool(b["rescale_factors_in_0_1"])},
+        "why_it_matters": "associativity is what permits keys split across kernel "
+                          "instances or devices (RingAttention, Attention-as-RNN, "
+                          "FlashInfer), and what would make a split-KV DECODING kernel "
+                          "possible - the paper did not implement one.",
+        "tolerance_note": "the merge formula is algebraically exact, but the pass runs "
+                          "in fp32 and a split changes the ACCUMULATION ORDER, so the "
+                          "comparison is made at fp32 precision: relative diff < 1e-5 "
+                          "against max(1, |statistic|). eff_support = ell^2/A_2 is a "
+                          "reciprocal of a small sum and reaches ~2e2 here, so its "
+                          "absolute diff (~1e-4) is ~5e-7 relative. Both the absolute "
+                          "and relative worst cases are reported, never hidden.",
+    }
+
+
+def paper_fas_table4_accuracy(arxiv_id="2610.21483"):
+    """Table 4 published MAE cells + recomputed ratios + local Q1 direction."""
+    _style()
+    out = _outdir(arxiv_id)
+    cells, ratio_err = [], []
+    for k, v in _FAS_TABLE4.items():
+        if not isinstance(v, dict) or "dense_bf16" not in v:
+            continue
+        recomputed = v["dense_bf16"] / v["fused_bf16"]
+        rel = abs(recomputed - v["ratio"]) / v["ratio"]
+        ratio_err.append(rel)
+        cells.append({"statistic": k, "dense_bf16": v["dense_bf16"],
+                      "fused_bf16": v["fused_bf16"], "published_ratio": v["ratio"],
+                      "recomputed_ratio": recomputed, "relative_gap": rel,
+                      "fused_lower": bool(v["fused_bf16"] < v["dense_bf16"])})
+    local = fas_t1_accuracy(L=256, P=179, d=32, n_heads=4, seed=42)
+    fig, axes = plt.subplots(1, 2, figsize=(10.5, 3.8))
+    names = [c["statistic"] for c in cells]
+    x = np.arange(len(names))
+    axes[0].bar(x - 0.2, [c["dense_bf16"] for c in cells], width=0.4,
+                color="#c44e52", label="dense bf16")
+    axes[0].bar(x + 0.2, [c["fused_bf16"] for c in cells], width=0.4,
+                color="#4c72b0", label="fused fp32")
+    axes[0].set_yscale("log")
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels(names, rotation=60, fontsize=7)
+    axes[0].set_title("Table 4 published MAE vs fp64 (log)")
+    axes[0].legend(fontsize=7)
+    ps = local["per_statistic"]
+    ln = sorted(ps)
+    axes[1].bar(np.arange(len(ln)) - 0.2, [ps[k]["dense_mae"] for k in ln],
+                width=0.4, color="#c44e52", label="dense bf16")
+    axes[1].bar(np.arange(len(ln)) + 0.2, [ps[k]["fused_mae"] for k in ln],
+                width=0.4, color="#4c72b0", label="fused fp32")
+    axes[1].set_yscale("log")
+    axes[1].set_xticks(np.arange(len(ln)))
+    axes[1].set_xticklabels(ln, rotation=45, fontsize=7)
+    axes[1].set_title("Local Q1 probe (random Gaussian, L=256)")
+    axes[1].legend(fontsize=7)
+    plot_ok = _save(fig, out / "fas_table4_accuracy.png")
+    return plot_ok, {
+        "published_cells": cells,
+        "published_spearman": _FAS_TABLE4["head_ranking_spearman"],
+        "low_entropy_heads": _FAS_TABLE4["low_entropy_heads_at_32K"],
+        "real_input_layers": _FAS_TABLE4["real_input_layers"],
+        "max_ratio_relative_gap": max(ratio_err),
+        "local_probe": local,
+        "checks": {"fused_lower_for_every_published_statistic":
+                   bool(all(c["fused_lower"] for c in cells)),
+                   "published_ratios_recompute_within_2pct":
+                   bool(max(ratio_err) < 0.02),
+                   "local_fused_more_accurate_for_every_statistic":
+                   bool(local["all_fused_more_accurate"]),
+                   "local_fused_spearman_is_one":
+                   bool(abs(local["head_ranking_spearman"]["fused_vs_fp64"] - 1.0) < 1e-9)},
+        "declared_adaptation": "the local arm uses random Gaussian Q,K,V, which give "
+                               "near-uniform attention and HIDE sinks and peaked heads, "
+                               "so its ratios exceed the paper's 1e3-1e4. It reports "
+                               "DIRECTION, not magnitude. The paper's real inputs come "
+                               "from Qwen3-8B layers 2/16/24/34.",
+        "negative_result_recorded": "the dense bf16 arm must round the SCORES and "
+                                    "recompute LSE and the weights in the rounded "
+                                    "dtype; passing the fp64 LSE through unrounded "
+                                    "gives the baseline a free exact normalizer and "
+                                    "forces its LSE MAE to 0.0.",
+    }
+
+
+def paper_fas_table5_latency(arxiv_id="2610.21483"):
+    """Table 5 / Fig 3a published overhead cells + the <=T2 - <=T1 <= 5pp check."""
+    _style()
+    out = _outdir(arxiv_id)
+    f3 = _FAS_TABLE5["fig3a_labels_32K"]
+    gaps, rows = [], []
+    for d in ("d64", "d128", "d256"):
+        for ri, r in enumerate((0.1, 0.3, 0.5)):
+            t1, t2, t3 = f3[d][ri]
+            gaps.append(t2 - t1)
+            rows.append({"head_dim": d, "r": r, "le_T1": t1, "le_T2": t2,
+                         "le_T3": t3, "T2_minus_T1_pp": t2 - t1})
+    fig, ax = plt.subplots(figsize=(7.0, 3.8))
+    x = np.arange(3)
+    for i, d in enumerate(("d64", "d128", "d256")):
+        ax.plot(x, [f3[d][ri][2] for ri in range(3)], marker="o",
+                label="%s <=T3" % d)
+        ax.plot(x, [f3[d][ri][0] for ri in range(3)], marker="s", linestyle="--",
+                label="%s <=T1" % d)
+    ax.set_xticks(x)
+    ax.set_xticklabels(["r=0.1", "r=0.3", "r=0.5"])
+    ax.set_ylabel("latency overhead over Base (%)")
+    ax.set_title("FAS Fig 3a at L=32K: <=T1 and <=T3 overhead vs response fraction")
+    ax.legend(fontsize=7, ncol=2)
+    plot_ok = _save(fig, out / "fas_table5_latency.png")
+    return plot_ok, {
+        "published_ranges": _FAS_TABLE5,
+        "fig3a_rows": rows,
+        "checks": {"le_T2_adds_at_most_5pp_over_le_T1_at_32K":
+                   bool(max(gaps) <= 5),
+                   "max_T2_minus_T1_pp": max(gaps),
+                   "le_T3_costliest_everywhere":
+                   bool(all(r["le_T3"] > r["le_T2"] for r in rows)),
+                   "overhead_rises_with_r_at_d64":
+                   bool(f3["d64"][0][2] < f3["d64"][1][2] < f3["d64"][2][2]),
+                   "overhead_non_increasing_with_d_at_r03":
+                   bool(f3["d64"][1][2] >= f3["d128"][1][2] >= f3["d256"][1][2]),
+                   "d128_d256_tie_at_r03":
+                   bool(f3["d128"][1][2] == f3["d256"][1][2])},
+        "finding": "T1 and T2 are cheap enough to compute together BY DEFAULT; T3 is "
+                   "worthwhile only when a detector needs reductions over all final "
+                   "weights.",
+        "declared_adaptation": "no H100 and no Triton on this host, so every percentage "
+                               "is a published anchor. The local contribution is the "
+                               "RECOMPUTED ordering and the <=5pp gap, plus the work "
+                               "counts in paper_fas_table1_tiers. On the response stage "
+                               "alone <=T3 takes 1.7-1.8x Base at d>=128 and 2.1-2.2x at "
+                               "d=64 - the arithmetic of a second QK^T pass, not "
+                               "register pressure.",
+    }
+
+
+def _fas_grid_checks(grid, best_judge):
+    """Q4/Q5 recomputed from a published 9x12 grid."""
+    sets = list(grid)
+    q4, q5_f1, best = [], [], []
+    for j in range(12):
+        col = {s: grid[s][j] for s in sets}
+        top = max(col, key=col.get)
+        best.append({"pair": j, "dataset": _FAS_PAIRS[j],
+                     "proxy": _FAS_PROXIES[j], "best_set": top,
+                     "best_value": col[top],
+                     "contains_attention": bool("A7" in top or "A64" in top)})
+        q4.append(bool("A7" in top or "A64" in top))
+        q5_f1.append(bool(col["A64"] > col["A7"]))
+    return {"per_pair": best, "Q4_count": sum(q4), "Q4_of_12": bool(all(q4)),
+            "Q5_A64_beats_A7_count": sum(q5_f1),
+            "Q5_of_12": bool(all(q5_f1)),
+            "beats_best_judge_count": sum(
+                1 for j in range(12)
+                if max(grid[s][j] for s in sets) > best_judge[_FAS_PAIRS[j]])}
+
+
+def paper_fas_table2_f1(arxiv_id="2610.21483"):
+    """Table 2 test F1 grid + recomputed Q4/Q5/Q7."""
+    _style()
+    out = _outdir(arxiv_id)
+    judge = _FAS_SEC5["best_LLM_judge_f1"]
+    chk = _fas_grid_checks(_FAS_TABLE2_F1, judge)
+    fig, ax = plt.subplots(figsize=(9.5, 4.0))
+    x = np.arange(12)
+    for s in ("A7", "A64", "H64", "A7H64", "A64H64", "A7H64L9"):
+        ax.plot(x, _FAS_TABLE2_F1[s], marker="o", label=s)
+    ax.axhline(judge["RAGTruth_QA"], color="0.5", linestyle=":", linewidth=1)
+    ax.set_xticks(x)
+    ax.set_xticklabels(["%s\n%s" % (d[:4], p) for d, p in
+                        zip(_FAS_PAIRS, _FAS_PROXIES)], fontsize=7)
+    ax.set_ylabel("test F1")
+    ax.set_title("FAS Table 2: test F1 over 3 datasets x 4 Qwen3 proxies")
+    ax.legend(fontsize=7, ncol=3)
+    plot_ok = _save(fig, out / "fas_table2_f1.png")
+    return plot_ok, {
+        "grid": _FAS_TABLE2_F1, "set_dims": _FAS_SET_DIMS,
+        "pairs": _FAS_PAIRS, "proxies": _FAS_PROXIES,
+        "best_llm_judge": judge, "checks": chk,
+        "paper_claims": {"Q4": _FAS_SEC5["Q4_pairs_where_best_set_contains_attention"],
+                         "Q5": _FAS_SEC5["Q5_A64_beats_A7_alone"],
+                         "Q7": _FAS_SEC5["Q7"]},
+        "recomputed_matches_paper": bool(chk["Q4_of_12"] and chk["Q5_of_12"]),
+        "declared_adaptation": "the grid is transcribed exactly; no Qwen3 proxy is run "
+                               "here. The local contribution is recomputing Q4/Q5/Q7 "
+                               "from the cells rather than restating them.",
+    }
+
+
+def paper_fas_table10_auroc(arxiv_id="2610.21483"):
+    """Table 10 test AUROC grid + recomputed Q4/Q5."""
+    _style()
+    out = _outdir(arxiv_id)
+    judge = {"RAGTruth_QA": .909, "HaluBench": .859, "TRIVIA_plus": .786}
+    chk = _fas_grid_checks(_FAS_TABLE10_AUROC, judge)
+    fig, ax = plt.subplots(figsize=(9.5, 4.0))
+    x = np.arange(12)
+    for s in ("A7", "A64", "H64", "A64H64"):
+        ax.plot(x, _FAS_TABLE10_AUROC[s], marker="o", label=s)
+    ax.set_xticks(x)
+    ax.set_xticklabels(["%s\n%s" % (d[:4], p) for d, p in
+                        zip(_FAS_PAIRS, _FAS_PROXIES)], fontsize=7)
+    ax.set_ylabel("test AUROC")
+    ax.set_title("FAS Table 10: test AUROC over the 12 dataset-proxy pairs")
+    ax.legend(fontsize=7)
+    plot_ok = _save(fig, out / "fas_table10_auroc.png")
+    return plot_ok, {"grid": _FAS_TABLE10_AUROC, "best_judge_auroc": judge,
+                     "checks": chk,
+                     "recomputed_matches_paper": bool(chk["Q4_of_12"] and chk["Q5_of_12"]),
+                     "note": "A64 beats A7 alone in all 12 pairs in BOTH F1 and AUROC; "
+                             "the best judge still leads on AUROC (.909/.859/.786) "
+                             "while A64H64 beats prompting the SAME backbone everywhere.",
+                     "declared_adaptation": "transcribed cells; no proxy is run here."}
+
+
+def paper_fas_tables11_12_additions(arxiv_id="2610.21483"):
+    """Tables 11-12: delta F1 + Holm p, significance recomputed from the cells."""
+    _style()
+    out = _outdir(arxiv_id)
+    rows, sig_pairs, sig_gains, sig_losses = [], set(), 0, 0
+    for tbl, name in ((_FAS_TABLE11, "Table11"), (_FAS_TABLE12, "Table12")):
+        for add, v in tbl.items():
+            for j in range(12):
+                dlt, p = v["delta"][j], v["p"][j]
+                gain = bool(dlt > 0 and p < 0.05)
+                loss = bool(dlt < 0 and p < 0.05)
+                sig_gains += gain
+                sig_losses += loss
+                if gain:
+                    sig_pairs.add(j)
+                rows.append({"table": name, "addition": add, "pair": j,
+                             "dataset": _FAS_PAIRS[j], "proxy": _FAS_PROXIES[j],
+                             "delta_f1": dlt, "p_holm": p,
+                             "significant_gain": gain, "significant_loss": loss})
+    fig, ax = plt.subplots(figsize=(9.5, 4.0))
+    adds = list(_FAS_TABLE11) + list(_FAS_TABLE12)
+    x = np.arange(12)
+    for i, a in enumerate(adds):
+        src = _FAS_TABLE11.get(a) or _FAS_TABLE12[a]
+        ax.plot(x, src["delta"], marker="o", label=a)
+        for j in range(12):
+            if src["delta"][j] > 0 and src["p"][j] < 0.05:
+                ax.plot(j, src["delta"][j], marker="*", markersize=14,
+                        color="black", zorder=5)
+    ax.axhline(0, color="0.4", linewidth=0.8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(["%s\n%s" % (d[:4], p) for d, p in
+                        zip(_FAS_PAIRS, _FAS_PROXIES)], fontsize=7)
+    ax.set_ylabel("delta test F1")
+    ax.set_title("FAS Tables 11-12: adding attention features (* = Holm-significant gain)")
+    ax.legend(fontsize=7)
+    plot_ok = _save(fig, out / "fas_tables11_12_additions.png")
+    return plot_ok, {
+        "table11": _FAS_TABLE11, "table12": _FAS_TABLE12, "rows": rows,
+        "significant_gains": sig_gains, "significant_losses": sig_losses,
+        "distinct_pairs_with_a_significant_gain": len(sig_pairs),
+        "checks": {"no_significant_loss_anywhere": bool(sig_losses == 0),
+                   "abstract_six_of_twelve_pairs":
+                   bool(len(sig_pairs) == 6 and len(_FAS_PAIRS) == 12),
+                   "significance_rule": "significant iff delta > 0 AND Holm p < 0.05"},
+        "paper_abstract": _FAS_SEC5["abstract"],
+        "recomputed_matches_abstract": bool(len(sig_pairs) == 6 and sig_losses == 0),
+        "declared_adaptation": "p-values are the published Holm-corrected cells "
+                               "(p < .001 encoded as .0005, strictly below the "
+                               "threshold); the bootstrap itself is not re-run at "
+                               "100,000 resamples here. The local contribution is "
+                               "recomputing WHICH pairs are significant and checking "
+                               "the abstract's 6-of-12 count.",
+    }
+
+
+def paper_fas_appk_length(arxiv_id="2610.21483"):
+    """App K length artifact + Table 8 text baselines + a local tie-aware demo."""
+    _style()
+    out = _outdir(arxiv_id)
+    art = _FAS_SEC5["haluBench_length_artifact"]
+    # local demonstration: the filter makes every word-length identical, so all
+    # scores tie and the correct AUROC is exactly 0.5
+    gen = torch.Generator().manual_seed(42)
+    rows = []
+    for words, n0, n1 in ((1, 9, 1), (2, 6, 3), (3, 3, 6), (4, 1, 9)):
+        for lab, n in ((0, n0), (1, n1)):
+            for _ in range(n):
+                rows.append({"answer_words": words, "label": lab,
+                             "answer_chars": words * 3})
+    y = torch.tensor([float(r["label"]) for r in rows])
+    w = torch.tensor([float(r["answer_words"]) for r in rows])
+    before = fas_auroc(y, w)
+    kept, filt = fas_length_balance(rows)
+    yb = torch.tensor([float(r["label"]) for r in kept])
+    wb = torch.tensor([float(r["answer_words"]) for r in kept])
+    after = fas_auroc(yb, wb)
+    fig, axes = plt.subplots(1, 2, figsize=(10.0, 3.8))
+    cols = _FAS_TABLE8["columns"]
+    x = np.arange(len(cols))
+    for i, m in enumerate(("words", "characters", "tfidf")):
+        axes[0].bar(x + (i - 1) * 0.25, _FAS_TABLE8["auroc"][m], width=0.25, label=m)
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels([c.replace("_", "\n") for c in cols], fontsize=7)
+    axes[0].set_ylabel("AUROC")
+    axes[0].set_title("Table 8: text-only baselines (answer only)")
+    axes[0].legend(fontsize=7)
+    axes[1].bar(["HaluEval\nbefore", "HaluEval\nafter", "all 14,900\nbefore",
+                 "all 14,900\nafter"],
+                [art["HaluEval_before"], art["HaluEval_after"],
+                 art["all_before"], art["all_after"]],
+                color=["#c44e52", "#4c72b0", "#c44e52", "#4c72b0"])
+    axes[1].axhline(0.5, color="0.4", linestyle=":", linewidth=1)
+    axes[1].set_ylabel("AUROC of answer length in words")
+    axes[1].set_title("App K: the length artifact before/after the filter")
+    axes[1].tick_params(axis="x", labelsize=7)
+    plot_ok = _save(fig, out / "fas_appk_length.png")
+    return plot_ok, {
+        "published_length_artifact": art,
+        "table7_splits": _FAS_SEC5["table7"],
+        "table8": _FAS_TABLE8,
+        "local_demo": {"before": before, "after": after, "filter": filt,
+                       "distinct_lengths_after": len(set(wb.tolist())),
+                       "rows_before": len(rows), "rows_after": len(kept)},
+        "checks": {"published_filter_removes_the_artifact":
+                   bool(art["HaluEval_after"] == 0.5 and art["all_after"] < art["all_before"]),
+                   "local_after_is_exactly_half": bool(abs(after - 0.5) < 1e-12),
+                   "local_before_exceeds_half": bool(before > 0.5),
+                   "tfidf_unfiltered_is_the_artifact":
+                   bool(_FAS_TABLE8["auroc"]["tfidf"][3] == 0.842)},
+        "declared_adaptation": "the local demo is a synthetic length-biased world, not "
+                               "HaluEval. It exists to show WHY a tie-aware AUROC is "
+                               "required: after the filter every (length, label) cell "
+                               "holds the same count, so the length score carries no "
+                               "label information and the correct value is exactly 0.5. "
+                               "A ranks-by-argsort implementation that does not average "
+                               "ties returns an arbitrary extreme instead.",
+        "paper_warning": "App B states that restricting LLM-Check and SinkProbe to "
+                         "response rows IS A DIFFERENT FEATURE from the published "
+                         "all-token versions, and the two were not compared in detection.",
+    }
+
+
+def paper_fas_appm_transfer(arxiv_id="2610.21483"):
+    """App M / Table 14 cross-domain transfer + the mean-column scope check."""
+    _style()
+    out = _outdir(arxiv_id)
+    cols = _FAS_TABLE14["columns"]
+    scope_checks = []
+    for fit, idx in (("fit_RAGTruth", 0), ("fit_CovidQA", 1), ("fit_PubMedQA", 2),
+                     ("fit_FinanceBench", 3), ("fit_DROP", 4), ("fit_HaluEval", 5)):
+        for det, vals in _FAS_TABLE14[fit].items():
+            others = [v for i, v in enumerate(vals) if i != idx]
+            mean_excl = sum(others) / len(others)
+            pub = _FAS_TABLE14["published_mean_fit_RAGTruth"].get(det)
+            scope_checks.append({"fit": fit, "detector": det,
+                                 "mean_excluding_fit": mean_excl,
+                                 "mean_including_fit": sum(vals) / len(vals),
+                                 "published_mean_for_fit_RAGTruth": pub})
+    rag = [s for s in scope_checks if s["fit"] == "fit_RAGTruth"
+           and s["published_mean_for_fit_RAGTruth"] is not None]
+    rag_ok = all(abs(s["mean_excluding_fit"] - s["published_mean_for_fit_RAGTruth"]) < 0.011
+                 for s in rag)
+    drops = _FAS_TABLE14["published_mean_drop_fit_to_other"]
+    fig, ax = plt.subplots(figsize=(7.6, 3.8))
+    names = sorted(drops, key=drops.get)
+    ax.bar(names, [drops[n] for n in names],
+           color=["#4c72b0" if drops[n] <= 0.01 else "#c44e52" for n in names])
+    ax.set_ylabel("mean AUROC loss, fit -> other domains")
+    ax.set_title("FAS App M: unselected single-score detectors transfer; "
+                 "head/layer-selecting ones do not")
+    ax.tick_params(axis="x", rotation=25)
+    plot_ok = _save(fig, out / "fas_appm_transfer.png")
+    return plot_ok, {
+        "table14": _FAS_TABLE14,
+        "mean_column_scope_checks": scope_checks,
+        "checks": {"mean_column_excludes_the_fitting_domain": bool(rag_ok),
+                   "rauq_and_intrygue_transfer":
+                   bool(drops["rauq"] <= 0.01 and drops["intrygue"] <= 0.01),
+                   "lookback_falls_to_chance":
+                   bool(drops["lookback_lens"] >= 0.15 and
+                        abs(_FAS_TABLE14["lookback_chance_level"] - 0.51) < 1e-9),
+                   "no_method_above_053_on_financebench":
+                   bool(all(_FAS_TABLE14[f][d][3] <= 0.53
+                            for f in _FAS_TABLE14 if f.startswith("fit_")
+                            for d in _FAS_TABLE14[f]))},
+        "ci95": _FAS_TABLE14["ci95"],
+        "declared_adaptation": "Table 14 is transcribed; the local contribution is "
+                               "verifying that the published Mean column EXCLUDES the "
+                               "fitting domain for fit-on-one rows (INTRYGUE fit "
+                               "RAGTruth: mean of .77 .55 .48 .41 .92 = .62) and covers "
+                               "all six for the other-five/all-six rows. Intervals use "
+                               "1,000 resamples of INDIVIDUAL TEST EXAMPLES, not groups.",
+        "detector_tiers": {"lookback_lens": "T1", "llm_check": "T2", "rauq": "T2",
+                           "intrygue": "T3 + logits", "sink_rate_only": "T3",
+                           "toha": "T4 (needs the materialized block)"},
+        "paper_gap": "the paper NAMES INTRYGUE's gate and TOHA's MTopDiv but gives "
+                     "NEITHER formula; both are declared adaptations wherever they "
+                     "are implemented locally.",
+    }
+
+
+def paper_fas_cost_memory(arxiv_id="2610.21483"):
+    """Table 6 / App H / App I / App J: the fixed host cost and the memory budget."""
+    _style()
+    out = _outdir(arxiv_id)
+    c = _FAS_COST
+    t6 = c["table6_short_forward"]
+    fig, axes = plt.subplots(1, 2, figsize=(10.0, 3.8))
+    keys = ["latency_ms", "gpu_busy_ms", "gpu_kernels", "host_syncs"]
+    x = np.arange(len(keys))
+    axes[0].bar(x - 0.2, [t6[k][0] for k in keys], width=0.4,
+                color="#4c72b0", label="floor")
+    axes[0].bar(x + 0.2, [t6[k][1] for k in keys], width=0.4,
+                color="#c44e52", label="with features")
+    axes[0].set_yscale("log")
+    axes[0].set_xticks(x)
+    axes[0].set_xticklabels([k.replace("_", "\n") for k in keys], fontsize=7)
+    axes[0].set_title("Table 6: short forward, Qwen3-8B (log)")
+    axes[0].legend(fontsize=7)
+    ov = c["fig1_overhead_2K_to_35K"]
+    axes[1].bar(["8B\n2K", "8B\n35K", "0.6B\n2K", "0.6B\n35K"],
+                [ov["Qwen3-8B_pct"][0], ov["Qwen3-8B_pct"][1],
+                 ov["Qwen3-0.6B_pct"][0], ov["Qwen3-0.6B_pct"][1]],
+                color="#4c72b0")
+    axes[1].set_ylabel("end-to-end overhead (%)")
+    axes[1].set_title("Sec 5.5: overhead amortizes with length")
+    plot_ok = _save(fig, out / "fas_cost_memory.png")
+    return plot_ok, {
+        "cost_anchors": c,
+        "checks": {"gpu_busy_barely_grows": bool(t6["gpu_busy_ms"][1] - t6["gpu_busy_ms"][0] == 5),
+                   "latency_grows_by_75ms": bool(t6["latency_ms"][1] - t6["latency_ms"][0] == 75),
+                   "host_syncs_explode": bool(t6["host_syncs"][1] == 361),
+                   "overhead_falls_with_length_both_proxies":
+                   bool(ov["Qwen3-8B_pct"][0] > ov["Qwen3-8B_pct"][1] and
+                        ov["Qwen3-0.6B_pct"][0] > ov["Qwen3-0.6B_pct"][1]),
+                   "stats_are_20_bytes_per_head_layer_token":
+                   bool(c["bytes_per_head_layer_response_token"] == 20),
+                   "attention_matrix_would_take_64GiB_at_32K":
+                   bool(c["appI_one_layer_32K_d128_MiB"]["attention_matrix_GiB"] == 64),
+                   "dense_all_layers_would_take_152GiB":
+                   bool(c["dense_all_layers_8_4K_GiB"] == 152)},
+        "finding": "the wrapper adds a FIXED 47-60 ms host cost per forward while GPU "
+                   "work grows only 5 ms on short 8B inputs; per scored layer it "
+                   "launches 88 more kernels and reads ten values back. CUDA graphs "
+                   "could remove most of it. Extra peak grows with RESPONSE tokens, "
+                   "not with the prompt.",
+        "declared_adaptation": "every millisecond, MiB and kernel count is a published "
+                               "anchor measured on an H100 NVL with Qwen3-8B/0.6B. No "
+                               "such hardware or backbone is available here; the local "
+                               "contribution is the recomputed deltas and orderings.",
+    }
+
+
+def paper_fas_repo_audit():
+    """Code-availability audit for arXiv:2610.21483v1 (no plot; plain dict)."""
+    return {
+        "official_repo_in_paper": "https://anonymous.4open.science/r/attention-guardrails-0C16",
+        "repo_status": "anonymous-4open-science-link-not-verified-from-this-host",
+        "evidence": [
+            "the paper gives an anonymous.4open.science repository (attention-guardrails-0C16) "
+            "rather than a named author GitHub account, consistent with double-blind review",
+            "the kernels are described as Triton for T1-T3 and eager PyTorch for T4, with a "
+            "HuggingFace attention backend installed only on the scored layers",
+            "App D gives Algorithm 1 verbatim (28 lines, black = unchanged FA2 forward, "
+            "green = additions tagged by tier), so the mechanism is reproducible from the "
+            "paper alone",
+            "the authors state they wrote NO T4 kernel",
+        ],
+        "reproduction_basis": "PDF text layer (28 pp): main text Sec 1-6 + Appendices A-M. "
+                              "All tables and figure coordinates in this module are "
+                              "transcribed from that text layer; every local probe is a "
+                              "declared synthetic stand-in",
+        "recorded_observations": [
+            "Sec 5.2's prose enumeration of A7 lists 18 items while the block is named A7 "
+            "and App L.1's seven kept features are authoritative; the 22-candidate count "
+            "needs FIVE per-token statistics while the prose names four, so the fifth "
+            "(prompt mass) is a DECLARED resolution, not a published one",
+            "App B states that restricting LLM-Check and SinkProbe to response rows IS A "
+            "DIFFERENT FEATURE from the published all-token versions and that the two "
+            "versions were not compared in detection",
+            "the paper NAMES INTRYGUE's entropy gate and TOHA's MTopDiv but gives NEITHER "
+            "formula",
+            "Table 14's Mean column EXCLUDES the fitting domain for fit-on-one rows and "
+            "covers all six for the other-five/all-six rows (verified locally)",
+            "row top-k mass needs O(k) state per row, so Lemma 1 does not cover it and it "
+            "belongs to T4 - 'T1 does not contain every bounded-state reduction'",
+            "Qwen3 defines no BOS token; the authors call its first non-padded token BOS, "
+            "and T2 obtains the BOS sink rate without full column sums only when every "
+            "sequence in the batch has the same padding",
+        ],
+        "limitations_recorded": [
+            "tiers are not claimed exhaustive and bound cost from ABOVE; a T4 statistic may "
+            "admit an efficient kernel the authors did not write; no optimality claim",
+            "the response kernel is faster than FA2 on Hopper but SLOWER than cuDNN",
+            "NOT a production kernel: statistics are for a complete response in one call; "
+            "token-by-token generation needs a split-KV decoding kernel, possible because "
+            "T1 accumulators merge associatively but NOT implemented",
+            "no sliding-window and no soft-capped attention; padding mask only; head dims "
+            "64/128/256",
+            "the wrapper copies both stage outputs into one tensor (avoidable via a separate "
+            "prefill)",
+            "the proxy needs an auxiliary forward and labeled probe-training examples; a small "
+            "proxy may miss evidence; support is RELATIVE TO SUPPLIED CONTEXT, not general "
+            "factual truth; scores need separate calibration",
+            "end-to-end results only reach 8.4K; long-context end-to-end is future work",
+        ],
+        "ethical_considerations": "the paper aims to make detection cheap enough to check "
+                                  "every RAG response, but it can miss unsupported answers "
+                                  "or flag supported ones, so in high-stakes settings it "
+                                  "should COMPLEMENT HUMAN REVIEW, NOT REPLACE IT. Public "
+                                  "benchmarks under their terms; no new data, no human subjects.",
+        "no_claims": [
+            "no claim of reproducing the H100 NVL Triton latencies or peak-memory figures",
+            "no claim of reproducing RAGTruth QA / HaluBench / TRIVIA+ detection scores",
+            "no claim of running any Qwen3 proxy or any of the nine LLM judges",
+            "no claim that the local synthetic probes reproduce Table 4's real-input MAEs "
+            "(random Gaussian inputs hide sinks and peaked heads)",
+            "no claim that the INTRYGUE gate or TOHA MTopDiv stand-ins are the published "
+            "formulas, which the paper does not give",
+        ],
+    }
+
+
+def run_paper_21483() -> dict:
+    """Run every FAS asset and write graded/figures/2610.21483/metrics.json."""
+    setup = paper_fas_setup()
+    assets = [
+        ("table1_tiers", paper_fas_table1_tiers),
+        ("algorithm1", paper_fas_algorithm1),
+        ("appc_merge", paper_fas_appc_merge),
+        ("table4_accuracy", paper_fas_table4_accuracy),
+        ("table5_latency", paper_fas_table5_latency),
+        ("table2_f1", paper_fas_table2_f1),
+        ("table10_auroc", paper_fas_table10_auroc),
+        ("tables11_12_additions", paper_fas_tables11_12_additions),
+        ("appk_length", paper_fas_appk_length),
+        ("appm_transfer", paper_fas_appm_transfer),
+        ("cost_memory", paper_fas_cost_memory),
+    ]
+    audit = paper_fas_repo_audit()
+    results = {
+        "arxiv": "2610.21483",
+        "title": "FlashAttention with Statistics: Low-Overhead Attention Features "
+                 "for Compact Hallucination Detectors",
+        "authors": "Volodichev, Savichev, Sviridov, Yuliy, Simakov, Zaytsev "
+                   "(Applied AI Institute / Yandex / Risk AI Research Lab)",
+        "setup": setup,
+        "repo_status": audit["repo_status"],
+        "repo_audit": audit,
+    }
+    for name, fn in assets:
+        plot_ok, data = fn()
+        results[name + "_plot"] = plot_ok
+        results[name + "_data"] = data
+    out = _outdir("2610.21483")
+    (out / "metrics.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+    return results

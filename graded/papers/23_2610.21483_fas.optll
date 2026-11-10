@@ -1,0 +1,103 @@
+@PL::Python
+@Task::Arxiv_2610_21483_FAS
+@Modulu::FAS
+
+@Technique::FAS::[reproduce]
+
+@Comment::[Paper: FlashAttention with Statistics: Low-Overhead Attention Features for Compact Hallucination Detectors (Volodichev, Savichev, Sviridov, Yuliy, Simakov, Zaytsev; Applied AI Institute / Yandex / Risk AI Research Lab, arXiv:2610.21483v1, 15 Oct 2026, 28 pp). FAS fuses per-head attention STATISTICS into the FlashAttention-2 forward without changing the attention output o_i = sum_j p_ij v_j, and orders them into four TIERS by the extra work they cost. Setting (Sec 2.1): one head of one layer, a prompt of P tokens then R = L-P response tokens; prompt rows go to any production kernel, response rows Q_R are scored against all K,V with the causal mask aligned to the BOTTOM-RIGHT corner as KV-cache append kernels do, giving N_R = R*P + R(R+1)/2 unmasked scores. Sec 2.2 online softmax carries (m, ell, O) and stores LSE = m + log ell. T1 (Sec 3.2, Lemma 1, Eq.3-4) fuses separable row reductions A_u with INTEGER alpha_u >= 1 and fixed-dimensional g_u independent of m/ell/LSE, updated A_u <- a^alpha_u A_u + rowsum(Pt^alpha_u * G_u) and finalized A_u/ell^alpha_u: no extra scores, no extra exponentials, sum_u dim(g_u) state per row INDEPENDENT of L. Instances: entropy H = LSE - F with alpha=1 and g = the UNSHIFTED score s; effective support 1/F with alpha=2, g=1; prompt mass alpha=1, g = the indicator of j < P; max weight 1/ell needs the exact running max. T2 (Sec 3.3) looks up b known positions per response row from the STORED LSE, so it works after ANY kernel that stores LSE, at bR extra scores. T3 re-evaluates every score and reuses the FA2 BACKWARD's key-major loop - dV = W^T dO with dO replaced by a column of ones on response rows - each instance owning one key tile and writing its column sums ONCE with NO atomic additions. T4 (MTopDiv, stored maps, row top-k mass needing O(k) state per row) is not a bounded-state reduction and NO T4 kernel is written, so T1 does not contain every bounded-state reduction. App C's merge A_u = e^{alpha(m1-m)}A_{u,1} + e^{alpha(m2-m)}A_{u,2} with m = max(m1,m2) is ASSOCIATIVE, every factor is positive and at most 1 so nothing overflows, and 1 <= ell <= |J_i| - this is what permits split-KV / RingAttention / FlashInfer / multi-device equivalence and what would make a decoding kernel possible, though the authors did not implement one. Graded scope: Table 1 tier work accounting, App D Algorithm 1 lines 2-28 against an fp64 oracle, App C merge and associativity, Table 4 / Q1 accuracy (3-4 orders of magnitude for EVERY statistic), Table 5 / Fig 3a latency overhead, Tables 2 and 10 (all 9 feature sets x 12 dataset-proxy pairs, 216 numbers) with Q4/Q5/Q7 recomputed, Tables 11-12 delta-F1 + Holm p with the abstract's 6-of-12 significant-gain count recomputed, App K's length artifact and Table 8 text baselines, App M / Table 14 cross-domain transfer including the Mean-column scope, Table 6 / App H-I-J host and memory cost, and a repo audit. Paper-scale runs are NOT re-run: no H100 NVL, no Triton, no Qwen3 proxy and no LLM judge is available here, so every published millisecond, MiB, MAE and detection score is an ANCHOR transcribed verbatim and the local contribution is the recomputed ordering, ratio, delta and significance count plus CPU probes of the algebraic identities. Negative results and gaps are recorded rather than tuned away: the dense bf16 arm MUST round the scores and recompute LSE in the rounded dtype or it gets a free exact normalizer; random Gaussian inputs hide sinks and peaked heads so the local Q1 arm reports DIRECTION not magnitude; the paper NAMES INTRYGUE's gate and TOHA's MTopDiv but gives NEITHER formula, so both are declared adaptations; App B states that restricting LLM-Check and SinkProbe to response rows IS A DIFFERENT FEATURE that was never compared in detection; Sec 5.2's prose lists 18 A7 items while 22 candidates need five per-token statistics, and the fifth (prompt mass) is a declared resolution; the L=32768 tier row is computed analytically because materializing its visibility matrix needs ~2.5 GiB on this host; and the App C merge is verified at fp32 precision (relative < 1e-5) because a split changes accumulation order, with both absolute and relative worst cases reported.]
+
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path.cwd()))
+
+from graded.arxiv_llm_lib import (
+    paper_fas_setup,
+    paper_fas_table1_tiers,
+    paper_fas_algorithm1,
+    paper_fas_appc_merge,
+    paper_fas_table4_accuracy,
+    paper_fas_table5_latency,
+    paper_fas_table2_f1,
+    paper_fas_table10_auroc,
+    paper_fas_tables11_12_additions,
+    paper_fas_appk_length,
+    paper_fas_appm_transfer,
+    paper_fas_cost_memory,
+    paper_fas_repo_audit,
+    run_paper_21483,
+)
+
+@Impl::FAS::reproduce{
+_ = "reproduce Sec 2.1-2.2 response-block geometry and online softmax + Sec 3.2 Lemma 1 / Eq.3-4 T1 + Sec 3.3 T2/T3/T4 + App C associative merge + App D Algorithm 1 + exact Table 1/2/4/5/6/8/10/11/12/14 cells + App K length artifact + App M transfer + repo audit"
+@}
+
+@Graded::Setup{
+# Protocol: FAS is a MEASUREMENT paper - the statistics change no attention output, so there is no new axis and no per-run choice. Four tiers ordered by extra scores (T1 fused / T2 lookup / T3 rescore / T4 dense), response rows only, bottom-right causal mask, LSE belongs to no tier, A7/A64/H64/L9 feature blocks, class-balanced L2 logistic probe with validation-selected C/K/k/threshold, 100000 paired group bootstrap resamples (seed 42) and Holm over the 12 dataset-proxy pairs.
+setup = paper_fas_setup()
+@}::endpoints::[setup=setup]
+
+@Graded::Table1_Tiers{
+# Table 1: work per head BEYOND the response-block pass. T1 no extra scores / O(N_s*N_R) stat ops / N_s*R memory with state independent of L; T2 bR / O(bR) / bR; T3 N_R / O(N_R) / O(R+L); T4 N_R / Omega(N_R) / N_R. N_R = R*P + R(R+1)/2 verified by materializing the block at L up to 4096; the L=32768 row is analytic because its visibility matrix alone needs ~2.5 GiB here.
+plot_ok, t1 = paper_fas_table1_tiers()
+@}::endpoints::[plot_ok=plot_ok, t1=t1]
+
+@Graded::Algorithm1{
+# App D Algorithm 1 lines 2-28 on CPU torch: T1 query-major fused pass (lines 2-15), T2 lookups from the stored LSE (16-20), T3 key-major column sums reusing the FA2 backward's dV loop with dO = ones (21-28), each against an fp64 dense oracle over 4 heads at L=256, P=179, d=32. Checks every statistic matches the oracle, T2 scores == bR exactly, T3 scores >= N_R (tile-granular counters are a declared superset), and zero atomic additions.
+plot_ok, a1 = paper_fas_algorithm1()
+@}::endpoints::[plot_ok=plot_ok, a1=a1]
+
+@Graded::AppC_Merge{
+# App C: run the pass over 2/3/4 disjoint key ranges, merge with A_u = e^{alpha(m1-m)}A_{u,1} + e^{alpha(m2-m)}A_{u,2}, compare against one full pass, and fold the parts in reverse to test associativity. Also checks App C's bounds 1 <= ell <= |J_i| and that every rescaling factor lies in (0,1]. Verified at fp32 precision (relative < 1e-5) because a split changes accumulation order; absolute and relative worst cases both reported.
+plot_ok, mc = paper_fas_appc_merge()
+@}::endpoints::[plot_ok=plot_ok, mc=mc]
+
+@Graded::Table4_Accuracy{
+# Sec 4 / Q1 / Table 4: all ten published MAE cells (dense bf16 / fused / ratio) with every ratio recomputed, plus the Spearman anchors (1.000 fused, >= 0.998 dense) and the low-entropy-head result at 32K. Local arm runs the paper's random-Gaussian synthetic input at response fraction 0.3 and checks the DIRECTION - fused more accurate for every statistic - never the magnitude, since random inputs hide the sinks and peaked heads that the paper's Qwen3-8B layer 2/16/24/34 captures expose.
+plot_ok, t4 = paper_fas_table4_accuracy()
+@}::endpoints::[plot_ok=plot_ok, t4=t4]
+
+@Graded::Table5_Latency{
+# Table 5 / Fig 3a: the published 32K overhead grid over d in {64,128,256} and r in {0.1,0.3,0.5}, with <=T2 - <=T1 recomputed (at most 5 pp; the actual max is 1 pp), <=T3 costliest everywhere, overhead rising with r at d=64 and non-increasing with d at r=0.3 (d128 and d256 TIE at 39%, recorded as a tie not a strict fall). No H100 and no Triton here, so every percentage is an anchor.
+plot_ok, t5 = paper_fas_table5_latency()
+@}::endpoints::[plot_ok=plot_ok, t5=t5]
+
+@Graded::Table2_F1{
+# Table 2: all 108 published test-F1 cells (9 feature sets x 12 dataset-proxy pairs over RAGTruth QA / HaluBench / TRIVIA+ x Qwen3 0.6/1.7/4/8B). Q4 (best set contains A7 or A64) and Q5 (A64 beats A7 alone) recomputed from the cells and checked at 12 of 12; the best-judge comparison is reported as a count, not asserted.
+plot_ok, f1 = paper_fas_table2_f1()
+@}::endpoints::[plot_ok=plot_ok, f1=f1]
+
+@Graded::Table10_AUROC{
+# Table 10: all 108 published test-AUROC cells on the same 9 x 12 grid, with Q4 and Q5 recomputed independently of the F1 grid and the best LLM judge (.909/.859/.786, Qwen3.5-9B) recorded beside them. A64H64 beats prompting the SAME backbone in all 12 pairs (Q7).
+plot_ok, au = paper_fas_table10_auroc()
+@}::endpoints::[plot_ok=plot_ok, au=au]
+
+@Graded::Tables11_12_Additions{
+# Tables 11-12: delta test F1 and Holm-corrected p for L9->A7L9, H64->A7H64, H64L9->A7H64L9 and H64->A64H64 over all 12 pairs. Significance recomputed as delta > 0 AND p < 0.05 (p < .001 encoded as .0005, strictly below threshold): exactly 6 distinct pairs have a significant gain and 0 have a significant loss, matching the abstract. The 100000-resample bootstrap itself is not re-run here.
+plot_ok, ad = paper_fas_tables11_12_additions()
+@}::endpoints::[plot_ok=plot_ok, ad=ad]
+
+@Graded::AppK_Length{
+# App K: answer length in words alone reaches AUROC 0.970 on HaluEval's 10000 and 0.720 on all 14900; filtering to equally many faithful and hallucinated answers at every word length keeps 1108 / 6008 and drops it to 0.500 / 0.586. Table 7 splits and all Table 8 text-only baselines recorded (TF-IDF 0.842 unfiltered IS the artifact). Local synthetic length-biased arm shows before > 0.5 and after EXACTLY 0.5, which requires a tie-aware AUROC - a ranks-by-argsort implementation returns an arbitrary extreme once every (length,label) cell is balanced.
+plot_ok, lk = paper_fas_appk_length()
+@}::endpoints::[plot_ok=plot_ok, lk=lk]
+
+@Graded::AppM_Transfer{
+# App M / Table 14: six sources, 138-166 test examples each, mean loss fit-on-one -> other domains. RAUQ and INTRYGUE <= 0.01, sink rate 0.04, LLM-Check 0.05, TOHA 0.06, Lookback Lens 0.15 (falling to chance 0.51); nothing above 0.53 on FinanceBench. Verifies that the published Mean column EXCLUDES the fitting domain for fit-on-one rows (INTRYGUE fit RAGTruth: mean of .77 .55 .48 .41 .92 = .62). Intervals use 1000 resamples of INDIVIDUAL TEST EXAMPLES, not groups. The paper names INTRYGUE's gate and TOHA's MTopDiv but gives neither formula.
+plot_ok, tr = paper_fas_appm_transfer()
+@}::endpoints::[plot_ok=plot_ok, tr=tr]
+
+@Graded::CostMemory{
+# Table 6 / App H / App I / App J: short Qwen3-8B forward 33 -> 108 ms latency but only 13 -> 18 ms GPU busy, 2005 -> 5173 kernels and 1 -> 361 host syncs; fixed 47-60 ms host cost, 88 extra kernels and 10 readbacks per scored layer; end-to-end overhead amortizes 16% -> 1.4% (8B) and ~170% -> 6% (0.6B) from 2K to 35K; 20 bytes per head, layer and response token; the attention matrix would take 64 GiB at 32K and output_attentions for all layers 152 GiB at 8.4K. Every number is a published H100 NVL anchor; the local contribution is the recomputed deltas and orderings.
+plot_ok, cm = paper_fas_cost_memory()
+@}::endpoints::[plot_ok=plot_ok, cm=cm]
+
+@Graded::RepoAudit{
+# The paper links an anonymous repository (anonymous.4open.science/r/attention-guardrails-0C16) that is not verified from this host. Reproduction basis is the 28-page PDF text layer, main text plus Appendices A-M. Records the A7 18-vs-22 prose inconsistency, the response-row feature change for LLM-Check/SinkProbe, the two missing detector formulas, and the authors' own limitations: not a production kernel, no split-KV decoding kernel, no sliding-window or soft-capping, head dims 64/128/256 only, slower than cuDNN, and support assessed RELATIVE TO THE SUPPLIED CONTEXT rather than factual truth.
+repo = paper_fas_repo_audit()
+@}::endpoints::[repo=repo]
+
+@GradedClass::FASPaper::[Setup, Table1_Tiers, Algorithm1, AppC_Merge, Table4_Accuracy, Table5_Latency, Table2_F1, Table10_AUROC, Tables11_12_Additions, AppK_Length, AppM_Transfer, CostMemory, RepoAudit]
+
+@Apply::AllOps
+@Run::shuffleAll
+@Save::All::endpoints[plot_ok, setup, t1, a1, mc, t4, t5, f1, au, ad, lk, tr, cm, repo]
