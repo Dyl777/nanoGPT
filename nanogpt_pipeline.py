@@ -1984,6 +1984,159 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s45 PURGE benchmarks: %d ran, %d skipped"
                          % (len(labs), len(skipped)))
             paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "purgepaper":
+        # s45 published anchors: Tables 1-4 of arXiv:2608.29996, plotted exactly
+        # as printed. These are records, not simulations.
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+
+        t1 = tables.get("table1_waterbirds") or {}
+        if isinstance(t1.get("rows"), list) and t1["rows"]:
+            rows = t1["rows"]
+            labs = [r[0] for r in rows]
+            fig, ax = plt.subplots(figsize=(8.2, 3.6))
+            xs = list(range(len(labs)))
+            ax.bar([x - 0.2 for x in xs], [float(r[1]) for r in rows], width=0.4,
+                   color="#4c72b0", label="Avg Acc")
+            ax.bar([x + 0.2 for x in xs], [float(r[2]) for r in rows], width=0.4,
+                   color="#55a868", label="WGA")
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labs, rotation=25, ha="right", fontsize=7)
+            ax.set_ylabel("%")
+            ax.set_title("s45 paper anchor: CLIP on Waterbirds (Table 1)")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_waterbirds"))
+
+        t2 = tables.get("table2_robustness") or {}
+        if isinstance(t2.get("rows"), list) and t2["rows"]:
+            rows = t2["rows"]
+            labs = ["%s\n%s" % (r[0], r[1]) for r in rows]
+            fig, ax = plt.subplots(figsize=(9.0, 3.8))
+            xs = list(range(len(labs)))
+            ax.bar([x - 0.2 for x in xs], [float(r[2]) for r in rows], width=0.4,
+                   color="#4c72b0", label="Overall")
+            ax.bar([x + 0.2 for x in xs], [float(r[3]) for r in rows], width=0.4,
+                   color="#c44e52", label="WGA")
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labs, rotation=55, ha="right", fontsize=6)
+            ax.set_ylabel("%")
+            ax.set_title("s45 paper anchor: robustness across models (Table 2)")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_robustness"))
+
+        t3 = tables.get("table3_causal") or {}
+        if isinstance(t3.get("rows"), list) and t3["rows"]:
+            rows = [r for r in t3["rows"] if r[1] in ("baseline", "PURGE-M-NPO")]
+            labs = ["%s\n%s" % (r[0], r[1]) for r in rows]
+            fig, ax = plt.subplots(figsize=(9.2, 3.8))
+            xs = list(range(len(labs)))
+            for i, (key, col) in enumerate((("Qc", "#4c72b0"), ("Qa", "#55a868"),
+                                            ("Acc", "#8172b2"), ("CHR", "#c44e52"))):
+                j = {"Qc": 2, "Qa": 3, "Acc": 6, "CHR": 9}[key]
+                ax.bar([x + (i - 1.5) * 0.18 for x in xs],
+                       [float(r[j]) for r in rows], width=0.18, color=col, label=key)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labs, rotation=45, ha="right", fontsize=6)
+            ax.set_ylabel("%")
+            ax.set_title("s45 paper anchor: Causal-HalBench (Table 3, lower CHR is better)")
+            ax.legend(fontsize=7, ncol=4)
+            paths.append(_save_fig(fig, f"{name}_causal"))
+
+        t4 = tables.get("table4_pope") or {}
+        if isinstance(t4.get("rows"), list) and t4["rows"]:
+            rows = t4["rows"]
+            labs = ["%s\n%s" % (r[0], r[1]) for r in rows]
+            fig, ax = plt.subplots(figsize=(8.0, 3.8))
+            xs = list(range(len(labs)))
+            for i, (key, j, col) in enumerate((("Acc", 2, "#4c72b0"),
+                                               ("Rec", 3, "#55a868"),
+                                               ("F1", 4, "#c44e52"))):
+                ax.bar([x + (i - 1) * 0.22 for x in xs],
+                       [float(r[j]) for r in rows], width=0.22, color=col, label=key)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labs, rotation=30, ha="right", fontsize=7)
+            ax.set_ylabel("%")
+            ax.set_title("s45 paper anchor: POPE Random (Table 4)")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_pope"))
+
+    if name == "realtime":
+        # s46 live Realtime-Bench: success / pass^k / pass@k per clock x effort.
+        per = measurements.get("per_setting") if isinstance(measurements, dict) else None
+        per = per if isinstance(per, dict) else {}
+        if per:
+            keys = sorted(per)
+            labs = [k.replace("_", "\n") for k in keys]
+            xs = list(range(len(keys)))
+            fig, ax = plt.subplots(figsize=(8.6, 3.8))
+            for i, (k, col) in enumerate((("success", "#4c72b0"),
+                                          ("pass_k", "#55a868"),
+                                          ("pass_at_k", "#c44e52"))):
+                ax.bar([x + (i - 1) * 0.22 for x in xs],
+                       [float(per[key].get(k) or 0) for key in keys],
+                       width=0.22, color=col, label=k)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labs, fontsize=7)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("rate")
+            ax.set_title("s46 Realtime-Bench live: Wall / Paused / Token clocks")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_clocks"))
+
+    if name == "realtimepaper":
+        # s46 published anchors: Fig.5 (three clocks), Fig.3 (task mix),
+        # Fig.6 (B sweep).
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        f5 = tables.get("fig5") or {}
+        if isinstance(f5.get("models"), list) and f5["models"]:
+            models = f5["models"]
+            fig, axes = plt.subplots(1, 3, figsize=(13.0, 3.6), sharey=True)
+            for ax, clock in zip(axes, ("wall", "paused", "token")):
+                d = f5.get(clock) or {}
+                lo, hi = d.get("low", []), d.get("high", [])
+                xs = list(range(len(models)))
+                ax.bar([x - 0.2 for x in xs], lo, width=0.4,
+                       color="#4c72b0", label="low effort")
+                ax.bar([x + 0.2 for x in xs], hi, width=0.4,
+                       color="#c44e52", label="high effort")
+                ax.set_xticks(xs)
+                ax.set_xticklabels(models, rotation=55, ha="right", fontsize=6)
+                ax.set_title(clock.capitalize() + " Clock")
+                ax.set_ylim(0, 100)
+                ax.legend(fontsize=6)
+            axes[0].set_ylabel("task success (%)")
+            fig.suptitle("s46 paper anchor: Fig.5 task success under three clocks", fontsize=9)
+            paths.append(_save_fig(fig, f"{name}_clocks"))
+
+        f3 = tables.get("fig3") or {}
+        if isinstance(f3, dict) and f3:
+            fig, ax = plt.subplots(figsize=(6.4, 3.4))
+            labs = list(f3.keys())
+            vals = [float(f3[k]) for k in labs]
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=35, ha="right", fontsize=7)
+            ax.set_ylabel("tasks")
+            ax.set_title("s46 paper anchor: Fig.3 Realtime-Bench task distribution")
+            paths.append(_save_fig(fig, f"{name}_tasks"))
+
+        f6 = tables.get("fig6") or {}
+        if isinstance(f6.get("B"), list) and f6["B"]:
+            fig, ax = plt.subplots(figsize=(6.0, 3.4))
+            xs = list(range(len(f6["B"])))
+            for key, col in (("claude_opus_5", "#4c72b0"), ("kimi_k3", "#c44e52")):
+                ys = f6.get(key) or []
+                if len(ys) == len(xs):
+                    ax.plot(xs, ys, marker="o", color=col, label=key)
+            ax.set_xticks(xs)
+            ax.set_xticklabels([str(b) for b in f6["B"]])
+            ax.set_xlabel("token-to-time parameter B")
+            ax.set_ylabel("task success (%)")
+            ax.set_title("s46 paper anchor: Fig.6 temporal-pressure sweep")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_B"))
     return paths
 
 
