@@ -2137,6 +2137,92 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s46 paper anchor: Fig.6 temporal-pressure sweep")
             ax.legend(fontsize=7)
             paths.append(_save_fig(fig, f"{name}_B"))
+
+    if name == "cmm":
+        # s47 live CMM/CTM on the algorithmic suite.
+        tasks = measurements.get("tasks") if isinstance(measurements, dict) else None
+        tasks = tasks if isinstance(tasks, list) else []
+        if tasks:
+            labs = [t.get("task", "?") for t in tasks]
+            losses = [finite(t.get("test_loss")) for t in tasks]
+            vals = [v if v is not None else 0 for v in losses]
+            fig, ax = plt.subplots(figsize=(6.4, 3.4))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs)
+            ax.set_ylabel("test loss")
+            ax.set_title("s47 %s: algorithmic test loss (live)" % measurements.get("kind", "?"))
+            paths.append(_save_fig(fig, f"{name}_tasks"))
+
+    if name == "cmmpaper":
+        # s47 published anchors: Fig.2 algorithmic losses, Table 1 maze,
+        # Table 2 few-shot, Table 3 ImageNet-100.
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        f2 = tables.get("fig2_algorithmic_test_loss") or {}
+        if isinstance(f2, dict) and f2:
+            names = [k for k in f2 if isinstance(f2[k], dict)]
+            fig, axes = plt.subplots(1, max(1, len(names)), figsize=(3.2 * max(1, len(names)), 3.2))
+            if len(names) == 1:
+                axes = [axes]
+            for ax, task in zip(axes, names):
+                d = {k: float(v) for k, v in f2[task].items()
+                     if isinstance(v, (int, float))}
+                if not d:
+                    continue
+                labs = list(d)
+                ax.bar(range(len(labs)), [d[k] for k in labs], color="#4c72b0")
+                ax.set_xticks(range(len(labs)))
+                ax.set_xticklabels(labs, rotation=45, ha="right", fontsize=6)
+                ax.set_title(task)
+                ax.set_ylabel("test loss")
+            fig.suptitle("s47 paper anchor: Fig.2 algorithmic tasks", fontsize=9)
+            paths.append(_save_fig(fig, f"{name}_algorithmic"))
+
+        t1 = tables.get("table1_maze") or {}
+        if isinstance(t1, dict) and t1:
+            labs = list(t1)
+            fig, ax = plt.subplots(figsize=(8.4, 3.6))
+            xs = list(range(len(labs)))
+            ax.bar([x - 0.2 for x in xs], [float(t1[k][0]) for k in labs],
+                   width=0.4, color="#4c72b0", label="action acc")
+            ax.bar([x + 0.2 for x in xs], [float(t1[k][1]) for k in labs],
+                   width=0.4, color="#55a868", label="full maze acc")
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labs, rotation=45, ha="right", fontsize=6)
+            ax.set_ylabel("%")
+            ax.set_title("s47 paper anchor: Table 1 maze-solving")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_maze"))
+
+        t2 = tables.get("table2_fewshot") or {}
+        if isinstance(t2, dict) and t2:
+            fig, ax = plt.subplots(figsize=(9.0, 3.6))
+            models = list((t2.get("K20") or {}).keys())
+            xs = list(range(len(models)))
+            for i, (k, col) in enumerate((("K10", "#4c72b0"), ("K20", "#c44e52"))):
+                vals = [float((t2.get(k) or {}).get(m, 0)) for m in models]
+                ax.bar([x + (i - 0.5) * 0.4 for x in xs], vals, width=0.4,
+                       color=col, label=k)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(models, rotation=55, ha="right", fontsize=6)
+            ax.set_ylabel("accuracy (%)")
+            ax.set_title("s47 paper anchor: Table 2 few-shot regression")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_fewshot"))
+
+        t3 = tables.get("table3_imagenet100") or {}
+        if isinstance(t3, dict) and t3:
+            labs = [k for k, v in t3.items() if isinstance(v, (int, float))]
+            if labs:
+                fig, ax = plt.subplots(figsize=(6.4, 3.4))
+                ax.bar(range(len(labs)), [float(t3[k]) for k in labs],
+                       color="#4c72b0", width=0.55)
+                ax.set_xticks(range(len(labs)))
+                ax.set_xticklabels(labs, rotation=35, ha="right", fontsize=7)
+                ax.set_ylabel("accuracy (%)")
+                ax.set_title("s47 paper anchor: Table 3 ImageNet-100")
+                paths.append(_save_fig(fig, f"{name}_imagenet"))
     return paths
 
 
