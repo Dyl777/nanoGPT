@@ -1772,6 +1772,137 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                 logbars(labs, vals,
                         "TRC2 live: App G per-term work at declared (B,T) (log)",
                         "work counts (log)", f"{name}_complexity")
+
+    if name == "crossprobe":
+        # s43: read-only cross-paper probes applied to s42 TRC2 - paper 3
+        # (LayerMix) column-state probe, paper 23 (FAS) attention-stat probe,
+        # paper 10 (Ignorance) unembedding prior direction, and the paper 20 /
+        # standard AdamW parity check. One PNG per probe; a missing leg leaves
+        # its PNG absent (SKIP-with-reason in the result JSON).
+        probes = measurements.get("probes") if isinstance(measurements, dict) else None
+        probes = probes if isinstance(probes, dict) else {}
+
+        def _layer_bar(sub, title, stem, lo=0.3):
+            auc = sub.get("layer_auroc") if isinstance(sub.get("layer_auroc"), dict) else {}
+            if not auc:
+                return
+            keys = sorted(auc, key=lambda x: int(x))
+            vals = [finite(auc[k]) for k in keys]
+            if not any(v is not None for v in vals):
+                return
+            fig, ax = plt.subplots(figsize=(6.4, 3.5))
+            xs = list(range(len(keys)))
+            ax.bar(xs, [v if v is not None else 0 for v in vals],
+                   color="#4c72b0", label="per-layer L2-LR")
+            for val, lab, col in (
+                    (finite(sub.get("oracle_auroc")), "oracle layer", "#c44e52"),
+                    (finite(sub.get("layermix_auroc")), "LayerMix (CV top-K)", "#55a868"),
+                    (finite(sub.get("meandiff_auroc")), "1D mean-shift", "#8172b2"),
+                    (finite(sub.get("mix_auroc")), "probe mix", "#55a868")):
+                if val is not None:
+                    ax.axhline(val, color=col, ls="--", lw=1.2, label=lab)
+            ax.set_xticks(xs)
+            ax.set_xticklabels([str(k) for k in keys])
+            ax.set_ylim(lo, 1.02)
+            ax.set_xlabel("TRC2 column")
+            ax.set_ylabel("AUROC (held-out topics)")
+            ax.set_title(title)
+            ax.legend(fontsize=7, loc="lower right")
+            paths.append(_save_fig(fig, f"{name}_{stem}"))
+
+        _layer_bar(probes.get("layermix_paper3") or {},
+                   "s43 cross-probe: paper 3 LayerMix on s42 TRC2", "layermix")
+        _layer_bar(probes.get("fas_paper23") or {},
+                   "s43 cross-probe: paper 23 FAS attention statistics on s42 TRC2",
+                   "fas")
+
+        ig = probes.get("ignorance_paper10") or {}
+        a, b = finite(ig.get("r2_trained")), finite(ig.get("r2_random_init"))
+        if a is not None and b is not None:
+            fig, ax = plt.subplots(figsize=(4.6, 3.4))
+            ax.bar([0, 1], [a, b], color=["#55a868", "#999999"], width=0.55)
+            ax.set_xticks([0, 1], ["trained E", "random-init E"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("centered-OLS R^2 of log p_uni on E d")
+            ax.set_title("s43 cross-probe: paper 10 prior direction on s42 TRC2")
+            paths.append(_save_fig(fig, f"{name}_prior"))
+
+        ad = probes.get("adamw_prior") or {}
+        d = finite(ad.get("max_abs_diff"))
+        if d is not None:
+            fig, ax = plt.subplots(figsize=(4.8, 3.4))
+            ax.bar([0, 1], [max(d, 1e-12), finite(ad.get("tol")) or 1e-6],
+                   color=["#4c72b0", "#c44e52"], width=0.5)
+            ax.set_yscale("log")
+            ax.set_xticks([0, 1], ["canonical vs torch", "tol"])
+            ax.set_ylabel("max abs param diff (log)")
+            ax.set_title("s43: AdamW prior-paper impl parity on s42 TRC2")
+            paths.append(_save_fig(fig, f"{name}_adamw"))
+
+    if name == "iclmeta":
+        # s44 (arXiv:2212.10559): ICL vs ZSL vs K/V-only FT, the four paper
+        # metrics, the momentum-attention A/B, and the dual-form identity.
+        pred = measurements.get("prediction") if isinstance(measurements, dict) else None
+        pred = pred if isinstance(pred, dict) else {}
+        vals = [finite(pred.get(k)) for k in ("zsl_acc", "icl_acc", "ft_acc")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.4, 3.5))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#999999", "#4c72b0", "#c44e52"], width=0.55)
+            ax.set_xticks([0, 1, 2], ["ZSL", "ICL", "FT (K/V only)"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("held-out accuracy")
+            rec = finite(pred.get("rec2ftp"))
+            ax.set_title("s44: ICL vs FT vs ZSL (Rec2FTP=%s)"
+                         % ("n/a" if rec is None else "%.2f" % rec))
+            paths.append(_save_fig(fig, f"{name}_prediction"))
+
+        rep = measurements.get("representation") if isinstance(measurements, dict) else None
+        rep = rep if isinstance(rep, dict) else {}
+        pairs = [("sim_aou_random", "SimAOU random"), ("sim_aou_ft", "SimAOU FT"),
+                 ("sim_am_before", "SimAM before"), ("sim_am_after", "SimAM after"),
+                 ("kendall_icl_ft", "Kendall ICL-FT")]
+        labs = [lab for k, lab in pairs if finite(rep.get(k)) is not None]
+        vs = [finite(rep.get(k)) for k, lab in pairs if finite(rep.get(k)) is not None]
+        if vs:
+            fig, ax = plt.subplots(figsize=(7.0, 3.5))
+            ax.bar(range(len(labs)), vs, color="#55a868", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=18, ha="right", fontsize=8)
+            ax.axhline(0.0, color="0.4", lw=0.8)
+            ax.set_ylabel("metric value")
+            ax.set_title("s44: ICL behaves like FT (Tables 3-5 metrics)")
+            paths.append(_save_fig(fig, f"{name}_representation"))
+
+        mom = measurements.get("momentum") if isinstance(measurements, dict) else None
+        mom = mom if isinstance(mom, dict) else {}
+        mv = [finite(mom.get(k)) for k in ("val_loss_vanilla", "val_loss_momentum",
+                                           "icl_acc_vanilla", "icl_acc_momentum")]
+        if any(v is not None for v in mv):
+            fig, ax = plt.subplots(figsize=(6.6, 3.5))
+            ax.bar([0, 1], [v if v is not None else 0 for v in mv[:2]],
+                   color=["#999999", "#4c72b0"], width=0.5, label="val loss")
+            ax2 = ax.twinx()
+            ax2.bar([2, 3], [v if v is not None else 0 for v in mv[2:]],
+                    color=["#999999", "#c44e52"], width=0.5, label="ICL acc")
+            ax.set_xticks([0, 1, 2, 3], ["loss\nvanilla", "loss\nmomentum",
+                                         "acc\nvanilla", "acc\nmomentum"])
+            ax.set_ylabel("validation loss")
+            ax2.set_ylabel("ICL accuracy")
+            ax.set_title("s44: momentum attention A/B (Eq.15, eta=0.9)")
+            paths.append(_save_fig(fig, f"{name}_momentum"))
+
+        dual = measurements.get("dual_form") if isinstance(measurements, dict) else None
+        dual = dual if isinstance(dual, dict) else {}
+        dd = finite(dual.get("max_abs_diff"))
+        if dd is not None:
+            fig, ax = plt.subplots(figsize=(4.4, 3.2))
+            ax.bar([0], [max(dd, 1e-12)], color="#4c72b0", width=0.4)
+            ax.set_yscale("log")
+            ax.set_xticks([0], ["|LHS-RHS|"])
+            ax.set_ylabel("max abs diff (log)")
+            ax.set_title("s44: dual-form identity (Eq.9/12)")
+            paths.append(_save_fig(fig, f"{name}_dual"))
     return paths
 
 
