@@ -1903,6 +1903,87 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_ylabel("max abs diff (log)")
             ax.set_title("s44: dual-form identity (Eq.9/12)")
             paths.append(_save_fig(fig, f"{name}_dual"))
+
+    if name == "purge":
+        # s45 (arXiv:2608.29996): partition-aware unlearning. One PNG for the
+        # four headline metrics before/after and one for the four object x
+        # context groups. Works for the text path and the Vision::siglip path.
+        before = measurements.get("before") if isinstance(measurements, dict) else None
+        after = measurements.get("after") if isinstance(measurements, dict) else None
+        before = before if isinstance(before, dict) else {}
+        after = after if isinstance(after, dict) else {}
+
+        def _m(d, key):
+            v = finite(d.get(key))
+            if v is None:
+                v = finite(d.get(key + "_m"))
+            return v
+
+        labs = ["overall", "wga", "retain", "forget"]
+        b = [_m(before, "overall"), _m(before, "wga"), _m(before, "retain_acc"),
+             _m(before, "forget_acc")]
+        a = [_m(after, "overall"), _m(after, "wga"), _m(after, "retain_acc"),
+             _m(after, "forget_acc")]
+        if any(v is not None for v in b + a):
+            fig, ax = plt.subplots(figsize=(6.8, 3.6))
+            xs = list(range(len(labs)))
+            ax.bar([x - 0.2 for x in xs], [v if v is not None else 0 for v in b],
+                   width=0.4, color="#999999", label="before")
+            ax.bar([x + 0.2 for x in xs], [v if v is not None else 0 for v in a],
+                   width=0.4, color="#4c72b0", label="after")
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labs)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy")
+            ax.set_title("s45 PURGE (%s): before vs after partition-aware unlearning"
+                         % measurements.get("objective", "?"))
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_headline"))
+        gb = before.get("group_acc") if isinstance(before.get("group_acc"), dict) else {}
+        ga = after.get("group_acc") if isinstance(after.get("group_acc"), dict) else {}
+        names = [n for n in ("C_S", "C_Sc", "Cc_S", "Cc_Sc")
+                 if finite(gb.get(n)) is not None or finite(ga.get(n)) is not None]
+        if names:
+            fig, ax = plt.subplots(figsize=(6.2, 3.5))
+            xs = list(range(len(names)))
+            ax.bar([x - 0.2 for x in xs],
+                   [finite(gb.get(n)) or 0 for n in names], width=0.4,
+                   color="#999999", label="before")
+            ax.bar([x + 0.2 for x in xs],
+                   [finite(ga.get(n)) or 0 for n in names], width=0.4,
+                   color="#55a868", label="after")
+            ax.set_xticks(xs)
+            ax.set_xticklabels(names)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("group accuracy")
+            ax.set_title("s45 PURGE: object x context groups (C=object, S=cue)")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_groups"))
+
+    if name == "purgebench":
+        # s45 benchmark suite: seven PURGE datasets, text-only language-prior
+        # arms where images are unavailable, explicit SKIPs otherwise.
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            v = finite(r.get("accuracy"))
+            if r.get("status") == "ok" and v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(7.2, 3.6))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=18, ha="right", fontsize=8)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy (text-only language prior)")
+            skipped = [k for k, r in results.items()
+                       if isinstance(r, dict) and r.get("status") != "ok"]
+            ax.set_title("s45 PURGE benchmarks: %d ran, %d skipped"
+                         % (len(labs), len(skipped)))
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
     return paths
 
 

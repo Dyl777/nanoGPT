@@ -1533,4 +1533,181 @@ def bench_dnst(model, enc, n: int = 60, seed: int = 38, naive: bool = True,
     except Exception as e:  # noqa: BLE001 - fail-soft contract
         return _err(e)
 
+# ---------------------------------------------------------------------------
+# PURGE benchmarks (arXiv:2608.29996): CHAIR, POPE, Causal-HalBench,
+# MM-SpuBench, AMBER, MMHal, Waterbirds. Datasets download on first use into
+# data/external/hf and fail soft; no download happens at import time. The
+# text-only arms score the benchmark question with the compiled LM (a language
+# prior baseline); caption/classification-only suites require a vision_model
+# callable and record SKIP-with-reason when none is bound.
+# ---------------------------------------------------------------------------
 
+_PURGE_BENCH = {
+    "chair": {
+        "repos": [("lmms-lab/CHAIR", None), ("Liujian/CHAIR", None)],
+        "split": "test", "vision_only": True,
+        "skip": "CHAIRi needs generated image captions; pass vision_model=callable(image, question)->str",
+    },
+    "pope": {
+        "repos": [("lmms-lab/POPE", None), ("lmms-lab/POPE", "default")],
+        "split": "test", "q": ["question", "text", "prompt"],
+        "a": ["answer", "label", "gt_answer"], "binary": True,
+    },
+    "causal_halbench": {
+        "repos": [("Causal-HalBench/Causal-HalBench", None),
+                  ("lmms-lab/Causal-HalBench", None)],
+        "split": "test", "q": ["question", "text", "prompt"],
+        "a": ["answer", "label", "gt_answer"], "binary": True,
+    },
+    "mm_spubench": {
+        "repos": [("MM-SpuBench/MM-SpuBench", None),
+                  ("lmms-lab/MM-SpuBench", None)],
+        "split": "test", "q": ["question", "text", "prompt"],
+        "a": ["answer", "label", "gt_answer"], "binary": True,
+    },
+    "amber": {
+        "repos": [("lmms-lab/AMBER", None), ("yifanzhang114/AMBER", None)],
+        "split": "test", "q": ["question", "text", "prompt"],
+        "a": ["answer", "label", "gt_answer"], "binary": True,
+    },
+    "mmhal": {
+        "repos": [("lmms-lab/MMHal-Bench", None), ("sail/MMHal-Bench", None)],
+        "split": "test", "q": ["question", "text", "prompt"],
+        "a": ["answer", "label", "gt_answer"], "binary": True,
+    },
+    "waterbirds": {
+        "repos": [("gibbles/waterbirds", None), ("quintend/waterbirds", None)],
+        "split": "test", "vision_only": True,
+        "skip": "Waterbirds is image classification; pass vision_model=callable(image, question)->str",
+    },
+}
+
+
+def _first_key(row, keys):
+    for k in keys or []:
+        if k in row and row[k] is not None:
+            return row[k]
+    return None
+
+
+def _purge_rows(name, n, seed):
+    spec = _PURGE_BENCH[name]
+    last = None
+    for repo, config in spec["repos"]:
+        try:
+            ds = _hf(repo, config, spec["split"])
+            rows = list(ds)
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for row in rows[:n]:
+                q = _first_key(row, spec.get("q"))
+                a = _first_key(row, spec.get("a"))
+                if q is None or a is None:
+                    continue
+                out.append({"q": str(q), "a": a,
+                            "choices": row.get("choices") or row.get("options"),
+                            "image": row.get("image")})
+            if out:
+                return out, "%s/%s %s n=%d" % (repo, config or "-", spec["split"], len(out))
+        except Exception as e:  # noqa: BLE001 - fail-soft dataset layer
+            last = e
+    return None, str(last)[:240]
+
+
+def _purge_text_only(name, model, enc, n=100, seed=0, vision_model=None):
+    spec = _PURGE_BENCH[name]
+    if spec.get("vision_only") and vision_model is None:
+        return {"suite": name, "status": "skip", "reason": spec["skip"],
+                "n": 0, "accuracy": None}
+    rows, prov = _purge_rows(name, n, seed)
+    if rows is None:
+        return {"suite": name, "status": "skip",
+                "reason": "dataset unavailable (offline or repo id changed): " + prov,
+                "n": 0, "accuracy": None}
+    if vision_model is not None:
+        # The caller owns the VLM protocol; this adapter only records provenance.
+        return {"suite": name, "status": "skip",
+                "reason": "vision_model callable is bound but this text adapter "
+                          "does not define its image/question protocol",
+                "n": len(rows), "provenance": prov, "accuracy": None}
+    correct = 0
+    used = 0
+    for r in rows:
+        ch = r.get("choices")
+        if ch:
+            ch = [str(c) for c in ch]
+            ans = str(r["a"]).strip().lower()
+            if ans.isdigit() and int(ans) < len(ch):
+                gold = int(ans)
+            else:
+                gold = next((i for i, c in enumerate(ch)
+                             if c.strip().lower() == ans), None)
+            if gold is None:
+                continue
+            pred, _ = _mc_pick(model, enc, r["q"] + "\nAnswer:", ch)
+        else:
+            ans = str(r["a"]).strip().lower()
+            gold = 0 if ans in ("yes", "true", "1", "present") else 1
+            pred, _ = _mc_pick(model, enc, r["q"] + "\nAnswer:", [" yes", " no"])
+        used += 1
+        correct += int(pred == gold)
+    return {"suite": name, "status": "ok" if used else "skip",
+            "accuracy": (correct / used) if used else None,
+            "n": used, "provenance": prov,
+            "mode": "text_only_language_prior",
+            "note": "no image is passed; this is the language-prior baseline, "
+                    "not the paper's VLM number"}
+
+
+def bench_chair(model, enc, n=100, seed=0, vision_model=None):
+    return _purge_text_only("chair", model, enc, n, seed, vision_model)
+
+
+def bench_pope(model, enc, n=100, seed=0, vision_model=None):
+    return _purge_text_only("pope", model, enc, n, seed, vision_model)
+
+
+def bench_causal_halbench(model, enc, n=100, seed=0, vision_model=None):
+    return _purge_text_only("causal_halbench", model, enc, n, seed, vision_model)
+
+
+def bench_mm_spubench(model, enc, n=100, seed=0, vision_model=None):
+    return _purge_text_only("mm_spubench", model, enc, n, seed, vision_model)
+
+
+def bench_amber(model, enc, n=100, seed=0, vision_model=None):
+    return _purge_text_only("amber", model, enc, n, seed, vision_model)
+
+
+def bench_mmhal(model, enc, n=100, seed=0, vision_model=None):
+    return _purge_text_only("mmhal", model, enc, n, seed, vision_model)
+
+
+def bench_waterbirds(model, enc, n=100, seed=0, vision_model=None):
+    return _purge_text_only("waterbirds", model, enc, n, seed, vision_model)
+
+
+def bench_purge_suite(model, enc, n=100, seed=0, vision_model=None):
+    """All seven PURGE benchmark adapters in one fail-soft record. Datasets are
+    downloaded only when this function runs; an offline host records SKIP."""
+    fns = [("chair", bench_chair), ("pope", bench_pope),
+           ("causal_halbench", bench_causal_halbench),
+           ("mm_spubench", bench_mm_spubench), ("amber", bench_amber),
+           ("mmhal", bench_mmhal), ("waterbirds", bench_waterbirds)]
+    results = {}
+    for name, fn in fns:
+        try:
+            results[name] = fn(model, enc, n=n, seed=seed, vision_model=vision_model)
+        except Exception as e:  # noqa: BLE001 - suite fail-soft
+            results[name] = {"suite": name, "status": "skip",
+                             "reason": "%s: %s" % (type(e).__name__, e),
+                             "n": 0, "accuracy": None}
+    ok = {k: v.get("accuracy") for k, v in results.items()
+          if v.get("status") == "ok" and v.get("accuracy") is not None}
+    return {"suite": "PURGE benchmarks (arXiv:2608.29996)", "n": n,
+            "results": results,
+            "ran": sorted(ok), "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
+            "provenance": "datasets downloaded at run time into data/external/hf; "
+                          "text-only arms are language-prior baselines; CHAIR/Waterbirds "
+                          "require a vision_model callable and SKIP without one"}
