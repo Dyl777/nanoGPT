@@ -2448,6 +2448,51 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_ylabel("% of runs full distribution")
             ax.set_title("s50 paper anchor: Fig.3 (99.81%)")
             paths.append(_save_fig(fig, f"{name}_full"))
+
+    if name == "radar":
+        # s51 live RADAR: Brier risk of base/source-iso/PAIC/target-oracle and
+        # adoption rates for paired betting vs empirical Bernstein.
+        risk = measurements.get("risk") if isinstance(measurements, dict) else None
+        risk = risk if isinstance(risk, dict) else {}
+        keys = [("base", "base"), ("source_isotonic", "source iso"),
+                ("paic", "PAIC"), ("target_isotonic_oracle", "target oracle")]
+        vals = [(lab, finite(risk.get(k))) for k, lab in keys]
+        vals = [(lab, v) for lab, v in vals if v is not None]
+        if vals:
+            fig, ax = plt.subplots(figsize=(6.2, 3.4))
+            ax.bar(range(len(vals)), [v for _, v in vals],
+                   color=["#999999", "#4c72b0", "#55a868", "#c44e52"][:len(vals)],
+                   width=0.55)
+            ax.set_xticks(range(len(vals)))
+            ax.set_xticklabels([lab for lab, _ in vals], rotation=15, fontsize=8)
+            ax.set_ylabel("Brier risk")
+            ax.set_title("s51 RADAR live: confidence repair on target prompts")
+            paths.append(_save_fig(fig, f"{name}_risk"))
+        ad = measurements.get("adoption") if isinstance(measurements, dict) else None
+        ad = ad if isinstance(ad, dict) else {}
+        a, b = finite(ad.get("betting_rate")), finite(ad.get("empirical_bernstein_rate"))
+        if a is not None and b is not None:
+            fig, ax = plt.subplots(figsize=(4.8, 3.2))
+            ax.bar([0, 1], [a, b], color=["#55a868", "#4c72b0"], width=0.5)
+            ax.set_xticks([0, 1], ["paired betting", "emp. Bernstein"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("adoption rate")
+            ax.set_title("s51 RADAR live: adoption under matched tests")
+            paths.append(_save_fig(fig, f"{name}_adoption"))
+
+    if name == "radarpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        a = finite(tables.get("betting_adopt_pct"))
+        b = finite(tables.get("empirical_bernstein_adopt_pct"))
+        if a is not None and b is not None:
+            fig, ax = plt.subplots(figsize=(4.8, 3.2))
+            ax.bar([0, 1], [a, b], color=["#55a868", "#4c72b0"], width=0.5)
+            ax.set_xticks([0, 1], ["paired betting", "emp. Bernstein"])
+            ax.set_ylim(0, 50)
+            ax.set_ylabel("% allocations adopted")
+            ax.set_title("s51 paper anchor: 47,400 raw-score allocations")
+            paths.append(_save_fig(fig, f"{name}_adoption"))
     return paths
 
 
