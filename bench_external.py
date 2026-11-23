@@ -2195,3 +2195,112 @@ def bench_rshd_suite(model, enc, n=100, seed=0):
             "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
             "provenance": "MATH-500/TheoremQA/MMLU-Pro/GPQA-Diamond via HF; "
                           "download-at-run, fail-soft; live model called per row"}
+
+# ---------------------------------------------------------------------------
+# Mehri relation pipeline (arXiv:2610.22300). The paper's supplementary repo
+# holds every pretrained/new relation as plain TSV:
+#   https://github.com/NightMachinery/active-inert-facts/tree/main/artifacts_v1
+# Files are fetched at run time and cached under data/external/mehri. The live
+# model is called on each held-out subject: candidate answers are the relation's
+# answers, and Recall is the candidate-restricted accuracy (the paper's measure).
+# The 11 checkpoints are not in-repo; the live model is a small-model baseline.
+# ---------------------------------------------------------------------------
+
+_MEHRI_RAW = ("https://raw.githubusercontent.com/NightMachinery/"
+              "active-inert-facts/main/artifacts_v1")
+_MEHRI_MODELS = ["openbmb__MiniCPM5-2B-Base", "Qwen__Qwen3-1.7B",
+                 "meta-llama__Llama-3.2-3B-Instruct"]
+
+
+def _mehri_get(rel_path):
+    """Fetch one artifact file (cached under data/external/mehri)."""
+    import urllib.request
+    dest = DATA / "mehri" / rel_path
+    if dest.exists():
+        return dest.read_text(encoding="utf-8")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    url = _MEHRI_RAW + "/" + rel_path
+    with urllib.request.urlopen(url, timeout=60) as r:
+        text = r.read().decode("utf-8")
+    dest.write_text(text, encoding="utf-8")
+    return text
+
+
+def _mehri_tsv(text):
+    import csv as _csv
+    import io as _io
+    return list(_csv.DictReader(_io.StringIO(text), delimiter="\t"))
+
+
+def bench_mehri_relations(model, enc, n_relations=8, seed=0,
+                          model_key=None):
+    """Download the paper's relation artifacts, join labels, and score the LIVE
+    model on held-out subjects with candidate-restricted answer accuracy."""
+    if enc is None:
+        return {"suite": "mehri_relations", "status": "skip",
+                "reason": "no encoder bound", "n": 0, "accuracy": None}
+    try:
+        tmpl = _mehri_tsv(_mehri_get("prompts/templates.tsv"))
+        rels = []
+        seen = set()
+        for r in tmpl:
+            rid = r.get("relation_id")
+            if rid and rid not in seen and r.get("role") == "pretrained":
+                seen.add(rid)
+                rels.append(rid)
+        rng = random.Random(seed)
+        rng.shuffle(rels)
+        rels = rels[:int(n_relations)]
+        mkey = model_key or _MEHRI_MODELS[0]
+        correct = used = 0
+        rows_out = []
+        for rid in rels:
+            try:
+                rows = _mehri_tsv(_mehri_get("relations/%s/%s.tsv" % (mkey, rid)))
+                new = _mehri_tsv(_mehri_get("new-relations/%s/%s.tsv" % (mkey, rid)))
+                labels = {x.get("answer"): x.get("label_r0") for x in new}
+                t = next((x for x in tmpl if x.get("relation_id") == rid
+                          and x.get("role") == "evaluation"), None)
+                if t is None:
+                    continue
+                answers = sorted({x.get("answer") for x in rows if x.get("answer")})
+                held = [x for x in rows if x.get("role") == "held-out"
+                        and x.get("answer") in labels]
+                if not answers or not held:
+                    continue
+                for x in held[:8]:
+                    prompt = str(t.get("template", "{}")).replace("{}", x["subject"])
+                    try:
+                        pred, _ = _mc_pick(model, enc, prompt + " ", answers)
+                    except Exception:
+                        continue
+                    used += 1
+                    correct += int(answers[pred] == x["answer"])
+                rows_out.append({"relation": rid, "subjects": len(held),
+                                 "answers": len(answers)})
+            except Exception:
+                continue
+        return {"suite": "mehri_relations", "status": "ok" if used else "skip",
+                "accuracy": (correct / used) if used else None,
+                "n": used, "n_relations": len(rows_out),
+                "relations": rows_out,
+                "model_key": mkey,
+                "provenance": "artifacts_v1 relation TSVs (GitHub raw, cached "
+                              "under data/external/mehri); candidate-restricted "
+                              "recall on held-out subjects; live model is a "
+                              "small-model baseline, not one of the paper's 11"}
+    except Exception as e:  # noqa: BLE001
+        return {"suite": "mehri_relations", "status": "skip",
+                "reason": "%s: %s" % (type(e).__name__, e),
+                "n": 0, "accuracy": None}
+
+
+def bench_mehri_suite(model, enc, n_relations=8, seed=0):
+    """All three relation sources are in the same registry; this is one call
+    over the first n relations, plus the paper's 70-relation / r=0.87-0.92
+    headline recorded as an anchor."""
+    r = bench_mehri_relations(model, enc, n_relations=n_relations, seed=seed)
+    r["anchor"] = {"n_models": 11, "n_relations": 70,
+                   "pearson_r_range": [0.87, 0.92], "median": 0.90,
+                   "note": "published anchors; live arm is a small-model recall"}
+    return r

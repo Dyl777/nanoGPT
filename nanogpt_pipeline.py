@@ -1045,6 +1045,19 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                  "Mehri live: held-out Generalization per relation (chance 1/|E|)",
                  "candidate accuracy", f"{name}_generalization")
 
+    if name == "mehribench":
+        # s35 paper artifacts: candidate-restricted recall on real relations.
+        acc = finite(measurements.get("accuracy"))
+        nrel = finite(measurements.get("n_relations"))
+        if acc is not None:
+            fig, ax = plt.subplots(figsize=(5.0, 3.2))
+            ax.bar([0], [acc], color="#4c72b0", width=0.4)
+            ax.set_xticks([0], ["relations=%s" % (int(nrel) if nrel else "?")])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("candidate-restricted recall")
+            ax.set_title("s35 Mehri: live model on the paper's relation artifacts")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
     if name == "rshd":
         # s36 (arXiv:2610.21018): Table-4 note-search funnel, deployment success
         # before/after distillation, and the all-fail group share (Fig.1 null).

@@ -14232,6 +14232,8 @@
         "",
         "**WIRED (s50 GOLeMM, 24_Optimal_Task_Generalisation).** `MARL::[cql, iql, golemm]` is a compiled algorithm axis. The tabular two-agent grid world implements agent-level termination, collision-blocked moves, the extended reward with the not-my-goal penalty (Def.1-2), the goal-conditioned WVF (Thm.1-2), and zero-shot task inference `Q*_M2 = max_g [Q*_M1 + Σ_i(R^M1_i(g_i)−R^M2_i(g_i))1[s_i not done]]` (Thm.4-5); CQL/IQL are the same-quota baselines. `marlpaper` records Fig.3's 99.81% full-distribution anchor. STACK: CMM's LTM and TRC2/SST's continual mechanisms at the transfer/retention role; ALTERNATIVE at the training site (Dust/SIF/RSHD); no NEVER-SAME-PATH pair found.",
         "",
+        "**WIRED (s35 Mehri, arXiv:2610.22300).** The section implements the relabel-and-generalize lab (Pre-linearity CV probe, Recall, fine-tuning on relabeled answers, held-out Generalization, recovery mapping) on a deep copy of the live model. `mehribench` now wires the paper's own supplementary artifacts (`NightMachinery/active-inert-facts`, `artifacts_v1/relations`, `new-relations`, `prompts/templates.tsv`) as a real pipeline: files are downloaded at run time into `data/external/mehri`, joined on `answer`, and the live model is called on held-out subjects with candidate-restricted recall. The 11 external checkpoints and the 70-relation r=0.87-0.92 table are anchors; the live arm is a small-model baseline.",
+        "",
         "**WIRED (s36 RSHD, arXiv:2610.21018).** The section implements the paper's note-write / leak-screen / replay-beats-group admission / plain-prompt distillation loop on the LIVE policy, and `rshdbench` now wires the four paper benchmarks (MATH-500, GPQA-Diamond, TheoremQA, MMLU-Pro) through `bench_external.py`: download-at-run, fail-soft, and the live model is called on every row (likelihood MC or generation). The paper's Table 1 numbers are cited as anchors in the section text; no result is simulated.",
         ""
       ]
@@ -14281,7 +14283,7 @@
         "| 2405.03917 | CoupledQuant | cq | cq_err, cq_bytes, cq_bpa | 3 PNGs + metrics.json |\n",
         "| 2509.17396 | EpiCache | epicache | epicache_mass, epicache_err, epicache_peak, epicache_sens, epicache_alloc | 4 PNGs + metrics.json |\n",
         "| 2605.23872 | Loop decode | loop | loop_width, loop_depth, loop_strategies | 2 PNGs + metrics.json |\n",
-        "| qlabs.sh/research/dust | Dust | dust | dust_loss, dust_cosine_pop | 5 PNGs + metrics.json (graded/figures/qlabs_dust/) |\n| 2610.22293 | Subspace Tuning | sst | sst_leak, sst_retention | 12 PNGs + metrics.json |\n| 2610.22300 | Mehri (pre-linearity) | mehri | mehri_prelinearity, mehri_generalization | runner writes outputs/mehri_results.json; 2 PNG stems emit on the first pipeline run (execution withheld on this host) |\n| 2610.21018 | RSHD (replay-selected hindsight) | rshd, rshdbench | rshd_funnel, rshd_success, rshd_allfail, rshdbench_accuracy | runner writes outputs/rshd_results.json; 4 benchmark adapters (MATH-500/GPQA-Diamond/TheoremQA/MMLU-Pro) call the live model per row |\n | 2610.21182 | LRT (latent reasoning taxonomy) | lch | lch_use, lch_probe, lch_dynamics, lch_census | runner writes outputs/lch_results.json; 4 PNG stems emit on the first pipeline run (execution withheld on this host) |\n| 2610.21204 | ETC (entertain-then-cancel) | etc | etc_dose, etc_trace, etc_remedy, etc_stage | runner writes outputs/etc_results.json; 4 PNG stems emit on the first pipeline run (execution withheld on this host) |",
+        "| qlabs.sh/research/dust | Dust | dust | dust_loss, dust_cosine_pop | 5 PNGs + metrics.json (graded/figures/qlabs_dust/) |\n| 2610.22293 | Subspace Tuning | sst | sst_leak, sst_retention | 12 PNGs + metrics.json |\n| 2610.22300 | Mehri (pre-linearity) | mehri, mehribench | mehri_prelinearity, mehri_generalization, mehribench_accuracy | runner writes outputs/mehri_results.json; relation artifacts downloaded from the supplementary repo and scored with the live model |\n| 2610.21018 | RSHD (replay-selected hindsight) | rshd, rshdbench | rshd_funnel, rshd_success, rshd_allfail, rshdbench_accuracy | runner writes outputs/rshd_results.json; 4 benchmark adapters (MATH-500/GPQA-Diamond/TheoremQA/MMLU-Pro) call the live model per row |\n | 2610.21182 | LRT (latent reasoning taxonomy) | lch | lch_use, lch_probe, lch_dynamics, lch_census | runner writes outputs/lch_results.json; 4 PNG stems emit on the first pipeline run (execution withheld on this host) |\n| 2610.21204 | ETC (entertain-then-cancel) | etc | etc_dose, etc_trace, etc_remedy, etc_stage | runner writes outputs/etc_results.json; 4 PNG stems emit on the first pipeline run (execution withheld on this host) |",
         "\n",
         "**External suites (§28) now run for real (download-backed):** MMLU 5-shot letter-likelihood (`mmlu_overall`, `mmlu_subjects`), GSM8K 8-shot greedy EM (`gsm8k_acc`), MBPP executed pass@1 (`mbpp_pass`), TruthfulQA MC1/MC2 (`truthfulqa_mc`), HaluEval + FaithDial pairwise (`halieval_acc`, `faithdial_acc`), OlympiadBench (`olympiad_types`/`olympiad_acc`), RULER-style single-pass NIAH sweep (`ruler_em_vs_len`, >ctx lengths skipped-with-reason). `Vocab::gpt2bpe` + `Scale::gpt2_124m` give every path a suite-scale capacity option (768/12/12, self-trained via §9 - no foreign weights); every result carries provenance (dataset/split/n/seed/shots/tokenizer/weights). Offline they fail softly into SKIP-with-reason `{\"error\"}` entries - never fabricated numbers. Published rows stay recorded in `graded/figures/`."
       ]
@@ -23933,7 +23935,16 @@
         "# Same invocation pattern as the sst live cell; live_call adapts, runs, plots (stems\n",
         "# mehri_prelinearity / mehri_generalization via the pipeline branch), never raises.\n",
         "BENCH_RESULTS.append(live_call(\n",
-        "    'mehri', run_mehri, model=model))"
+        "    'mehri', run_mehri, model=model))\n",
+        "# Paper relation artifacts: 70 relations from the supplementary repo,\n",
+        "# downloaded at run time and scored with candidate-restricted recall.\n",
+        "from bench_external import bench_mehri_suite, enc_for_model\n",
+        "try:\n",
+        "    _mehri_enc = enc_for_model(model, globals())\n",
+        "except Exception:\n",
+        "    _mehri_enc = None\n",
+        "BENCH_RESULTS.append(live_call(\n",
+        "    'mehribench', bench_mehri_suite, model=model, enc=_mehri_enc))\n"
       ]
     },
     {
