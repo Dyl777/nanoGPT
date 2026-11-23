@@ -173,6 +173,25 @@ def _hf(repo: str, config: Optional[str], split: str, key: str = ""):
     raise IOError(f"{repo}/{config}/{split} failed twice: {last}")
 
 
+def _hf_stream(repo: str, config: Optional[str], split: str, n: int, key: str = ""):
+    """Stream only the first n rows from the HF hub (no full download).
+
+    `datasets.load_dataset(..., streaming=True)` opens the parquet/WebDataset
+    shards over HTTP and yields rows incrementally; this is the space-safe path
+    used first by the image benchmarks. The cache directory is still
+    data/external/hf for resolver metadata; no dataset shard is materialized.
+    """
+    from datasets import load_dataset
+    ds = load_dataset(repo, config, split=split, streaming=True,
+                      cache_dir=str(DATA / ("hf" if not key else key)))
+    out = []
+    for r in ds:
+        out.append(r)
+        if len(out) >= int(n):
+            break
+    return out
+
+
 def _pick_repo(candidates: Sequence[Tuple[str, Optional[str]]], split: str):
     last = None
     for repo, config in candidates:
@@ -1888,3 +1907,168 @@ def bench_sif_suite(model, enc, n=100, seed=0):
             "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
             "provenance": "download-at-run into data/external/hf; live model is "
                           "called on every row; labels used for scoring only"}
+
+# ---------------------------------------------------------------------------
+# COMPOSE benchmark pipelines (arXiv:2605.11710): CFST CGQA/COBJ plus the
+# standard continual-learning image benchmarks (CIFAR-100, ImageNet-R/A,
+# miniImageNet, CUB-200). Datasets download at run time into data/external/hf
+# and fail soft. Image classification needs a vision callable:
+#   vision_model(rows) -> list[int] predictions, or {"accuracy": float, ...}
+# The text LM is not treated as an image classifier; with no vision_model the
+# adapter records READY (dataset loaded, n/classes) and SKIP for accuracy.
+# ---------------------------------------------------------------------------
+
+_COMPOSE_BENCH = {
+    "cgqa": {"kind": "cfst", "repos": [
+        ("LiaoMingjie/CFST", None, "test"),
+        ("LiaoMingjie/CFST-CGQA", None, "test"),
+        ("microsoft/CFST", None, "test")]},
+    "cobj": {"kind": "cfst", "repos": [
+        ("LiaoMingjie/CFST", None, "test"),
+        ("LiaoMingjie/CFST-COBJ", None, "test"),
+        ("microsoft/CFST", None, "test")]},
+    "cifar100": {"kind": "image", "repos": [
+        ("uoft-cs/cifar100", None, "test")]},
+    "imagenetr": {"kind": "image", "repos": [
+        ("tanganke/imagenet-r", None, "test"),
+        ("ehsanasgarian/imagenet-r", None, "test")]},
+    "imageneta": {"kind": "image", "repos": [
+        ("tanganke/imagenet-a", None, "test"),
+        ("bryanzhou008/ImageNet-A", None, "test")]},
+    "miniimagenet": {"kind": "image", "repos": [
+        ("sachinprasadhs/mini-imagenet", None, "test"),
+        ("timm/mini-imagenet", None, "test")]},
+    "cub200": {"kind": "image", "repos": [
+        ("Bingsu/CUB200_2011", None, "test"),
+        ("huggingface/CUB-200-2011", None, "test")]},
+}
+
+
+def _compose_image_rows(name, n, seed):
+    spec = _COMPOSE_BENCH[name]
+    last = None
+    for repo, config, split in spec["repos"]:
+        rows, loader = None, None
+        # 1) streaming first: only n rows are fetched, nothing is materialized
+        try:
+            rows = _hf_stream(repo, config, split, max(int(n) * 2, int(n)))
+            loader = "streaming"
+        except Exception as e_stream:  # noqa: BLE001
+            last = e_stream
+        # 2) fallback: full cached download (needed by non-streamable repos)
+        if rows is None:
+            try:
+                rows = list(_hf(repo, config, split))
+                loader = "download"
+            except Exception as e:  # noqa: BLE001
+                last = e
+                continue
+        rng = random.Random(seed)
+        rng.shuffle(rows)
+        out = []
+        for r in rows:
+            img = _first_key(r, ["image", "img", "pixel_values", "Image"])
+            lab = _first_key(r, ["label", "fine_label", "target", "labels",
+                                 "class", "category"])
+            if img is None:
+                continue
+            out.append({"image": img, "label": lab})
+            if len(out) >= int(n):
+                break
+        if out:
+            labs = [x["label"] for x in out if x["label"] is not None]
+            return out, {"repo": repo, "config": config, "split": split,
+                         "loader": loader,
+                         "cache_dir": str(DATA / "hf"),
+                         "n": len(out),
+                         "classes": len(set(labs)) if labs else None}
+    return None, {"error": str(last)[:240],
+                  "cache_dir": str(DATA / "hf")}
+
+
+def _compose_bench(name, model=None, enc=None, n=200, seed=0, vision_model=None):
+    rows, prov = _compose_image_rows(name, n, seed)
+    if rows is None:
+        return {"suite": name, "status": "skip",
+                "reason": "dataset unavailable (offline or repo id changed): %s"
+                          % prov.get("error"), "n": 0, "accuracy": None}
+    base = {"suite": name, "n": len(rows), "classes": prov.get("classes"),
+            "loader": prov.get("loader"), "cache_dir": prov.get("cache_dir"),
+            "provenance": prov, "kind": _COMPOSE_BENCH[name]["kind"]}
+    if vision_model is None:
+        base.update({"status": "ready", "accuracy": None,
+                     "reason": "dataset loaded; image classification requires "
+                               "vision_model(rows)->predictions or {'accuracy':...}"})
+        return base
+    try:
+        out = vision_model(rows)
+        if isinstance(out, dict):
+            base.update(out)
+            base.setdefault("status", "ok" if out.get("accuracy") is not None else "ready")
+            return base
+        preds = list(out)
+        labels = [r["label"] for r in rows]
+        ok = [i for i in range(min(len(preds), len(labels)))
+              if labels[i] is not None and preds[i] == labels[i]]
+        base.update({"status": "ok", "accuracy": len(ok) / max(1, len(labels)),
+                     "mode": "vision_model_predictions"})
+        return base
+    except Exception as e:  # noqa: BLE001
+        base.update({"status": "skip", "accuracy": None,
+                     "reason": "vision_model failed: %s: %s" % (type(e).__name__, e)})
+        return base
+
+
+def bench_cgqa(model=None, enc=None, n=200, seed=0, vision_model=None):
+    return _compose_bench("cgqa", model, enc, n, seed, vision_model)
+
+
+def bench_cobj(model=None, enc=None, n=200, seed=0, vision_model=None):
+    return _compose_bench("cobj", model, enc, n, seed, vision_model)
+
+
+def bench_cifar100(model=None, enc=None, n=200, seed=0, vision_model=None):
+    return _compose_bench("cifar100", model, enc, n, seed, vision_model)
+
+
+def bench_imagenetr(model=None, enc=None, n=200, seed=0, vision_model=None):
+    return _compose_bench("imagenetr", model, enc, n, seed, vision_model)
+
+
+def bench_imageneta(model=None, enc=None, n=200, seed=0, vision_model=None):
+    return _compose_bench("imageneta", model, enc, n, seed, vision_model)
+
+
+def bench_miniimagenet(model=None, enc=None, n=200, seed=0, vision_model=None):
+    return _compose_bench("miniimagenet", model, enc, n, seed, vision_model)
+
+
+def bench_cub200(model=None, enc=None, n=200, seed=0, vision_model=None):
+    return _compose_bench("cub200", model, enc, n, seed, vision_model)
+
+
+def bench_compose_suite(model=None, enc=None, n=200, seed=0, vision_model=None):
+    """All seven COMPOSE/CFST benchmark pipelines in one fail-soft record."""
+    fns = [("cgqa", bench_cgqa), ("cobj", bench_cobj),
+           ("cifar100", bench_cifar100), ("imagenetr", bench_imagenetr),
+           ("imageneta", bench_imageneta), ("miniimagenet", bench_miniimagenet),
+           ("cub200", bench_cub200)]
+    results = {}
+    for name, fn in fns:
+        try:
+            results[name] = fn(model=model, enc=enc, n=n, seed=seed,
+                               vision_model=vision_model)
+        except Exception as e:  # noqa: BLE001
+            results[name] = {"suite": name, "status": "skip",
+                             "reason": "%s: %s" % (type(e).__name__, e),
+                             "n": 0, "accuracy": None}
+    ok = {k: v.get("accuracy") for k, v in results.items()
+          if v.get("status") == "ok" and v.get("accuracy") is not None}
+    ready = [k for k, v in results.items() if v.get("status") == "ready"]
+    return {"suite": "COMPOSE / CFST benchmark pipelines (arXiv:2605.11710)",
+            "n": n, "results": results, "ran": sorted(ok),
+            "ready": sorted(ready),
+            "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
+            "provenance": "download-at-run into data/external/hf; CFST and image "
+                          "classification metrics require vision_model(rows); "
+                          "text LM is not treated as an image classifier"}

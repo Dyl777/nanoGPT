@@ -2316,6 +2316,72 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s48 SIF reasoning benchmarks: %d ran, %d skipped"
                          % (len(labs), len(skipped)))
             paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "compose":
+        # s49 live COMPOSE: seen vs novel-folder accuracy and their harmonic mean.
+        vals = [finite(measurements.get(k)) for k in ("seen_acc", "novel_acc", "Ha")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.2, 3.4))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#4c72b0", "#c44e52", "#55a868"], width=0.55)
+            ax.set_xticks([0, 1, 2], ["seen", "novel", "Ha"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy")
+            ax.set_title("s49 COMPOSE: held-out folders (live)")
+            paths.append(_save_fig(fig, f"{name}_split"))
+
+    if name == "composepaper":
+        # s49 published anchors: Table 1 CGQA noc/Ha, Table 2 backbone.
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        t1 = tables.get("table1_cgqa_10way_10shot") or {}
+        if isinstance(t1.get("noc"), dict):
+            methods = list(t1["noc"])
+            xs = list(range(len(methods)))
+            fig, ax = plt.subplots(figsize=(8.8, 3.6))
+            ax.bar([x - 0.2 for x in xs], [float(t1["noc"][m]) for m in methods],
+                   width=0.4, color="#4c72b0", label="noc")
+            ax.bar([x + 0.2 for x in xs], [float(t1["Ha"][m]) for m in methods],
+                   width=0.4, color="#55a868", label="Ha")
+            ax.set_xticks(xs)
+            ax.set_xticklabels(methods, rotation=40, ha="right", fontsize=7)
+            ax.set_ylim(0, 100)
+            ax.set_ylabel("%")
+            ax.set_title("s49 paper anchor: Table 1 CGQA 10-way 10-shot")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_cgqa"))
+
+    if name == "composebench":
+        # s49 CFST/image benchmark pipelines: plot accuracy when a vision
+        # callable produced it; otherwise report READY/SKIP counts.
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            v = finite(r.get("accuracy"))
+            if r.get("status") == "ok" and v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(8.0, 3.4))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=25, ha="right", fontsize=7)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy")
+            ax.set_title("s49 COMPOSE benchmark pipelines")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+        else:
+            ready = measurements.get("ready") or []
+            fig, ax = plt.subplots(figsize=(7.2, 3.2))
+            ax.bar([0, 1, 2], [len(results), len(ready),
+                               len(results) - len(ready)],
+                   color=["#4c72b0", "#55a868", "#c44e52"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["pipelines", "ready", "other/skip"])
+            ax.set_ylabel("count")
+            ax.set_title("s49 COMPOSE benchmark pipelines (dataset status)")
+            paths.append(_save_fig(fig, f"{name}_status"))
     return paths
 
 
