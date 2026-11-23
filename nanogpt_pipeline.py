@@ -1080,6 +1080,30 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                  "RSHD live: all-fail group share per leg (Lemma-2 null; Fig.1: 8-51%%)",
                  "share of groups all-fail", f"{name}_allfail")
 
+    if name == "rshdbench":
+        # s36 paper benchmarks: MATH-500, GPQA-Diamond, TheoremQA, MMLU-Pro.
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            v = finite(r.get("accuracy"))
+            if r.get("status") == "ok" and v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(7.4, 3.4))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=20, ha="right", fontsize=8)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy")
+            skipped = [k for k, r in results.items()
+                       if isinstance(r, dict) and r.get("status") != "ok"]
+            ax.set_title("s36 RSHD benchmarks: %d ran, %d skipped"
+                         % (len(labs), len(skipped)))
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
     if name == "lch":
         # s37 (arXiv:2610.21182): causal-use bars (delete/substitute moved vs
         # hurt), probe accuracy vs the permuted-label null at slot 0 / last
@@ -2382,6 +2406,35 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_ylabel("count")
             ax.set_title("s49 COMPOSE benchmark pipelines (dataset status)")
             paths.append(_save_fig(fig, f"{name}_status"))
+
+    if name == "marl":
+        # s50 GOLeMM/CQL/IQL: tasks solved under the same quota.
+        solved = finite(measurements.get("tasks_solved"))
+        total = finite(measurements.get("distribution_size"))
+        if solved is not None and total:
+            fig, ax = plt.subplots(figsize=(5.2, 3.4))
+            ax.bar([0, 1], [solved, max(0, total - solved)],
+                   color=["#55a868", "#c44e52"], width=0.5, stacked=True)
+            ax.set_xticks([0], ["tasks"])
+            ax.set_ylim(0, total)
+            ax.set_ylabel("tasks")
+            ax.set_title("s50 %s: %d/%d tasks solved optimally"
+                         % (measurements.get("kind", "?"), int(solved), int(total)))
+            paths.append(_save_fig(fig, f"{name}_tasks"))
+
+    if name == "marlpaper":
+        # s50 published anchor: Fig.3 full-distribution rate.
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        v = finite(tables.get("fig3_full_distribution_pct"))
+        if v is not None:
+            fig, ax = plt.subplots(figsize=(4.4, 3.2))
+            ax.bar([0], [v], color="#4c72b0", width=0.4)
+            ax.set_xticks([0], ["GOLeMM"])
+            ax.set_ylim(0, 100)
+            ax.set_ylabel("% of runs full distribution")
+            ax.set_title("s50 paper anchor: Fig.3 (99.81%)")
+            paths.append(_save_fig(fig, f"{name}_full"))
     return paths
 
 

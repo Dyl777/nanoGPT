@@ -2072,3 +2072,126 @@ def bench_compose_suite(model=None, enc=None, n=200, seed=0, vision_model=None):
             "provenance": "download-at-run into data/external/hf; CFST and image "
                           "classification metrics require vision_model(rows); "
                           "text LM is not treated as an image classifier"}
+
+# ---------------------------------------------------------------------------
+# RSHD benchmarks (arXiv:2610.21018): MATH-500, GPQA-Diamond, TheoremQA,
+# MMLU-Pro. MATH-500/TheoremQA reuse the existing adapters; GPQA-Diamond and
+# MMLU-Pro are added here. Download-at-run into data/external/hf, fail-soft,
+# and the LIVE model is called on every row (likelihood MC or generation).
+# ---------------------------------------------------------------------------
+
+def _gpqa_rows(n, seed):
+    cands = [("Idavidrein/gpqa", "gpqa_diamond", "train"),
+             ("flyingmoth/gpqa", "gpqa_diamond", "train")]
+    last = None
+    for repo, config, split in cands:
+        try:
+            rows = list(_hf(repo, config, split))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for r in rows[:n]:
+                q = _first_key(r, ["Question", "question"])
+                correct = _first_key(r, ["Correct Answer", "correct_answer"])
+                wrong = [r.get("Incorrect Answer %d" % i) for i in range(1, 4)]
+                wrong = [w for w in wrong if w]
+                if q is None or correct is None or not wrong:
+                    continue
+                out.append({"q": str(q), "a": str(correct),
+                            "choices": [str(correct)] + [str(w) for w in wrong],
+                            "gold": 0})
+            if out:
+                return out, "%s/%s %s n=%d" % (repo, config, split, len(out))
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def bench_gpqa(model, enc, n=126, seed=0):
+    rows, prov = _gpqa_rows(n, seed)
+    if rows is None:
+        return {"suite": "gpqa_diamond", "status": "skip",
+                "reason": "dataset unavailable (offline or repo id changed): " + prov,
+                "n": 0, "accuracy": None}
+    correct = used = 0
+    for r in rows:
+        ch = r["choices"]
+        rng = random.Random(hash(r["q"]) & 0xFFFF)
+        order = list(range(len(ch)))
+        rng.shuffle(order)
+        shuffled = [ch[i] for i in order]
+        gold = order.index(0)
+        pred, _ = _mc_pick(model, enc, r["q"] + "\nAnswer:", shuffled)
+        used += 1
+        correct += int(pred == gold)
+    return {"suite": "gpqa_diamond", "status": "ok" if used else "skip",
+            "accuracy": (correct / used) if used else None,
+            "n": used, "provenance": prov, "mode": "likelihood_mc"}
+
+
+def bench_mmlu_pro(model, enc, n=200, seed=0):
+    rows = None
+    prov = None
+    last = None
+    for repo, config, split in [("TIGER-Lab/MMLU-Pro", None, "test"),
+                                ("TIGER-Lab/MMLU-Pro", "default", "test")]:
+        try:
+            ds = list(_hf(repo, config, split))
+            rng = random.Random(seed)
+            rng.shuffle(ds)
+            rows = []
+            for r in ds[:n]:
+                q = _first_key(r, ["question", "Question"])
+                opts = _first_key(r, ["options", "choices"])
+                ans = _first_key(r, ["answer", "answer_index", "label"])
+                if q is None or not opts or ans is None:
+                    continue
+                rows.append({"q": str(q), "choices": list(opts), "a": ans})
+            prov = "%s/%s %s n=%d" % (repo, config or "-", split, len(rows))
+            break
+        except Exception as e:  # noqa: BLE001
+            last = e
+    if not rows:
+        return {"suite": "mmlu_pro", "status": "skip",
+                "reason": "dataset unavailable: " + str(last)[:240],
+                "n": 0, "accuracy": None}
+    correct = used = 0
+    for r in rows:
+        ch = [str(c) for c in r["choices"]]
+        ans = r["a"]
+        if isinstance(ans, int) or str(ans).isdigit():
+            gold = int(ans)
+            if gold >= len(ch):
+                gold = None
+        else:
+            gold = next((i for i, c in enumerate(ch)
+                         if c.strip().lower() == str(ans).strip().lower()), None)
+        if gold is None:
+            continue
+        pred, _ = _mc_pick(model, enc, r["q"] + "\nAnswer:", ch)
+        used += 1
+        correct += int(pred == gold)
+    return {"suite": "mmlu_pro", "status": "ok" if used else "skip",
+            "accuracy": (correct / used) if used else None,
+            "n": used, "provenance": prov, "mode": "likelihood_mc"}
+
+
+def bench_rshd_suite(model, enc, n=100, seed=0):
+    """MATH-500, GPQA-Diamond, TheoremQA, MMLU-Pro (paper Table 1)."""
+    fns = [("math500", bench_math500), ("gpqa_diamond", bench_gpqa),
+           ("theoremqa", bench_theoremqa), ("mmlu_pro", bench_mmlu_pro)]
+    results = {}
+    for name, fn in fns:
+        try:
+            results[name] = fn(model=model, enc=enc, n=n, seed=seed)
+        except Exception as e:  # noqa: BLE001
+            results[name] = {"suite": name, "status": "skip",
+                             "reason": "%s: %s" % (type(e).__name__, e),
+                             "n": 0, "accuracy": None}
+    ok = {k: v.get("accuracy") for k, v in results.items()
+          if v.get("status") == "ok" and v.get("accuracy") is not None}
+    return {"suite": "RSHD benchmarks (arXiv:2610.21018)", "n": n,
+            "results": results, "ran": sorted(ok),
+            "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
+            "provenance": "MATH-500/TheoremQA/MMLU-Pro/GPQA-Diamond via HF; "
+                          "download-at-run, fail-soft; live model called per row"}
