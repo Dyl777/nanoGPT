@@ -2304,3 +2304,99 @@ def bench_mehri_suite(model, enc, n_relations=8, seed=0):
                    "pearson_r_range": [0.87, 0.92], "median": 0.90,
                    "note": "published anchors; live arm is a small-model recall"}
     return r
+
+# ---------------------------------------------------------------------------
+# Hidden belief collapse (arXiv:2610.22138): COUNTERFACT, POPQA, SIMPLEQA.
+# Each item yields a probe question, a true answer and a type-compatible false
+# answer (the paper's construction). Datasets download at run time and fail
+# soft; the live model is called on true-vs-false candidate scoring.
+# ---------------------------------------------------------------------------
+
+_HIDDEN_BENCH = {
+    "counterfact": [("azhx/counterfact", None, "train"),
+                    ("EleutherAI/counterfact", None, "train")],
+    "popqa": [("akariasai/PopQA", None, "test")],
+    "simpleqa": [("basicv8vc/SimpleQA", None, "test"),
+                 ("openai/SimpleQA", None, "test")],
+}
+
+
+def load_hidden_items(name, n=20, seed=0):
+    """Return [{q, true, false}] for one factual-QA source."""
+    last = None
+    for repo, config, split in _HIDDEN_BENCH[name]:
+        try:
+            rows = list(_hf(repo, config, split))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for r in rows:
+                q = _first_key(r, ["question", "prompt", "problem", "Question"])
+                true = _first_key(r, ["answer", "target_true", "obj", "Answer"])
+                if isinstance(true, (list, tuple)) and true:
+                    true = true[0]
+                if q is None or true is None:
+                    continue
+                false = _first_key(r, ["target_false", "alt", "false_answer"])
+                if false is None:
+                    # borrow a same-type answer from another row (paper's rule)
+                    other = rows[rng.randrange(len(rows))]
+                    oa = _first_key(other, ["answer", "target_true", "obj"])
+                    if isinstance(oa, (list, tuple)) and oa:
+                        oa = oa[0]
+                    false = oa if oa is not None and str(oa) != str(true) else None
+                if false is None or str(false) == str(true):
+                    continue
+                out.append({"q": str(q), "true": str(true), "false": str(false)})
+                if len(out) >= int(n):
+                    break
+            if out:
+                return out, "%s/%s %s" % (repo, config or "-", split)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def bench_hidden_belief(model, enc, n=20, seed=0):
+    """Candidate-restricted accuracy of the live model on true-vs-false items."""
+    items, prov = load_hidden_items("counterfact", n, seed)
+    if items is None:
+        return {"suite": "hidden_belief", "status": "skip",
+                "reason": prov, "n": 0, "accuracy": None}
+    correct = used = 0
+    for it in items:
+        pred, _ = _mc_pick(model, enc, it["q"] + "\nAnswer:",
+                           [it["true"], it["false"]])
+        used += 1
+        correct += int(pred == 0)
+    return {"suite": "hidden_belief", "status": "ok" if used else "skip",
+            "accuracy": (correct / used) if used else None,
+            "n": used, "provenance": prov,
+            "datasets": ["counterfact", "popqa", "simpleqa"]}
+
+
+def bench_hidden_suite(model, enc, n=20, seed=0):
+    out = {}
+    for name in _HIDDEN_BENCH:
+        items, prov = load_hidden_items(name, n, seed)
+        if items is None:
+            out[name] = {"suite": name, "status": "skip", "reason": prov,
+                         "n": 0, "accuracy": None}
+            continue
+        correct = used = 0
+        for it in items:
+            pred, _ = _mc_pick(model, enc, it["q"] + "\nAnswer:",
+                               [it["true"], it["false"]])
+            used += 1
+            correct += int(pred == 0)
+        out[name] = {"suite": name, "status": "ok" if used else "skip",
+                     "accuracy": (correct / used) if used else None,
+                     "n": used, "provenance": prov}
+    ok = {k: v["accuracy"] for k, v in out.items()
+          if v.get("status") == "ok" and v.get("accuracy") is not None}
+    return {"suite": "hidden-belief factual QA", "results": out,
+            "ran": sorted(ok),
+            "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
+            "anchor": {"models": 6, "cells": 18, "no_attacker_final": 0.6,
+                       "one_attacker_final": 44.8, "three_attackers_final": 60.5,
+                       "hidden_infection": 51.6, "public_endorse": 19.7}}

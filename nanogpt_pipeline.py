@@ -2493,6 +2493,63 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_ylabel("% allocations adopted")
             ax.set_title("s51 paper anchor: 47,400 raw-score allocations")
             paths.append(_save_fig(fig, f"{name}_adoption"))
+
+    if name == "hiddenbelief":
+        cells = measurements.get("cells") if isinstance(measurements, dict) else None
+        cells = cells if isinstance(cells, dict) else {}
+        keys = [k for k in ("k0", "k1", "k3") if k in cells]
+        if keys:
+            fig, ax = plt.subplots(figsize=(7.0, 3.6))
+            xs = list(range(len(keys)))
+            for i, (fld, lab, col) in enumerate((
+                    ("private_false_rate", "private false", "#c44e52"),
+                    ("public_endorse_rate", "public endorse", "#4c72b0"),
+                    ("hidden_infection_rate", "hidden infection", "#55a868"))):
+                ax.bar([x + (i - 1) * 0.22 for x in xs],
+                       [float(cells[k].get(fld, 0)) for k in keys],
+                       width=0.22, color=col, label=lab)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(keys)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("rate")
+            ax.set_title("s52 hidden belief: private vs public under k attackers")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_rates"))
+
+    if name == "hiddenbeliefbench":
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            v = finite(r.get("accuracy"))
+            if r.get("status") == "ok" and v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(5.4, 3.2))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.5)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=15, fontsize=8)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy")
+            ax.set_title("s52 factual-QA loaders: live true-vs-false accuracy")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "hiddenbeliefpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        vals = [finite(tables.get(k)) for k in
+                ("no_attacker_final_pct", "one_attacker_final_pct",
+                 "three_attackers_final_pct")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.4, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#55a868", "#c44e52", "#8172b2"], width=0.55)
+            ax.set_xticks([0, 1, 2], ["k=0", "k=1", "k=3"])
+            ax.set_ylabel("final private infection (%)")
+            ax.set_title("s52 paper anchor: 0.6 / 44.8 / 60.5%")
+            paths.append(_save_fig(fig, f"{name}_final"))
     return paths
 
 
