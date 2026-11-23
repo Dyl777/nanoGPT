@@ -2550,6 +2550,32 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_ylabel("final private infection (%)")
             ax.set_title("s52 paper anchor: 0.6 / 44.8 / 60.5%")
             paths.append(_save_fig(fig, f"{name}_final"))
+
+    if name == "roleq":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        vals = [finite(live.get(k)) for k in ("base_ppl", "peroc_ppl", "selected_ppl")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.4, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#999999", "#4c72b0", "#55a868"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["fp", "per-OC", "selected"])
+            ax.set_ylabel("held-out perplexity")
+            ax.set_title("s53 Quant arm: RoleQ vs per-OC at equal codes")
+            paths.append(_save_fig(fig, f"{name}_ppl"))
+
+    if name == "roleqpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        a = finite(tables.get("qwen3_14b_mmlu_peroc"))
+        b = finite(tables.get("qwen3_14b_mmlu_roleq"))
+        if a is not None and b is not None:
+            fig, ax = plt.subplots(figsize=(4.8, 3.2))
+            ax.bar([0, 1], [a, b], color=["#c44e52", "#55a868"], width=0.5)
+            ax.set_xticks([0, 1], ["per-OC", "RoleQ"])
+            ax.set_ylabel("MMLU (Qwen3-14B, ternary)")
+            ax.set_title("s53 paper anchor: 25.4 -> 38.5 MMLU")
+            paths.append(_save_fig(fig, f"{name}_mmlu"))
     return paths
 
 
