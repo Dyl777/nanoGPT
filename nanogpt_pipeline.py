@@ -1483,6 +1483,48 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s56 ASL datasets: How2Sign / YouTube-ASL")
             paths.append(_save_fig(fig, f"{name}_rows"))
 
+    if name == "manifold":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        r2 = live.get("probe_r2")
+        vals = [finite(x) for x in r2] if isinstance(r2, list) else []
+        if vals:
+            fig, ax = plt.subplots(figsize=(6.2, 3.2))
+            ax.bar(range(len(vals)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(vals)))
+            ax.set_xticklabels(["L%d" % i for i in range(len(vals))], fontsize=7)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("count-probe R2")
+            dec = live.get("decision") or {}
+            ax.set_title("s57 count manifold: probe R2 (decision acc=%.2f)"
+                         % float(dec.get("accuracy", 0.0)))
+            paths.append(_save_fig(fig, f"{name}_r2"))
+        qk = live.get("qk_top")
+        if isinstance(qk, list) and qk:
+            cos = [finite(q.get("cos")) for q in qk]
+            cos = [c for c in cos if c is not None]
+            if cos:
+                fig, ax = plt.subplots(figsize=(5.2, 3.0))
+                ax.bar(range(len(cos)), cos, color="#55a868", width=0.55)
+                ax.set_ylim(0, 1.0)
+                ax.set_ylabel("|cos(QK top, count dir)|")
+                ax.set_title("s57 QK twist: head alignment with count")
+                paths.append(_save_fig(fig, f"{name}_qk"))
+
+    if name == "manifoldpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        vals = [finite(tables.get("probe_r2_after_layer1")),
+                finite(tables.get("count_features")),
+                finite(tables.get("count_probes"))]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.2, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#4c72b0", "#55a868", "#c44e52"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["R2", "features", "probes"])
+            ax.set_title("s57 paper anchors: R2=.985, 10 features, 150 probes")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "etc":
         # s38 (arXiv:2610.21204): the think-dose battery - dose-response
         # delta per class/arm, the trace trajectory census, the early-read
