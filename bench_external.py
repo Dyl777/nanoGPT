@@ -1711,3 +1711,180 @@ def bench_purge_suite(model, enc, n=100, seed=0, vision_model=None):
             "provenance": "datasets downloaded at run time into data/external/hf; "
                           "text-only arms are language-prior baselines; CHAIR/Waterbirds "
                           "require a vision_model callable and SKIP without one"}
+
+# ---------------------------------------------------------------------------
+# SIF reasoning benchmarks (arXiv:2610.21392): AIME, AMC23, MATH-500, Minerva,
+# OlympiadBench, GSM8K, Omni-MATH, CollegeMath, JEEBench, TheoremQA, ScienceQA,
+# SciBench. Download-at-run into data/external/hf, fail-soft, and the LIVE model
+# is called on every row (generation + answer extraction, or likelihood MC when
+# choices exist). No labels enter training; they are only scored here.
+# ---------------------------------------------------------------------------
+
+_SIF_BENCH = {
+    "aime": {"repos": [("AI-MO/aimo-validation-aime", None),
+                       ("Maxwell-Jia/AIME_2024", None)],
+             "split": "train", "q": ["Question", "question", "problem", "Problem"],
+             "a": ["Answer", "answer", "final_answer", "solution"]},
+    "amc23": {"repos": [("AI-MO/aimo-validation-amc", None),
+                        ("math-ai/amc23", None)],
+              "split": "train", "q": ["question", "Question", "problem"],
+              "a": ["answer", "Answer", "final_answer"]},
+    "math500": {"repos": [("HuggingFaceH4/MATH-500", None)],
+                "split": "test", "q": ["problem", "question", "Question"],
+                "a": ["answer", "Answer", "solution"]},
+    "minerva": {"repos": [("EleutherAI/minerva-math", None)],
+                "split": "train", "q": ["problem", "question", "Question"],
+                "a": ["answer", "Answer", "solution"]},
+    "olympiad": {"repos": [("Hothan/OlympiadBench", None),
+                           ("MathLLMs/OlympiadBench", None)],
+                 "split": "train", "q": ["question", "Question", "problem"],
+                 "a": ["answer", "Answer", "final_answer"]},
+    "omnimath": {"repos": [("KbsdJames/Omni-MATH", None)],
+                 "split": "test", "q": ["problem", "question", "Question"],
+                 "a": ["answer", "Answer", "solution"]},
+    "college": {"repos": [("Slim205/college_math", None),
+                          ("MathLLMs/CollegeMath", None)],
+                "split": "train", "q": ["question", "Question", "problem"],
+                "a": ["answer", "Answer", "solution"]},
+    "jeebench": {"repos": [("Slim205/JEEBench", None)],
+                 "split": "train", "q": ["question", "Question", "problem"],
+                 "a": ["answer", "Answer", "final_answer"]},
+    "theoremqa": {"repos": [("TIGER-Lab/TheoremQA", None),
+                            ("wenhu/TheoremQA", None)],
+                  "split": "test", "q": ["Question", "question", "problem"],
+                  "a": ["Answer", "answer"]},
+    "scienceqa": {"repos": [("derek-thomas/ScienceQA", None)],
+                  "split": "test", "q": ["question", "Question"],
+                  "a": ["answer", "Answer"], "choices": "choices"},
+    "scibench": {"repos": [("xw27/scibench", None)],
+                 "split": "test", "q": ["problem", "question", "Question"],
+                 "a": ["answer", "Answer", "solution"]},
+}
+
+
+def _sif_rows(name, n, seed):
+    spec = _SIF_BENCH[name]
+    last = None
+    for repo, config in spec["repos"]:
+        try:
+            ds = _hf(repo, config, spec["split"])
+            rows = list(ds)
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for row in rows[:n]:
+                q = _first_key(row, spec.get("q"))
+                a = _first_key(row, spec.get("a"))
+                if q is None or a is None:
+                    continue
+                out.append({"q": str(q), "a": a,
+                            "choices": row.get(spec.get("choices", "choices"))
+                            or row.get("options")})
+            if out:
+                return out, "%s/%s %s n=%d" % (repo, config or "-",
+                                                spec["split"], len(out))
+        except Exception as e:  # noqa: BLE001 - dataset fail-soft
+            last = e
+    return None, str(last)[:240]
+
+
+def _sif_bench(name, model, enc, n=100, seed=0):
+    rows, prov = _sif_rows(name, n, seed)
+    if rows is None:
+        return {"suite": name, "status": "skip",
+                "reason": "dataset unavailable (offline or repo id changed): " + prov,
+                "n": 0, "accuracy": None}
+    correct = used = 0
+    for r in rows:
+        ch = r.get("choices")
+        if isinstance(ch, (list, tuple)) and len(ch) >= 2:
+            ch = [str(c) for c in ch]
+            gold = next((i for i, c in enumerate(ch)
+                         if c.strip().lower() == str(r["a"]).strip().lower()), None)
+            if gold is None:
+                continue
+            pred, _ = _mc_pick(model, enc, r["q"] + "\nAnswer:", ch)
+            ok = int(pred == gold)
+        else:
+            out = _greedy_generate(model, enc, r["q"] + "\nAnswer:", max_new=64,
+                                   stop=("\n\n", "\nQuestion", "Question:"))
+            pred = _last_number(out)
+            gold = _last_number(str(r["a"]))
+            ok = int(pred is not None and gold is not None and pred == gold)
+        used += 1
+        correct += ok
+    return {"suite": name, "status": "ok" if used else "skip",
+            "accuracy": (correct / used) if used else None,
+            "n": used, "provenance": prov,
+            "mode": "text_only_generation_or_mc",
+            "note": "answer labels are used only for scoring, never for training"}
+
+
+def bench_aime(model, enc, n=100, seed=0):
+    return _sif_bench("aime", model, enc, n, seed)
+
+
+def bench_amc23(model, enc, n=100, seed=0):
+    return _sif_bench("amc23", model, enc, n, seed)
+
+
+def bench_math500(model, enc, n=100, seed=0):
+    return _sif_bench("math500", model, enc, n, seed)
+
+
+def bench_minerva(model, enc, n=100, seed=0):
+    return _sif_bench("minerva", model, enc, n, seed)
+
+
+def bench_olympiad(model, enc, n=100, seed=0):
+    return _sif_bench("olympiad", model, enc, n, seed)
+
+
+def bench_omnimath(model, enc, n=100, seed=0):
+    return _sif_bench("omnimath", model, enc, n, seed)
+
+
+def bench_college(model, enc, n=100, seed=0):
+    return _sif_bench("college", model, enc, n, seed)
+
+
+def bench_jeebench(model, enc, n=100, seed=0):
+    return _sif_bench("jeebench", model, enc, n, seed)
+
+
+def bench_theoremqa(model, enc, n=100, seed=0):
+    return _sif_bench("theoremqa", model, enc, n, seed)
+
+
+def bench_scienceqa(model, enc, n=100, seed=0):
+    return _sif_bench("scienceqa", model, enc, n, seed)
+
+
+def bench_scibench(model, enc, n=100, seed=0):
+    return _sif_bench("scibench", model, enc, n, seed)
+
+
+def bench_sif_suite(model, enc, n=100, seed=0):
+    """All 12 SIF reasoning benchmarks; GSM8K reuses the existing adapter."""
+    fns = [("aime", bench_aime), ("amc23", bench_amc23),
+           ("math500", bench_math500), ("minerva", bench_minerva),
+           ("olympiad", bench_olympiad),
+           ("gsm8k", lambda model, enc, n=n, seed=seed: bench_gsm8k(model, enc, n=n, seed=seed)),
+           ("omnimath", bench_omnimath), ("college", bench_college),
+           ("jeebench", bench_jeebench), ("theoremqa", bench_theoremqa),
+           ("scienceqa", bench_scienceqa), ("scibench", bench_scibench)]
+    results = {}
+    for name, fn in fns:
+        try:
+            results[name] = fn(model=model, enc=enc, n=n, seed=seed)
+        except Exception as e:  # noqa: BLE001 - suite fail-soft
+            results[name] = {"suite": name, "status": "skip",
+                             "reason": "%s: %s" % (type(e).__name__, e),
+                             "n": 0, "accuracy": None}
+    ok = {k: v.get("accuracy") for k, v in results.items()
+          if v.get("status") == "ok" and v.get("accuracy") is not None}
+    return {"suite": "SIF reasoning benchmarks (arXiv:2610.21392)",
+            "n": n, "results": results, "ran": sorted(ok),
+            "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
+            "provenance": "download-at-run into data/external/hf; live model is "
+                          "called on every row; labels used for scoring only"}

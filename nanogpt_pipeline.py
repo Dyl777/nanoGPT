@@ -2223,6 +2223,99 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                 ax.set_ylabel("accuracy (%)")
                 ax.set_title("s47 paper anchor: Table 3 ImageNet-100")
                 paths.append(_save_fig(fig, f"{name}_imagenet"))
+
+    if name == "sif":
+        # s48 live verifier-free RL: certainty/reward dynamics + before/after.
+        hist = measurements.get("history") if isinstance(measurements, dict) else None
+        hist = hist if isinstance(hist, list) else []
+        if hist:
+            fig, ax = plt.subplots(figsize=(6.8, 3.4))
+            xs = [h.get("step", i) for i, h in enumerate(hist)]
+            ax.plot(xs, [h.get("mean_certainty", 0) for h in hist], marker="o",
+                    color="#4c72b0", label="mean self-certainty")
+            ax.plot(xs, [h.get("reward_mean", 0) for h in hist], marker="s",
+                    color="#c44e52", label="mean reward")
+            ax.set_xlabel("step")
+            ax.set_ylabel("value")
+            ax.set_title("s48 %s: internal-feedback dynamics (live)"
+                         % measurements.get("kind", "?"))
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_dynamics"))
+        b, a = finite(measurements.get("before_acc")), finite(measurements.get("after_acc"))
+        if b is not None and a is not None:
+            fig, ax = plt.subplots(figsize=(4.4, 3.2))
+            ax.bar([0, 1], [b, a], color=["#999999", "#55a868"], width=0.5)
+            ax.set_xticks([0, 1], ["before", "after"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("held-out exact-match")
+            ax.set_title("s48 SIF: accuracy before vs after")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "sifpaper":
+        # s48 published anchors: Table 1 averages, Table 2 ablation.
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        t1 = tables.get("table1_avg") or {}
+        if isinstance(t1.get("backbones"), list):
+            backbones = t1["backbones"]
+            methods = [("initial", "#999999"), ("Intuitor", "#4c72b0"),
+                       ("Vigor", "#8172b2"), ("SIF_last", "#55a868"),
+                       ("SIF_best", "#2ca02c"), ("GRPO_GT", "#c44e52")]
+            fig, ax = plt.subplots(figsize=(9.0, 3.8))
+            xs = list(range(len(backbones)))
+            for i, (k, col) in enumerate(methods):
+                vals = t1.get(k) or []
+                if len(vals) == len(xs):
+                    ax.bar([x + (i - 2.5) * 0.14 for x in xs], vals, width=0.14,
+                           color=col, label=k)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(backbones, fontsize=8)
+            ax.set_ylabel("average accuracy (%)")
+            ax.set_title("s48 paper anchor: Table 1 average over 12 benchmarks")
+            ax.legend(fontsize=6, ncol=3)
+            paths.append(_save_fig(fig, f"{name}_table1"))
+
+        t2 = tables.get("table2_ablation") or {}
+        if isinstance(t2.get("cols"), list):
+            cols = t2["cols"]
+            methods = [k for k in t2 if k != "cols"]
+            fig, ax = plt.subplots(figsize=(9.2, 3.8))
+            xs = list(range(len(cols)))
+            for i, k in enumerate(methods):
+                vals = t2.get(k) or []
+                if len(vals) == len(xs):
+                    ax.bar([x + (i - len(methods) / 2) * 0.12 for x in xs], vals,
+                           width=0.12, label=k)
+            ax.set_xticks(xs)
+            ax.set_xticklabels(cols, fontsize=7)
+            ax.set_ylabel("accuracy (%)")
+            ax.set_title("s48 paper anchor: Table 2 SIF ablation (Qwen3-1.7B)")
+            ax.legend(fontsize=5, ncol=3)
+            paths.append(_save_fig(fig, f"{name}_ablation"))
+
+    if name == "sifbench":
+        # s48: the 12 SIF reasoning benchmarks, live model on every row.
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            v = finite(r.get("accuracy"))
+            if r.get("status") == "ok" and v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(8.6, 3.6))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=25, ha="right", fontsize=7)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy")
+            skipped = [k for k, r in results.items()
+                       if isinstance(r, dict) and r.get("status") != "ok"]
+            ax.set_title("s48 SIF reasoning benchmarks: %d ran, %d skipped"
+                         % (len(labs), len(skipped)))
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
     return paths
 
 
