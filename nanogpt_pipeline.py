@@ -1429,6 +1429,60 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s55 paper anchor: 6.9 -> 11.3% benign; +14.4 pp harmful")
             paths.append(_save_fig(fig, f"{name}_anchors"))
 
+    if name == "serv":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        acc = live.get("gpt_token_acc")
+        use = live.get("code_usage")
+        vals = [finite(x) for x in acc] if isinstance(acc, list) else []
+        uvals = [finite(x) for x in use] if isinstance(use, list) else []
+        if vals or uvals:
+            fig, ax = plt.subplots(figsize=(6.0, 3.2))
+            n = max(len(vals), len(uvals))
+            xs = list(range(n))
+            if vals:
+                ax.bar([x - 0.2 for x in xs], vals + [0] * (n - len(vals)),
+                       width=0.4, color="#4c72b0", label="GPT token acc")
+            if uvals:
+                ax.bar([x + 0.2 for x in xs], uvals + [0] * (n - len(uvals)),
+                       width=0.4, color="#55a868", label="code usage")
+            ax.set_xticks(xs, ["L%d" % (i + 1) for i in xs])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("rate")
+            ax.set_title("s56 SeRV: residual levels (fixture)")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_levels"))
+
+    if name == "servpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        h = finite(tables.get("hours"))
+        lv = finite(tables.get("levels"))
+        if h is not None and lv is not None:
+            fig, ax = plt.subplots(figsize=(4.6, 3.0))
+            ax.bar([0, 1], [h, lv], color=["#c44e52", "#4c72b0"], width=0.45)
+            ax.set_xticks([0, 1], ["hours", "levels"])
+            ax.set_title("s56 paper anchor: 375 h, 4 residual levels")
+            paths.append(_save_fig(fig, f"{name}_anchor"))
+
+    if name == "servbench":
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            if r.get("status") == "ok":
+                labs.append(k)
+                vals.append(finite(r.get("n")) or 0)
+        if vals:
+            fig, ax = plt.subplots(figsize=(5.2, 3.2))
+            ax.bar(range(len(labs)), vals, color="#55a868", width=0.5)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=10, fontsize=8)
+            ax.set_ylabel("rows loaded")
+            ax.set_title("s56 ASL datasets: How2Sign / YouTube-ASL")
+            paths.append(_save_fig(fig, f"{name}_rows"))
+
     if name == "etc":
         # s38 (arXiv:2610.21204): the think-dose battery - dose-response
         # delta per class/arm, the trace trajectory census, the early-read

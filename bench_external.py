@@ -2525,3 +2525,101 @@ def load_awareness_items(kind="harmful", lang="en", n=20, seed=0):
         except Exception as e:  # noqa: BLE001
             last = e
     return None, str(last)[:240]
+
+# ---------------------------------------------------------------------------
+# SeRV datasets (arXiv:2609.05742): How2Sign pose/feature releases and the
+# YouTube-ASL metadata corpus. How2Sign pose variants are streamed and reduced
+# to (T, D) motion when a pose/keypoint field exists; YouTube-ASL ships video
+# IDs/captions, not 3D motion. Fail-soft with explicit status.
+# ---------------------------------------------------------------------------
+
+_SERV_SOURCES = {
+    "how2sign": [
+        ("Alexeus17071/How2Sign_with_features", None, "train"),
+        ("FangSen9000/How2Sign-dwpose-original-npz", None, "train"),
+        ("aipieces/How2Sign", None, "train"),
+    ],
+    "youtube_asl": [
+        ("google/youtube-asl", None, "train"),
+    ],
+}
+
+
+def load_serv_items(name="how2sign", n=8, seed=0, T=16):
+    """Return ({motion: (N,T,D) tensor, text: list[str]}, provenance) or (None, reason)."""
+    import numpy as _np
+    import torch as _t
+    last = None
+    for repo, config, split in _SERV_SOURCES[name]:
+        try:
+            rows = _hf_stream(repo, config, split, n=max(8, int(n) * 4))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            motions, texts = [], []
+            for r in rows:
+                m = _first_key(r, ["pose", "poses", "keypoints", "skeleton",
+                                   "landmarks", "motion"])
+                txt = _first_key(r, ["text", "sentence", "caption", "translation",
+                                     "english", "gloss"])
+                if m is None or txt is None:
+                    continue
+                arr = _np.asarray(m, dtype=_np.float32)
+                if arr.ndim < 2:
+                    continue
+                arr = arr.reshape(arr.shape[0], -1) if arr.ndim > 2 else arr
+                if arr.shape[0] < 2:
+                    continue
+                arr = arr[:int(T)]
+                motions.append(_t.tensor(arr))
+                texts.append(str(txt))
+                if len(motions) >= int(n):
+                    break
+            if motions:
+                D = max(x.shape[1] for x in motions)
+                padded = _t.zeros(len(motions), int(T), D)
+                for i, x in enumerate(motions):
+                    padded[i, :x.shape[0], :x.shape[1]] = x
+                return ({"motion": padded, "text": texts,
+                         "dim": D, "T": int(T)},
+                        "%s/%s %s" % (repo, config or "-", split))
+        except Exception as e:  # noqa: BLE001
+            last = e
+    if name == "youtube_asl":
+        try:
+            import asl_reconstruct as _asl
+            items, prov = _asl.youtube_items(n=n, seed=seed, max_frames=int(T))
+            if items:
+                motions = [_t.tensor(x["motion"][:int(T)], dtype=_t.float32)
+                           for x in items]
+                D = max(x.shape[1] for x in motions)
+                Tn = max(x.shape[0] for x in motions)
+                padded = _t.zeros(len(motions), Tn, D)
+                for i, x in enumerate(motions):
+                    padded[i, :x.shape[0], :x.shape[1]] = x
+                return ({"motion": padded,
+                         "text": [x["text"] for x in items],
+                         "dim": D, "T": Tn,
+                         "reconstructed": True}, prov)
+            last = prov
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def bench_serv_suite(n=8, seed=0):
+    out = {}
+    for name in _SERV_SOURCES:
+        data, prov = load_serv_items(name, n=n, seed=seed)
+        out[name] = {"status": "ok" if data is not None else "skip",
+                     "n": 0 if data is None else len(data["text"]),
+                     "motion_dim": None if data is None else data["dim"],
+                     "provenance": prov}
+    try:
+        import asl_reconstruct as _asl
+        recon = _asl.report()
+    except Exception as exc:  # noqa: BLE001
+        recon = {"error": str(exc)[:160]}
+    return {"suite": "SeRV ASL datasets", "results": out,
+            "reconstruction": recon,
+            "anchor": {"how2sign_hours": 80, "youtube_asl_hours": 984,
+                       "serv_hours": 375, "metrics": ["DTW-JPE", "SiBLEU-4"]}}
