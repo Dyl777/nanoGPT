@@ -1525,6 +1525,46 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s57 paper anchors: R2=.985, 10 features, 150 probes")
             paths.append(_save_fig(fig, f"{name}_anchors"))
 
+    if name == "attrrobust":
+        arms = measurements.get("live", {}).get("arms") if isinstance(
+            measurements, dict) else None
+        arms = arms if isinstance(arms, dict) else {}
+        labels, grad, attn = [], [], []
+        for kind in ("softmax", "kernel"):
+            for arm in ("base", "icr"):
+                row = (arms.get(kind) or {}).get(arm) or {}
+                if row:
+                    labels.append("%s/%s" % (kind, arm))
+                    grad.append(finite(row.get("grad_sensitivity")))
+                    attn.append(finite(row.get("attn_sensitivity")))
+        if labels:
+            fig, ax = plt.subplots(figsize=(7.0, 3.4))
+            xs = list(range(len(labels)))
+            ax.bar([x - 0.2 for x in xs], [v or 0 for v in grad],
+                   width=0.4, color="#4c72b0", label="gradient")
+            ax.bar([x + 0.2 for x in xs], [v or 0 for v in attn],
+                   width=0.4, color="#c44e52", label="attention rollout")
+            ax.set_xticks(xs)
+            ax.set_xticklabels(labels, rotation=15, fontsize=7)
+            ax.set_ylabel("attribution sensitivity")
+            ax.set_title("s61 attribution robustness: Base vs ICR")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_sensitivity"))
+
+    if name == "attrrobustpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.2, 2.8))
+            ax.axis("off")
+            txt = "datasets: %s\narchitectures: %s\nmethods: %s" % (
+                ", ".join(tables.get("datasets", [])),
+                ", ".join(tables.get("architectures", [])),
+                ", ".join(tables.get("methods", [])))
+            ax.text(0.01, 0.5, txt, fontsize=7.5, va="center")
+            ax.set_title("s61 paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "gut":
         q = measurements.get("gut_q") if isinstance(measurements, dict) else None
         sel = q.get("selective") if isinstance(q, dict) else None
