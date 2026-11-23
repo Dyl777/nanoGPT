@@ -1344,6 +1344,56 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
                      "(RAUQ/INTRYGUE transfer; head-selecting detectors do not)",
                      "mean AUROC drop", f"{name}_transfer")
 
+    if name == "lchbench":
+        # s37 real item pools: ProsQA/PrOntoQA/GSM8K live accuracy.
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            v = finite(r.get("accuracy"))
+            if v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(5.8, 3.2))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.5)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=15, fontsize=8)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy")
+            ax.set_title("s37 LRT benchmarks: live candidate accuracy")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "stable":
+        hist = measurements.get("history") if isinstance(measurements, dict) else None
+        hist = hist if isinstance(hist, list) else []
+        if hist:
+            labs = ["edit %d\n%s" % (h.get("edit", i), h.get("decision", "?"))
+                    for i, h in enumerate(hist)]
+            vals = [finite(h.get("alpha")) or 0.0 for h in hist]
+            fig, ax = plt.subplots(figsize=(6.4, 3.4))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, fontsize=7)
+            ax.set_ylim(0, 1.05)
+            ax.set_ylabel("accepted LoRA scale alpha")
+            ax.set_title("s54 STABLE: gate decisions (%s)" % measurements.get("gate", "?"))
+            paths.append(_save_fig(fig, f"{name}_alpha"))
+
+    if name == "stablepaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        vals = [finite(tables.get(k)) for k in ("em_eps", "bits_eps", "kl_eps")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.2, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#4c72b0", "#55a868", "#c44e52"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["EM 7%", "bits .08", "KL .7"])
+            ax.set_ylabel("gate budget")
+            ax.set_title("s54 paper anchor: STABLE gate thresholds")
+            paths.append(_save_fig(fig, f"{name}_budgets"))
+
     if name == "etc":
         # s38 (arXiv:2610.21204): the think-dose battery - dose-response
         # delta per class/arm, the trace trajectory census, the early-read

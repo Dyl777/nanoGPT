@@ -2400,3 +2400,88 @@ def bench_hidden_suite(model, enc, n=20, seed=0):
             "anchor": {"models": 6, "cells": 18, "no_attacker_final": 0.6,
                        "one_attacker_final": 44.8, "three_attackers_final": 60.5,
                        "hidden_infection": 51.6, "public_endorse": 19.7}}
+
+# ---------------------------------------------------------------------------
+# LRT benchmarks (arXiv:2610.21182): ProsQA, PrOntoQA and GSM8K. The paper's
+# causal/probe/dynamics grid is in s37; this layer supplies the real item pools
+# and the live-model accuracy readout. Download-at-run, fail-soft.
+# ---------------------------------------------------------------------------
+
+_LCH_BENCH = {
+    "prosqa": [("HuggingFaceH4/ProsQA", None, "test"),
+               ("liushz/ProsQA", None, "test")],
+    "prontoqa": [("tasksource/ProntoQA", None, "test"),
+                 ("lucasmoura/PrOntoQA", None, "test")],
+}
+
+
+def load_lch_items(name, n=40, seed=0):
+    last = None
+    for repo, config, split in _LCH_BENCH[name]:
+        try:
+            rows = list(_hf(repo, config, split))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for r in rows:
+                q = _first_key(r, ["question", "prompt", "problem", "Question"])
+                a = _first_key(r, ["answer", "label", "Answer", "target"])
+                ch = _first_key(r, ["choices", "options", "candidates"])
+                if q is None or a is None:
+                    continue
+                out.append({"q": str(q), "a": a, "choices": ch})
+                if len(out) >= int(n):
+                    break
+            if out:
+                return out, "%s/%s %s" % (repo, config or "-", split)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def _lch_bench(name, model, enc, n=40, seed=0):
+    items, prov = load_lch_items(name, n, seed)
+    if items is None:
+        return {"suite": name, "status": "skip", "reason": prov,
+                "n": 0, "accuracy": None}
+    correct = used = 0
+    for it in items:
+        ch = it.get("choices")
+        if isinstance(ch, (list, tuple)) and len(ch) >= 2:
+            gold = next((i for i, c in enumerate(ch)
+                         if str(c).strip().lower() == str(it["a"]).strip().lower()), None)
+            if gold is None:
+                continue
+            pred, _ = _mc_pick(model, enc, it["q"] + "\nAnswer:",
+                               [str(c) for c in ch])
+        else:
+            gold = 0 if str(it["a"]).strip().lower() in ("yes", "true", "1") else 1
+            pred, _ = _mc_pick(model, enc, it["q"] + "\nAnswer:", [" yes", " no"])
+        used += 1
+        correct += int(pred == gold)
+    return {"suite": name, "status": "ok" if used else "skip",
+            "accuracy": (correct / used) if used else None,
+            "n": used, "provenance": prov, "mode": "candidate_accuracy"}
+
+
+def bench_prosqa(model, enc, n=40, seed=0):
+    return _lch_bench("prosqa", model, enc, n, seed)
+
+
+def bench_prontoqa(model, enc, n=40, seed=0):
+    return _lch_bench("prontoqa", model, enc, n, seed)
+
+
+def bench_lch_suite(model, enc, n=40, seed=0):
+    out = {"prosqa": bench_prosqa(model, enc, n, seed),
+           "prontoqa": bench_prontoqa(model, enc, n, seed)}
+    g = bench_gsm8k(model, enc, n=n, seed=seed)
+    out["gsm8k"] = g
+    ok = {k: v.get("accuracy") for k, v in out.items()
+          if v.get("status") == "ok" and v.get("accuracy") is not None}
+    return {"suite": "LRT benchmarks (arXiv:2610.21182)", "results": out,
+            "ran": sorted(ok),
+            "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
+            "anchor": {"cells": 21, "tasks": ["ProsQA", "PrOntoQA", "GSM8k"],
+                       "recipes": ["COCONUT", "CODI", "SIM-COT-COCONUT"],
+                       "taxonomy_types": 6}}
