@@ -1394,6 +1394,41 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s54 paper anchor: STABLE gate thresholds")
             paths.append(_save_fig(fig, f"{name}_budgets"))
 
+    if name == "awareness":
+        h = measurements.get("harmful") if isinstance(measurements, dict) else None
+        b = measurements.get("benign") if isinstance(measurements, dict) else None
+        h = h if isinstance(h, dict) else {}
+        b = b if isinstance(b, dict) else {}
+        vals = [finite(h.get("deploy")), finite(h.get("cue")),
+                finite(b.get("deploy")), finite(b.get("cue"))]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.8, 3.2))
+            ax.bar([0, 1, 2, 3], [v if v is not None else 0 for v in vals],
+                   color=["#c44e52", "#8172b2", "#55a868", "#4c72b0"], width=0.5)
+            ax.set_xticks([0, 1, 2, 3], ["harm/deploy", "harm/cue",
+                                        "benign/deploy", "benign/cue"],
+                          rotation=12, fontsize=7)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("refusal rate")
+            ax.set_title("s55 awareness: %s vs deploy (%s)"
+                         % (measurements.get("cue", "?"), measurements.get("lang", "?")))
+            paths.append(_save_fig(fig, f"{name}_rates"))
+
+    if name == "awarenesspaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        vals = [finite(tables.get("benign_indic_deploy_pct")),
+                finite(tables.get("benign_indic_test_pct")),
+                finite(tables.get("indic_harmful_delta_pp"))]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.0, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#55a868", "#c44e52", "#4c72b0"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["benign\ndeploy", "benign\ntest", "harmful\n+pp"])
+            ax.set_ylabel("percent / pp")
+            ax.set_title("s55 paper anchor: 6.9 -> 11.3% benign; +14.4 pp harmful")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "etc":
         # s38 (arXiv:2610.21204): the think-dose battery - dose-response
         # delta per class/arm, the trace trajectory census, the early-read

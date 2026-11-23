@@ -2485,3 +2485,43 @@ def bench_lch_suite(model, enc, n=40, seed=0):
             "anchor": {"cells": 21, "tasks": ["ProsQA", "PrOntoQA", "GSM8k"],
                        "recipes": ["COCONUT", "CODI", "SIM-COT-COCONUT"],
                        "taxonomy_types": 6}}
+
+# ---------------------------------------------------------------------------
+# Evaluation awareness beyond English (arXiv:2610.22333): harmful prompts from
+# AI4Bharat IndicAlign Toxic Matrix, benign from Dolly-T. Download-at-run,
+# fail-soft; the live model answers under a selected cue and a rule-based
+# refusal labeler scores it (paper uses a blind LLM judge; declared).
+# ---------------------------------------------------------------------------
+
+_AWARENESS_SOURCES = {
+    "harmful": [("ai4bharat/IndicAlign", "ToxicMatrix", "train"),
+                ("ai4bharat/IndicAlign", "toxic_matrix", "train")],
+    "benign": [("ai4bharat/IndicAlign", "DollyT", "train"),
+               ("ai4bharat/IndicAlign", "dolly_t", "train")],
+}
+
+
+def load_awareness_items(kind="harmful", lang="en", n=20, seed=0):
+    last = None
+    for repo, config, split in _AWARENESS_SOURCES[kind]:
+        try:
+            rows = list(_hf(repo, config, split))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for r in rows:
+                q = _first_key(r, ["prompt", "question", "instruction", "text"])
+                rl = _first_key(r, ["lang", "language", "locale"])
+                if q is None:
+                    continue
+                if rl is not None and str(rl).lower()[:2] not in (str(lang).lower()[:2],):
+                    continue
+                out.append({"prompt": str(q), "lang": str(lang),
+                            "kind": kind})
+                if len(out) >= int(n):
+                    break
+            if out:
+                return out, "%s/%s %s" % (repo, config or "-", split)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
