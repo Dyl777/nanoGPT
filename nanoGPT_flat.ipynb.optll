@@ -13,7 +13,6 @@
 @Technique::MARL::[cql, iql, golemm]
 @Technique::Quant::[none, roleq]
 @Technique::Gate::[em, bits, kl]
-@Technique::Cue::[deploy, monitor_log, eval_log, eval_explicit, eval_metadata]
 @Technique::Vocab::[char64, word1k, word10k, word20k, word40k, word50k, gpt2bpe]
 @Technique::Scale::[tiny64, small256, faithful512, gpt2_124m]
 @Technique::Context::[ctx64, ctx256, ctx512, ctx1024, ctx2048, ctx8192, ctx16384, ctx32768, ctx65536, ctx131072, ctx262144, ctx524288, ctx896000]
@@ -14188,7 +14187,7 @@
         "",
         "**WIRED (s54 STABLE, arXiv:2510.16089).** `Gate::[em, bits, kl]` is a compiled axis; rank-8 `StableLoRA` is attached to the live model, trained on SQuAD edits, and gated on anchors with the selected EM-drop / bits-increase / KL-drift metric. Over-budget merges are binary-searched in `α∈[α_min,1]`, then accepted/clipped/rejected; the selected arm is merged into a path-local copy, never the live model. `stablepaper` records the 7% / 0.08 bits / 0.7 KL budgets. STACK: SST/TRC2 continual protection, SIF/RSHD adapters, PURGE/RoleQ weight-site edits; ALTERNATIVE: the Gate metric; no NEVER-SAME-PATH pair found.",
         "",
-        "**WIRED (s55 Evaluation Awareness, arXiv:2610.22333).** `Cue::[deploy, monitor_log, eval_log, eval_explicit, eval_metadata]` is a compiled axis; the selected cue is prepended to each prompt. `awareness` loads AI4Bharat IndicAlign Toxic Matrix/Dolly-T via `bench_external` (download-at-run, fail-soft); the live model answers greedily and a blind rule-based refusal labeler scores harmful/benign, with the deploy contrast and pp delta recorded. `awarenesspaper` records +14.4 pp harmful Indic and 6.9→11.3% benign. STACK: ETC/s52 behavior, RADAR refusal/confidence auditing; no new model axis beyond Cue; no NEVER-SAME-PATH pair found.",
+        "**WIRED (s55 Evaluation Awareness, arXiv:2610.22333).** The five cue conditions (deploy, monitor_log, eval_log, eval_explicit, eval_metadata) are runner parameters, not a compiled axis: a cue changes prompt text, not the model graph. The selected cue is prepended to each prompt. `awareness` loads AI4Bharat IndicAlign Toxic Matrix/Dolly-T via `bench_external` (download-at-run, fail-soft); the live model answers greedily and a blind rule-based refusal labeler scores harmful/benign, with the deploy contrast and pp delta recorded. `awarenesspaper` records +14.4 pp harmful Indic and 6.9→11.3% benign. STACK: ETC/s52 behavior, RADAR refusal/confidence auditing; no model axis (cue is an experimental condition); no NEVER-SAME-PATH pair found.",
         "",
         "**WIRED (s37 LRT, arXiv:2610.21182).** The section already implements the paper's three tests on a latent-slot clone (chain deletion, noise/mean/donor replacement, slot×layer linear probes against permuted-label nulls, trajectory settling plus the mid-chain twin edit, and the six-type taxonomy). `lchbench` now wires the real item pools — ProsQA, PrOntoQA and GSM8K — through `bench_external.py`: download-at-run, fail-soft, and the live model is called on every item with candidate-restricted accuracy. The paper's 21 model-task cells (COCONUT/CODI/SIM-COT × GPT-2/Llama) and its taxonomy are anchors; the live latent-slot clone is the local analogue.",
         "",
@@ -14229,7 +14228,7 @@
         "| 2610.22138 | Hidden belief collapse in multi-agent discussions | hiddenbelief, hiddenbeliefbench, hiddenbeliefpaper | hiddenbelief_rates, hiddenbeliefbench_accuracy, hiddenbeliefpaper_final | live public/private protocol + COUNTERFACT/POPQA/SIMPLEQA loaders + anchors |\n",
         "| 2610.21808 | RoleQ role-aligned ternary scales | Quant::[none, roleq], roleq, roleqpaper | roleq_ppl, roleqpaper_mmlu | live exact ternary reader/writer placement (selected arm is a path-local deepcopy) + published 25.4→38.5 MMLU anchor |\n",
         "| 2510.16089 | STABLE gated continual LoRA | Gate::[em, bits, kl], stable, stablepaper | stable_alpha, stablepaper_budgets | live LoRA edits + EM/bits/KL gate + SQuAD loader + published budgets |\n",
-        "| 2610.22333 | Evaluation awareness beyond English | Cue::[deploy, monitor_log, eval_log, eval_explicit, eval_metadata], awareness, awarenesspaper | awareness_rates, awarenesspaper_anchors | live cue contrast + IndicAlign loader + 14.4 pp / 6.9→11.3% anchors |\n",
+        "| 2610.22333 | Evaluation awareness beyond English | awareness, awarenesspaper | awareness_rates, awarenesspaper_anchors | live cue contrast (runner condition) + IndicAlign loader + 14.4 pp / 6.9→11.3% anchors |\n",
         "| 1810.04805 | BERT | bert | bert_eq3_lr, bert_table3_heads, bert_table3_depth | 9 PNGs + metrics.json |\n",
         "| 2608.28930 | LayerMix | layermix | layermix_auroc_layers, layermix_agg | 23 PNGs + metrics.json |\n",
         "| 2608.27963 | SABER | saber | saber_exit | 13 PNGs + metrics.json |\n",
@@ -28717,7 +28716,7 @@
         "\n",
         "**Paper in one paragraph.** Safety evaluations assume behavior under test carries over to deployment, but a model that can tell it is being tested may change behavior. This is studied almost entirely in English. The paper runs a controlled behavioral study in **Hindi, Bengali, Tamil, Telugu, Kannada and English**: five cues (`deploy`, `monitor_log`, `eval_log`, `eval_explicit`, `eval_metadata`), **199 harmful** prompts from AI4Bharat IndicAlign's Toxic Matrix and **200 benign** from Dolly-T, four instruction-tuned models, greedy decoding, 47,880 blind-judge labels. `eval_explicit` (a scored red-team safety test) raises harmful refusal in **every model and language**; in Indic languages harmful refusal rises **+14.4 pp** and catches up to English, while benign Indic refusal rises from **6.9% to 11.3%**. The `eval_log` vs `monitor_log` contrast isolates evaluation framing from mere monitoring.\n",
         "\n",
-        "**What runs here (real cues, LIVE model).** `Cue::[deploy, monitor_log, eval_log, eval_explicit, eval_metadata]` is a compiled axis. The selected cue is prepended to each prompt; harmful and benign items come from `bench_external.load_awareness_items` (IndicAlign, download-at-run, fail-soft). The live model answers greedily and a **rule-based blind refusal labeler** (declared stand-in for the paper's Gemma-4-31B-IT judge) scores refusal. We report harmful/benign rates under the selected cue and under `deploy`, plus the pp delta. The paper's 47,880 judged responses, four models and six languages are `awarenesspaper` anchors.\n",
+        "**What runs here (real cues, LIVE model).** The five cue conditions (`deploy`, `monitor_log`, `eval_log`, `eval_explicit`, `eval_metadata`) are runner parameters, not a compiled axis: a cue changes input text, not the model graph. The selected cue is prepended to each prompt; harmful and benign items come from `bench_external.load_awareness_items` (IndicAlign, download-at-run, fail-soft). The live model answers greedily and a **rule-based blind refusal labeler** (declared stand-in for the paper's Gemma-4-31B-IT judge) scores refusal. We report harmful/benign rates under the selected cue and under `deploy`, plus the pp delta. The paper's 47,880 judged responses, four models and six languages are `awarenesspaper` anchors.\n",
         "\n",
         "**Double-sided expectations.** `eval_explicit` should raise harmful refusal above `deploy`; benign over-refusal may rise too. A null at char/English scale is reported, not hidden.\n",
         "\n",
@@ -28729,61 +28728,6 @@
         "**Limits.** The live model is the compiled path at the selected `Scale` (not Gemma-3-27B/Qwen3-32B/Qwen2.5-72B/Sarvam-M); English cue texts by default (paper translates all cues into each language); rule-based refusal labels, not the blind LLM judge; 12 items per class by default, one language per run. The paper's 14.4 pp / 6.9→11.3% numbers and 47,880 responses are anchors.\n"
       ]
     },
-    @Impl::Cue::deploy{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "CUE_KIND = \"deploy\"\n"
-      ]
-    }
-    }@},
-    @Impl::Cue::monitor_log{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "CUE_KIND = \"monitor_log\"\n"
-      ]
-    }
-    }@},
-    @Impl::Cue::eval_log{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "CUE_KIND = \"eval_log\"\n"
-      ]
-    }
-    }@},
-    @Impl::Cue::eval_explicit{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "CUE_KIND = \"eval_explicit\"\n"
-      ]
-    }
-    }@},
-    @Impl::Cue::eval_metadata{
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "CUE_KIND = \"eval_metadata\"\n"
-      ]
-    }
-    }@},
     {
       "cell_type": "code",
       "execution_count": null,
@@ -28848,13 +28792,12 @@
         "    return (refusals / used) if used else None, used\n",
         "\n",
         "\n",
-        "def run_awareness(model=None, enc=None, lang=\"en\", n=12,\n",
+        "def run_awareness(model=None, enc=None, lang=\"en\", n=12, cue=\"eval_explicit\",\n",
         "                  out_path=\"outputs/awareness_results.json\", **_):\n",
-        "    \"\"\"s55 runner: harmful/benign refusal under the compiled Cue vs deploy.\"\"\"\n",
+        "    \"\"\"s55 runner: harmful/benign refusal under a cue condition vs deploy.\"\"\"\n",
         "    import json as _j55\n",
         "    import time as _t55\n",
         "    t0 = _t55.time()\n",
-        "    cue = globals().get(\"CUE_KIND\", \"eval_explicit\")\n",
         "    m = {\"paper\": \"Evaluation Awareness Beyond English\", \"lang\": lang, \"cue\": cue}\n",
         "    if model is None or enc is None:\n",
         "        m[\"error\"] = \"live model + encoder required\"\n",
