@@ -1525,6 +1525,36 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s57 paper anchors: R2=.985, 10 features, 150 probes")
             paths.append(_save_fig(fig, f"{name}_anchors"))
 
+    if name == "gut":
+        q = measurements.get("gut_q") if isinstance(measurements, dict) else None
+        sel = q.get("selective") if isinstance(q, dict) else None
+        sel = sel if isinstance(sel, dict) else {}
+        vals = [finite(sel.get(k)) for k in ("auroc", "auprc", "prr")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.2, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#4c72b0", "#55a868", "#c44e52"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["AUROC", "AUPRC", "PRR"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("selective-generation metric")
+            ax.set_title("s59 GUT-Q: uncertainty predicts incorrect reasoning")
+            paths.append(_save_fig(fig, f"{name}_selective"))
+
+    if name == "gutpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        vals = [finite(tables.get(k)) for k in
+                ("prr_gain", "auroc_gain", "auprc_gain")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.2, 3.2))
+            ax.bar([0, 1, 2],
+                   [(v * 100 if v is not None else 0) for v in vals],
+                   color=["#c44e52", "#4c72b0", "#55a868"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["PRR", "AUROC", "AUPRC"])
+            ax.set_ylabel("% gain over best contender")
+            ax.set_title("s59 paper anchor: 11.79 / 13.33 / 9.66%")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "etc":
         # s38 (arXiv:2610.21204): the think-dose battery - dose-response
         # delta per class/arm, the trace trajectory census, the early-read

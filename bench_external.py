@@ -2623,3 +2623,72 @@ def bench_serv_suite(n=8, seed=0):
             "reconstruction": recon,
             "anchor": {"how2sign_hours": 80, "youtube_asl_hours": 984,
                        "serv_hours": 375, "metrics": ["DTW-JPE", "SiBLEU-4"]}}
+
+# ---------------------------------------------------------------------------
+# GUT (arXiv:2609.05284) reasoning datasets: GSM8K, MATH-500, AMC2022-24,
+# FOLIO, MMLU-Pro. Download-at-run, fail-soft; the live model answers each
+# problem and the runner builds the reasoning DAG from its samples.
+# ---------------------------------------------------------------------------
+
+_GUT_SOURCES = {
+    "gsm8k": [("openai/gsm8k", "main", "test")],
+    "math500": [("HuggingFaceH4/MATH-500", None, "test")],
+    "folio": [("tasksource/folio", None, "validation")],
+    "mmlu_pro": [("TIGER-Lab/MMLU-Pro", None, "test")],
+    "amc": [("AI-MO/aimo-validation-amc", None, "train")],
+}
+
+
+def load_gut_items(name="gsm8k", n=20, seed=0):
+    last = None
+    for repo, config, split in _GUT_SOURCES[name]:
+        try:
+            rows = list(_hf(repo, config, split))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for r in rows:
+                q = _first_key(r, ["question", "problem", "prompt", "text"])
+                a = _first_key(r, ["answer", "solution", "target", "final_answer"])
+                if q is None or a is None:
+                    continue
+                out.append({"q": str(q), "a": str(a), "dataset": name})
+                if len(out) >= int(n):
+                    break
+            if out:
+                return out, "%s/%s %s" % (repo, config or "-", split)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def bench_gut_suite(model, enc, n=20, seed=0):
+    out = {}
+    for name in _GUT_SOURCES:
+        items, prov = load_gut_items(name, n=n, seed=seed)
+        if items is None:
+            out[name] = {"status": "skip", "reason": prov, "n": 0}
+            continue
+        correct = used = 0
+        for it in items:
+            try:
+                text = _greedy_generate(model, enc, it["q"] + "\nAnswer:", max_new=8)
+                pred = _last_number(text)
+                gold = _last_number(it["a"])
+                if pred is None or gold is None:
+                    continue
+                used += 1
+                correct += int(pred == gold)
+            except Exception:
+                continue
+        out[name] = {"status": "ok" if used else "skip", "n": used,
+                     "accuracy": (correct / used) if used else None,
+                     "provenance": prov}
+    ok = {k: v["accuracy"] for k, v in out.items()
+          if v.get("accuracy") is not None}
+    return {"suite": "GUT reasoning datasets", "results": out,
+            "ran": sorted(ok),
+            "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
+            "anchor": {"datasets": ["GSM8K", "MATH-500", "AMC2022-24", "FOLIO",
+                                    "MMLU-Pro"], "llms": 4,
+                       "uq_contenders": 45}}
