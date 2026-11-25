@@ -1573,6 +1573,55 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s63 OCGQuant paper anchors")
             paths.append(_save_fig(fig, f"{name}_anchors"))
 
+    if name == "expertlensbench":
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            v = finite(r.get("ndcg@10"))
+            if v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(6.4, 3.2))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=15, fontsize=7)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("nDCG@10")
+            ax.set_title("s64 ExpertLens IR: MSMARCO/TREC DL/NQ/HotpotQA")
+            paths.append(_save_fig(fig, f"{name}_ndcg"))
+
+    if name == "expertlens":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        retr = live.get("retrieval") or {}
+        vals = [finite(retr.get(k)) for k in ("recall@1", "recall@5", "mrr")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.2, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#4c72b0", "#55a868", "#c44e52"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["Recall@1", "Recall@5", "MRR"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("retrieval metric")
+            ax.set_title("s64 ExpertLens: MoE retriever (%s)" % live.get("moe", "?"))
+            paths.append(_save_fig(fig, f"{name}_retrieval"))
+
+    if name == "expertlenspaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            txt = "benchmarks: %s\nretrievers: %s\nbackbones: %s" % (
+                ", ".join(tables.get("benchmarks", [])),
+                ", ".join(tables.get("retrievers", [])),
+                ", ".join(tables.get("backbones", [])))
+            ax.text(0.01, 0.5, txt, fontsize=7, va="center")
+            ax.set_title("s64 ExpertLens paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "dlmr":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}

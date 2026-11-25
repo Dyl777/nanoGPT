@@ -2922,3 +2922,161 @@ def bench_ocg_suite(model, enc, n=40, seed=0):
                                   "Qwen3-8B", "Qwen3-32B"],
                        "baselines": ["FP16", "RTN", "SmoothQuant", "GPTQ",
                                      "QuaRot", "MR-GPTQ", "ARCQuant", "OCGQuant"]}}
+
+# ---------------------------------------------------------------------------
+# ExpertLens IR suite (arXiv:2609.06155): MSMARCO, TREC DL 19/20, NQ,
+# HotpotQA (BEIR). Queries + qrels + a sampled corpus are streamed; the live
+# model embeds them and retrieval reports nDCG@10 / MRR / Recall@10. Fail-soft.
+# ---------------------------------------------------------------------------
+
+_IR_SOURCES = {
+    "msmarco": ["BeIR/msmarco"],
+    "trec_dl19": ["BeIR/trec-dl-2019", "BeIR/trec-dl-2019-corpus"],
+    "trec_dl20": ["BeIR/trec-dl-2020"],
+    "nq": ["BeIR/nq"],
+    "hotpotqa": ["BeIR/hotpotqa"],
+}
+
+
+def _ir_rows(repo, config, split, n):
+    try:
+        return list(_hf_stream(repo, config, split, n=n))
+    except Exception:
+        try:
+            return list(_hf(repo, config, split))[:n]
+        except Exception:
+            return []
+
+
+def load_ir_items(name="msmarco", n_queries=12, n_corpus=1024, seed=0):
+    """Return {queries, docs, qrels} with ids/texts; fail-soft."""
+    last = None
+    for repo in _IR_SOURCES[name]:
+        try:
+            qrows = (_ir_rows(repo, "queries", "queries", 2000) or
+                     _ir_rows(repo, None, "queries", 2000) or
+                     _ir_rows(repo, "queries", "test", 2000))
+            drows = (_ir_rows(repo, "corpus", "corpus", n_corpus) or
+                     _ir_rows(repo, None, "corpus", n_corpus))
+            rrows = (_ir_rows(repo, "qrels", "test", 5000) or
+                     _ir_rows(repo, None, "qrels", 5000) or
+                     _ir_rows(repo, "qrels", "train", 5000))
+            if not qrows or not drows or not rrows:
+                continue
+            rng = random.Random(seed)
+            rng.shuffle(qrows)
+            qmap = {}
+            for q in qrows:
+                qid = str(q.get("_id") or q.get("id") or q.get("query_id"))
+                txt = q.get("text") or q.get("query") or q.get("question")
+                if qid and txt:
+                    qmap[qid] = str(txt)
+            rel = {}
+            for r in rrows:
+                qid = str(r.get("query-id") or r.get("qid") or r.get("query_id"))
+                did = str(r.get("corpus-id") or r.get("pid") or r.get("doc_id"))
+                sc = float(r.get("score", 1) or 1)
+                if qid and did and sc > 0:
+                    rel.setdefault(qid, {})[did] = sc
+            dmap = {}
+            for d in drows:
+                did = str(d.get("_id") or d.get("id") or d.get("doc_id"))
+                txt = d.get("text") or d.get("title") or d.get("passage")
+                if did and txt:
+                    dmap[did] = str(txt)
+            qs = [qid for qid in rel if qid in qmap][: int(n_queries)]
+            if not qs:
+                continue
+            gold = {did for qid in qs for did in rel.get(qid, {})}
+            # guarantee every gold doc is in the sampled corpus
+            missing = [did for did in gold if did not in dmap]
+            if missing:
+                extra = _ir_rows(repo, "corpus", "corpus", max(64, len(missing) * 4))
+                for d in extra:
+                    did = str(d.get("_id") or d.get("id") or d.get("doc_id"))
+                    txt = d.get("text") or d.get("title") or d.get("passage")
+                    if did and txt:
+                        dmap[did] = str(txt)
+            return ({"queries": [(qid, qmap[qid]) for qid in qs],
+                     "docs": [(did, dmap[did]) for did in dmap],
+                     "qrels": {qid: rel[qid] for qid in qs}},
+                    "%s [queries=%d docs=%d]" % (repo, len(qs), len(dmap)))
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def _ir_embed(model, enc, texts, ctx=64):
+    import torch as _t
+    feats = {}
+
+    def _hook(mod, inp, out, _i):
+        feats[_i] = (out[0] if isinstance(out, tuple) else out).detach()
+
+    blocks = list(getattr(model, "blocks", []))
+    hooks = [b.register_forward_hook(
+        lambda m, i, o, _i=k: _hook(m, i, o, _i)) for k, b in enumerate(blocks)]
+    out = []
+    model.eval()
+    with _t.no_grad():
+        for txt in texts:
+            ids = enc.encode(str(txt))[:int(ctx)]
+            if len(ids) < 2:
+                out.append(_t.zeros(model.token_embedding.weight.shape[1]))
+                continue
+            model(_t.tensor([ids], device=next(model.parameters()).device))
+            if feats:
+                out.append(feats[max(feats)][0].mean(0).float().cpu())
+            else:
+                out.append(model.token_embedding.weight[
+                    _t.tensor(ids, device=model.token_embedding.weight.device)].mean(0).float().cpu())
+    for h in hooks:
+        h.remove()
+    return _t.stack(out)
+
+
+def _ir_metrics(qe, de, qrels, qids, dids):
+    import numpy as _np
+    import torch as _t
+    q = _t.nn.functional.normalize(qe, dim=-1)
+    d = _t.nn.functional.normalize(de, dim=-1)
+    sim = q @ d.t()
+    ndcg = mrr = rec = 0.0
+    for i, qid in enumerate(qids):
+        order = sim[i].argsort(descending=True).tolist()
+        ranked = [dids[j] for j in order[:10]]
+        rel = qrels.get(qid, {})
+        gains = [rel.get(did, 0.0) for did in ranked]
+        dcg = sum(g / _np.log2(k + 2) for k, g in enumerate(gains))
+        ideal = sorted(rel.values(), reverse=True)[:10]
+        idcg = sum(g / _np.log2(k + 2) for k, g in enumerate(ideal))
+        ndcg += (dcg / idcg) if idcg > 0 else 0.0
+        rank = next((k for k, did in enumerate(ranked) if did in rel), None)
+        mrr += (1.0 / (rank + 1)) if rank is not None else 0.0
+        rec += sum(1 for did in ranked if did in rel) / max(1, len(rel))
+    n = max(1, len(qids))
+    return {"ndcg@10": ndcg / n, "mrr": mrr / n, "recall@10": rec / n,
+            "n_queries": len(qids)}
+
+
+def bench_expertlens_suite(model, enc, n_queries=12, n_corpus=1024, seed=0):
+    out = {}
+    for name in _IR_SOURCES:
+        data, prov = load_ir_items(name, n_queries=n_queries,
+                                   n_corpus=n_corpus, seed=seed)
+        if not data:
+            out[name] = {"status": "skip", "reason": prov, "n": 0}
+            continue
+        qids = [q[0] for q in data["queries"]]
+        dids = [d[0] for d in data["docs"]]
+        qe = _ir_embed(model, enc, [q[1] for q in data["queries"]])
+        de = _ir_embed(model, enc, [d[1] for d in data["docs"]])
+        m = _ir_metrics(qe, de, data["qrels"], qids, dids)
+        out[name] = {"status": "ok", "n": len(qids), "provenance": prov, **m}
+    ok = {k: v.get("ndcg@10") for k, v in out.items()
+          if v.get("status") == "ok" and v.get("ndcg@10") is not None}
+    return {"suite": "ExpertLens IR", "results": out, "ran": sorted(ok),
+            "mean_ndcg@10": (sum(ok.values()) / len(ok)) if ok else None,
+            "anchor": {"benchmarks": ["MSMARCO", "TREC DL 19", "TREC DL 20",
+                                      "NQ", "HotpotQA"],
+                       "retrievers": ["SB-MoE", "DenseC3"]}}
