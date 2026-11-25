@@ -1525,6 +1525,54 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s57 paper anchors: R2=.985, 10 features, 150 probes")
             paths.append(_save_fig(fig, f"{name}_anchors"))
 
+    if name == "ocgbench":
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            v = finite(r.get("accuracy"))
+            if v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(7.0, 3.2))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=20, fontsize=7)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("accuracy")
+            ax.set_title("s63 OCGQuant downstream: ARC/BoolQ/HellaSwag/LAMBADA/"
+                         "PIQA/MMLU/GSM8K")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "ocgquant":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        vals = [finite(live.get(k)) for k in ("fp16_ppl", "rtn_ppl", "ocg_ppl")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.4, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#999999", "#c44e52", "#55a868"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["FP16", "RTN", "OCG"])
+            ax.set_ylabel("held-out perplexity")
+            ax.set_title("s63 OCGQuant: NVFP4 block composition")
+            paths.append(_save_fig(fig, f"{name}_ppl"))
+
+    if name == "ocgquantpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            txt = "models: %s\nbenchmarks: %s\nbaselines: %s" % (
+                ", ".join(tables.get("models", [])),
+                ", ".join(tables.get("benchmarks", [])),
+                ", ".join(tables.get("baselines", [])))
+            ax.text(0.01, 0.5, txt, fontsize=6.6, va="center")
+            ax.set_title("s63 OCGQuant paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "dlmr":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}

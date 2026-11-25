@@ -2779,3 +2779,146 @@ def bench_dlmr_suite(n=4, seed=0):
             "ran": ok,
             "anchor": {"backbones": ["Qwen2.5-VL-7B", "InternVL3-8B"],
                        "benchmarks": list(_DLMR_SOURCES)}}
+
+# ---------------------------------------------------------------------------
+# OCGQuant downstream suite (arXiv:2609.00066): ARC-Easy/Challenge, BoolQ,
+# HellaSwag, LAMBADA, PIQA (+ existing MMLU/GSM8K). Download-at-run, fail-soft;
+# candidate scoring / greedy match with the live model.
+# ---------------------------------------------------------------------------
+
+_OCG_BENCH = {
+    "arc_easy": [("allenai/ai2_arc", "ARC-Easy", "test")],
+    "arc_challenge": [("allenai/ai2_arc", "ARC-Challenge", "test")],
+    "boolq": [("google/boolq", None, "validation")],
+    "hellaswag": [("Rowan/hellaswag", None, "validation")],
+    "lambada": [("EleutherAI/lambada_openai", None, "test")],
+    "piqa": [("ybisk/piqa", None, "validation")],
+}
+
+
+def _ocg_arc(name, model, enc, n=40, seed=0):
+    last = None
+    for repo, config, split in _OCG_BENCH[name]:
+        try:
+            rows = list(_hf(repo, config, split))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            ok = used = 0
+            for r in rows:
+                ch = r.get("choices") or {}
+                texts = ch.get("text") or []
+                labels = ch.get("label") or []
+                ans = r.get("answerKey")
+                if not texts or ans is None:
+                    continue
+                prompt = str(r.get("question", "")) + "\nAnswer:"
+                pred, _ = _mc_pick(model, enc, prompt, list(texts))
+                used += 1
+                ok += int(str(labels[pred]) == str(ans))
+                if used >= int(n):
+                    break
+            if used:
+                return {"suite": name, "status": "ok", "n": used,
+                        "accuracy": ok / used, "provenance": "%s/%s %s" % (repo, config, split)}
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return {"suite": name, "status": "skip", "reason": str(last)[:200],
+            "n": 0, "accuracy": None}
+
+
+def _ocg_simple(name, model, enc, n=40, seed=0):
+    last = None
+    for repo, config, split in _OCG_BENCH[name]:
+        try:
+            rows = list(_hf(repo, config, split))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            ok = used = 0
+            for r in rows:
+                if name == "boolq":
+                    q = "Passage: %s\nQuestion: %s?\nAnswer:" % (
+                        r.get("passage", ""), r.get("question", ""))
+                    pred, _ = _mc_pick(model, enc, q, [" no", " yes"])
+                    gold = int(bool(r.get("answer")))
+                elif name == "hellaswag":
+                    q = "Context: %s\nWhich ending?\nAnswer:" % r.get("ctx", "")
+                    ends = r.get("endings") or []
+                    if not ends:
+                        continue
+                    pred, _ = _mc_pick(model, enc, q, list(ends))
+                    gold = int(r.get("label"))
+                elif name == "piqa":
+                    q = "Goal: %s\nSolution:" % r.get("goal", "")
+                    pred, _ = _mc_pick(model, enc, q,
+                                       [str(r.get("sol1")), str(r.get("sol2"))])
+                    gold = int(r.get("label"))
+                else:  # lambada: greedy last-word match
+                    txt = str(r.get("text", ""))
+                    parts = txt.rsplit(" ", 1)
+                    if len(parts) != 2:
+                        continue
+                    out = _greedy_generate(model, enc, parts[0] + " ", max_new=8)
+                    pred = str(out).strip().split(" ")[0] if str(out).strip() else ""
+                    used += 1
+                    ok += int(pred.lower().strip(".,!?") ==
+                              parts[1].lower().strip(".,!?"))
+                    if used >= int(n):
+                        break
+                    continue
+                used += 1
+                ok += int(pred == gold)
+                if used >= int(n):
+                    break
+            if used:
+                return {"suite": name, "status": "ok", "n": used,
+                        "accuracy": ok / used,
+                        "provenance": "%s/%s %s" % (repo, config, split)}
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return {"suite": name, "status": "skip", "reason": str(last)[:200],
+            "n": 0, "accuracy": None}
+
+
+def bench_arc_easy(model, enc, n=40, seed=0):
+    return _ocg_arc("arc_easy", model, enc, n, seed)
+
+
+def bench_arc_challenge(model, enc, n=40, seed=0):
+    return _ocg_arc("arc_challenge", model, enc, n, seed)
+
+
+def bench_boolq(model, enc, n=40, seed=0):
+    return _ocg_simple("boolq", model, enc, n, seed)
+
+
+def bench_hellaswag(model, enc, n=40, seed=0):
+    return _ocg_simple("hellaswag", model, enc, n, seed)
+
+
+def bench_lambada(model, enc, n=40, seed=0):
+    return _ocg_simple("lambada", model, enc, n, seed)
+
+
+def bench_piqa(model, enc, n=40, seed=0):
+    return _ocg_simple("piqa", model, enc, n, seed)
+
+
+def bench_ocg_suite(model, enc, n=40, seed=0):
+    out = {
+        "arc_easy": bench_arc_easy(model, enc, n, seed),
+        "arc_challenge": bench_arc_challenge(model, enc, n, seed),
+        "boolq": bench_boolq(model, enc, n, seed),
+        "hellaswag": bench_hellaswag(model, enc, n, seed),
+        "lambada": bench_lambada(model, enc, n, seed),
+        "piqa": bench_piqa(model, enc, n, seed),
+        "mmlu": bench_mmlu(model, enc, n=n, k_shot=0),
+        "gsm8k": bench_gsm8k(model, enc, n=n),
+    }
+    ok = {k: v.get("accuracy") for k, v in out.items()
+          if isinstance(v, dict) and v.get("accuracy") is not None}
+    return {"suite": "OCGQuant downstream", "results": out, "ran": sorted(ok),
+            "mean_accuracy": (sum(ok.values()) / len(ok)) if ok else None,
+            "anchor": {"models": ["Llama3.2-3B", "Llama3.1-8B", "Qwen3-1.7B",
+                                  "Qwen3-8B", "Qwen3-32B"],
+                       "baselines": ["FP16", "RTN", "SmoothQuant", "GPTQ",
+                                     "QuaRot", "MR-GPTQ", "ARCQuant", "OCGQuant"]}}
