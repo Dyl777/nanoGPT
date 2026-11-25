@@ -1593,6 +1593,50 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s64 ExpertLens IR: MSMARCO/TREC DL/NQ/HotpotQA")
             paths.append(_save_fig(fig, f"{name}_ndcg"))
 
+    if name == "tokenformerbench":
+        lm = measurements.get("lm") if isinstance(measurements, dict) else None
+        lm = lm if isinstance(lm, dict) else {}
+        labs, vals = [], []
+        for k in sorted(lm):
+            v = finite((lm[k] or {}).get("ppl")) if isinstance(lm[k], dict) else None
+            if v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(6.6, 3.2))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=15, fontsize=7)
+            ax.set_ylabel("perplexity")
+            ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
+            paths.append(_save_fig(fig, f"{name}_ppl"))
+
+    if name == "tokenformer":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        vals = [finite(live.get(k)) for k in ("base_ppl", "expanded_ppl")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(4.8, 3.0))
+            ax.bar([0, 1], [v if v is not None else 0 for v in vals],
+                   color=["#4c72b0", "#55a868"], width=0.45)
+            ax.set_xticks([0, 1], ["base tokens", "expanded"])
+            ax.set_ylabel("held-out perplexity")
+            ax.set_title("s65 Tokenformer: Pattention token expansion")
+            paths.append(_save_fig(fig, f"{name}_ppl"))
+
+    if name == "tokenformerpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.0, 2.6))
+            ax.axis("off")
+            txt = "scales: %s\nbenchmarks: %s" % (
+                ", ".join(tables.get("scales", [])),
+                ", ".join(tables.get("benchmarks", [])))
+            ax.text(0.01, 0.5, txt, fontsize=7, va="center")
+            ax.set_title("s65 Tokenformer paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "expertlens":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}

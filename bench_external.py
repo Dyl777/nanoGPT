@@ -3080,3 +3080,123 @@ def bench_expertlens_suite(model, enc, n_queries=12, n_corpus=1024, seed=0):
             "anchor": {"benchmarks": ["MSMARCO", "TREC DL 19", "TREC DL 20",
                                       "NQ", "HotpotQA"],
                        "retrievers": ["SB-MoE", "DenseC3"]}}
+
+# ---------------------------------------------------------------------------
+# Tokenformer pipelines (arXiv:2410.23168): WikiText-2/103, C4, OpenWebText,
+# Pile, EnWik8 for LM perplexity; ImageNet-1K for vision classification.
+# Streaming-first, fail-soft, provenance recorded.
+# ---------------------------------------------------------------------------
+
+_LM_SOURCES = {
+    "wikitext2": [("Salesforce/wikitext", "wikitext-2-raw-v1", "test")],
+    "wikitext103": [("Salesforce/wikitext", "wikitext-103-raw-v1", "test")],
+    "c4": [("allenai/c4", "en", "validation")],
+    "openwebtext": [("Skylion007/openwebtext", None, "train")],
+    "pile": [("EleutherAI/pile", None, "validation")],
+    "enwik8": [("LTCB/enwik8", None, "test")],
+}
+
+
+def load_lm_corpus(name="wikitext2", n_docs=8, max_chars=20000, seed=0):
+    """Return concatenated text + provenance for a language corpus."""
+    last = None
+    for repo, config, split in _LM_SOURCES[name]:
+        try:
+            rows = _hf_stream(repo, config, split, n=max(4, int(n_docs) * 2))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            txt = []
+            for r in rows:
+                t = _first_key(r, ["text", "content", "raw_content", "article"])
+                if t:
+                    txt.append(str(t))
+                if len(txt) >= int(n_docs):
+                    break
+            s = "\n".join(txt)[: int(max_chars)]
+            if len(s) > 64:
+                return s, "%s/%s %s" % (repo, config or "-", split)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def lm_ppl(model, enc, text, ctx=64, batches=12, seed=0):
+    import math as _m
+    import torch as _t
+    ids = enc.encode(text)
+    if len(ids) < ctx + 2:
+        return None
+    dev = next(model.parameters()).device
+    g = _t.Generator().manual_seed(seed)
+    losses = []
+    model.eval()
+    with _t.no_grad():
+        for _ in range(int(batches)):
+            i = int(_t.randint(0, max(1, len(ids) - ctx - 1), (1,), generator=g))
+            x = _t.tensor([ids[i:i + ctx]], device=dev)
+            y = _t.tensor([ids[i + 1:i + ctx + 1]], device=dev)
+            logits = model(x)
+            losses.append(float(_t.nn.functional.cross_entropy(
+                logits.reshape(-1, logits.size(-1)), y.reshape(-1))))
+    return _m.exp(sum(losses) / len(losses))
+
+
+def bench_lm_corpora(model, enc, names=None, n_docs=4, max_chars=12000):
+    out = {}
+    for name in (names or list(_LM_SOURCES)):
+        text, prov = load_lm_corpus(name, n_docs=n_docs, max_chars=max_chars)
+        if text is None:
+            out[name] = {"status": "skip", "reason": prov, "ppl": None}
+            continue
+        out[name] = {"status": "ok", "ppl": lm_ppl(model, enc, text),
+                     "n_chars": len(text), "provenance": prov}
+    return out
+
+
+def bench_imagenet1k(vision_model=None, n=50, seed=0):
+    """ImageNet-1K classification; accuracy needs a vision_model(images, labels)."""
+    last = None
+    for repo, config, split in [("ILSVRC/imagenet-1k", None, "validation"),
+                                ("imagenet-1k", None, "validation")]:
+        try:
+            rows = _hf_stream(repo, config, split, n=max(64, int(n) * 2))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            imgs, labels = [], []
+            for r in rows:
+                im = r.get("image")
+                lab = r.get("label")
+                if im is None or lab is None:
+                    continue
+                imgs.append(im)
+                labels.append(int(lab))
+                if len(imgs) >= int(n):
+                    break
+            if not imgs:
+                continue
+            if vision_model is None:
+                return {"suite": "imagenet1k", "status": "skip",
+                        "reason": "vision_model callable not bound",
+                        "n": len(imgs),
+                        "provenance": "%s/%s %s" % (repo, config or "-", split)}
+            acc = vision_model(imgs, labels)
+            return {"suite": "imagenet1k", "status": "ok", "accuracy": float(acc),
+                    "n": len(imgs),
+                    "provenance": "%s/%s %s" % (repo, config or "-", split)}
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return {"suite": "imagenet1k", "status": "skip", "reason": str(last)[:240],
+            "n": 0, "accuracy": None}
+
+
+def bench_tokenformer_suite(model, enc, vision_model=None, names=None):
+    lm = bench_lm_corpora(model, enc, names=names)
+    vis = bench_imagenet1k(vision_model=vision_model)
+    ok = {k: v["ppl"] for k, v in lm.items() if v.get("ppl") is not None}
+    return {"suite": "Tokenformer LM/vision", "lm": lm, "vision": vis,
+            "ran": sorted(ok),
+            "mean_ppl": (sum(ok.values()) / len(ok)) if ok else None,
+            "anchor": {"scales": ["124M", "354M", "757M", "1.4B"],
+                       "lm": ["WikiText-2", "C4", "OpenWebText", "Pile",
+                              "EnWik8"],
+                       "vision": "ImageNet-1K"}}
