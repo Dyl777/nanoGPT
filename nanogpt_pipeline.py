@@ -1525,6 +1525,35 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s57 paper anchors: R2=.985, 10 features, 150 probes")
             paths.append(_save_fig(fig, f"{name}_anchors"))
 
+    if name == "dlmr":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        b = live.get("before") or {}
+        a = live.get("after") or {}
+        vals = [finite(b.get("ce")), finite(a.get("ce"))]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(4.8, 3.0))
+            ax.bar([0, 1], [v if v is not None else 0 for v in vals],
+                   color=["#999999", "#55a868"], width=0.45)
+            ax.set_xticks([0, 1], ["null", "routed"])
+            ax.set_ylabel("held-out CE")
+            ax.set_title("s62 DLMR: dual-memory routing")
+            paths.append(_save_fig(fig, f"{name}_ce"))
+
+    if name == "dlmrpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.2, 2.6))
+            ax.axis("off")
+            txt = "backbones: %s\nbenchmarks: %s\nstages: %s" % (
+                ", ".join(tables.get("backbones", [])),
+                ", ".join(tables.get("benchmarks", [])),
+                ", ".join(tables.get("stages", [])))
+            ax.text(0.01, 0.5, txt, fontsize=7, va="center")
+            ax.set_title("s62 DLMR paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "attrrobust":
         arms = measurements.get("live", {}).get("arms") if isinstance(
             measurements, dict) else None
