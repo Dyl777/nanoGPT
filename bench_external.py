@@ -2692,3 +2692,90 @@ def bench_gut_suite(model, enc, n=20, seed=0):
             "anchor": {"datasets": ["GSM8K", "MATH-500", "AMC2022-24", "FOLIO",
                                     "MMLU-Pro"], "llms": 4,
                        "uq_contenders": 45}}
+
+# ---------------------------------------------------------------------------
+# DLMR benchmarks (arXiv:2609.05539): MMMU, MathVerse, MathVision, MathVista,
+# MMVet, MMStar. Stream rows (image + question + answer) for DLMR training and
+# evaluation; fail-soft with provenance. Images are resized to 32x32 tensors.
+# ---------------------------------------------------------------------------
+
+_DLMR_SOURCES = {
+    "mmmu": [("MMMU/MMMU", "Accounting", "validation"),
+             ("MMMU/MMMU", "Basic_Medical_Science", "validation"),
+             ("MMMU/MMMU", None, "validation")],
+    "mathverse": [("MathVerse/MathVerse", None, "test"),
+                  ("MathVerse/MathVerse-Bench", None, "test")],
+    "mathvision": [("MathVision/MathVision", None, "test"),
+                   ("MathVision/MathVision-Bench", None, "test")],
+    "mathvista": [("AI4Math/MathVista", None, "test"),
+                  ("AI4Math/MathVista", None, "testmini")],
+    "mmvet": [("MMVet/MMVet", None, "test"),
+              ("whyu/MMVet", None, "test")],
+    "mmstar": [("Lin-Chen/MMStar", None, "val"),
+               ("Lin-Chen/MMStar", None, "test")],
+}
+
+
+def _dlmr_image_tensor(img, size=32):
+    import io as _io
+    import numpy as _np
+    from PIL import Image
+    import torch as _t
+    if img is None:
+        return None
+    if isinstance(img, dict):
+        img = img.get("bytes") or img.get("path")
+    if isinstance(img, (bytes, bytearray)):
+        img = Image.open(_io.BytesIO(img))
+    if isinstance(img, str):
+        img = Image.open(img)
+    if not hasattr(img, "convert"):
+        return None
+    im = img.convert("RGB").resize((size, size))
+    return _t.tensor(_np.asarray(im), dtype=_t.float32).permute(2, 0, 1) / 255.0
+
+
+def load_dlmr_items(name="mmmu", n=8, seed=0, size=32):
+    """Rows of {q, a, image (3,size,size), dataset, provenance}."""
+    import torch as _t
+    last = None
+    for repo, config, split in _DLMR_SOURCES[name]:
+        try:
+            rows = _hf_stream(repo, config, split, n=max(16, int(n) * 4))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for r in rows:
+                q = _first_key(r, ["question", "problem", "query", "prompt"])
+                a = _first_key(r, ["answer", "correct_answer", "gt_answer",
+                                   "label", "answer_text"])
+                img = _first_key(r, ["image", "image_1", "img", "picture"])
+                if q is None or a is None:
+                    continue
+                t = _dlmr_image_tensor(img, size=size)
+                if t is None:
+                    continue
+                out.append({"q": str(q), "a": str(a), "image": t,
+                            "dataset": name,
+                            "provenance": "%s/%s %s" % (repo, config or "-", split)})
+                if len(out) >= int(n):
+                    break
+            if out:
+                return out, "%s/%s %s" % (repo, config or "-", split)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def bench_dlmr_suite(n=4, seed=0):
+    out = {}
+    for name in _DLMR_SOURCES:
+        items, prov = load_dlmr_items(name, n=n, seed=seed)
+        out[name] = {"status": "ok" if items else "skip",
+                     "n": 0 if items is None else len(items),
+                     "provenance": prov}
+    ok = [k for k, v in out.items() if v["status"] == "ok"]
+    return {"suite": "DLMR vision-language benchmarks", "results": out,
+            "ran": ok,
+            "anchor": {"backbones": ["Qwen2.5-VL-7B", "InternVL3-8B"],
+                       "benchmarks": list(_DLMR_SOURCES)}}

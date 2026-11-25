@@ -1554,6 +1554,25 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s62 DLMR paper anchors")
             paths.append(_save_fig(fig, f"{name}_anchors"))
 
+    if name == "dlmrbench":
+        results = measurements.get("results") if isinstance(measurements, dict) else None
+        results = results if isinstance(results, dict) else {}
+        labs, vals = [], []
+        for k in sorted(results):
+            r = results[k] if isinstance(results[k], dict) else {}
+            if r.get("status") == "ok":
+                labs.append(k)
+                vals.append(finite(r.get("n")) or 0)
+        if vals:
+            fig, ax = plt.subplots(figsize=(6.4, 3.2))
+            ax.bar(range(len(labs)), vals, color="#55a868", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=15, fontsize=7)
+            ax.set_ylabel("rows loaded")
+            ax.set_title("s62 DLMR benchmarks: MMMU/MathVerse/MathVision/"
+                         "MathVista/MMVet/MMStar")
+            paths.append(_save_fig(fig, f"{name}_rows"))
+
     if name == "attrrobust":
         arms = measurements.get("live", {}).get("arms") if isinstance(
             measurements, dict) else None
