@@ -11,7 +11,7 @@
 @Technique::Recurrent::[ctm, cmm]
 @Technique::Feedback::[vanilla, intuitor, sif]
 @Technique::MARL::[cql, iql, golemm]
-@Technique::Quant::[none, roleq]
+@Technique::Quant::[none, roleq, ocg, rtn, quarot, mrgptq, arcquant]
 @Technique::Gate::[em, bits, kl]
 @Technique::Vocab::[char64, word1k, word10k, word20k, word40k, word50k, gpt2bpe]
 @Technique::Scale::[tiny64, small256, faithful512, gpt2_124m]
@@ -15566,7 +15566,7 @@
         "",
         "**WIRED (s62 DLMR, arXiv:2609.05539).** Real dual latent banks (`visual`, `reasoning`), a discrete router (`1 + 2·|budgets|` actions), and an injector that appends selected memory tokens with extended positions to the **frozen** live backbone. Three stages are implemented: latent pre-warm (alignment + separation), injector training (memory-only CE), and router REINFORCE with reward `−CE − λ·k`. `run_dlmr` reports null vs routed held-out CE/accuracy, routing history, budgets {4,8,16} and decoding-token counts; `dlmrpaper` records the Qwen2.5-VL/InternVL3 and MMMU/MathVerse/MathVision/MathVista/MMVet/MMStar anchors. `dlmrbench` wires all six datasets through `bench_external` (streaming, image+question+answer, fail-soft); `run_dlmr` trains on the MMMU rows when available and falls back to real repo PNGs. Local arm uses real images through the DLMRViT encoder, not a text analogue. STACK: CMM/TRC2 memory, COMPOSE/SigLIP vision; ALTERNATIVE at the memory site.",
         "",
-        "**WIRED (s63 OCGQuant, arXiv:2609.00066).** Real NVFP4 quantizer: FP4-E2M1 grid, per-16 FP8-E4M3 block scale, tensor FP32 scale, dequantized weights/activations. `ocg_permutation` implements RMS ranking, outlier + G−1 low-RMS companions with the adaptive margin stop and remainder order; `ocg_calibrate` hooks every Linear to collect channel RMS; `ocg_quantize_model` builds reordered `NVFP4Linear`s (weight reorder + online activation quantization). Baselines are real: `RotatedLinear` for **QuaRot** (global Hadamard) and **MR-GPTQ** (block-wise Hadamard), and `ARCQuantLinear` for **ARCQuant** (top outlier channels kept as an FP16 residual). `run_ocgquant` reports FP16/RTN/QuaRot/MR-GPTQ/ARCQuant/OCG perplexity; `ocgbench` wires ARC-Easy, ARC-Challenge, BoolQ, HellaSwag, LAMBADA, PIQA, MMLU and GSM8K; `ocgquantpaper` records the Llama3/Qwen3, WikiText-2/downstream, baseline table. STACK: RoleQ/Coupled Quantization; ALTERNATIVE at the quantization site.",
+        "**WIRED (s63 OCGQuant, arXiv:2609.00066).** `Quant::[none, roleq, ocg, rtn, quarot, mrgptq, arcquant]` is a compiled axis (7 techniques): `ocg` is this paper’s path, `rtn/quarot/mrgptq/arcquant` are the NVFP4 baselines as real impls, `none` is FP16, `roleq` is RoleQ. Real NVFP4 quantizer: FP4-E2M1 grid, per-16 FP8-E4M3 block scale, tensor FP32 scale, dequantized weights/activations. `ocg_permutation` implements RMS ranking, outlier + G−1 low-RMS companions with the adaptive margin stop and remainder order; `ocg_calibrate` hooks every Linear to collect channel RMS; `ocg_quantize_model` builds reordered `NVFP4Linear`s (weight reorder + online activation quantization). Baselines are real: `RotatedLinear` for **QuaRot** (global Hadamard) and **MR-GPTQ** (block-wise Hadamard), and `ARCQuantLinear` for **ARCQuant** (top outlier channels kept as an FP16 residual). `run_ocgquant` reports FP16/RTN/QuaRot/MR-GPTQ/ARCQuant/OCG perplexity; `ocgbench` wires ARC-Easy, ARC-Challenge, BoolQ, HellaSwag, LAMBADA, PIQA, MMLU and GSM8K; `ocgquantpaper` records the Llama3/Qwen3, WikiText-2/downstream, baseline table. STACK: RoleQ/Coupled Quantization; ALTERNATIVE at the quantization site.",
         "",
         "**WIRED (s37 LRT, arXiv:2610.21182).** The section already implements the paper's three tests on a latent-slot clone (chain deletion, noise/mean/donor replacement, slot×layer linear probes against permuted-label nulls, trajectory settling plus the mid-chain twin edit, and the six-type taxonomy). `lchbench` now wires the real item pools — ProsQA, PrOntoQA and GSM8K — through `bench_external.py`: download-at-run, fail-soft, and the live model is called on every item with candidate-restricted accuracy. The paper's 21 model-task cells (COCONUT/CODI/SIM-COT × GPT-2/Llama) and its taxonomy are anchors; the live latent-slot clone is the local analogue.",
         "",
@@ -15613,7 +15613,7 @@
         "| 2609.05284 | GUT graph-complexity reasoning uncertainty | gut, gutpaper | gut_selective, gutpaper_anchors | live sampled DAGs + W/H/UP complexity + AUROC/AUPRC/PRR + GUT-O reward |\n",
         "| 8058 | Attribution robustness via implicit regularization | attrrobust, attrrobustpaper | attrrobust_sensitivity, attrrobustpaper_anchors | live token-gradient/attention rollout × ICR × softmax/kernel attention + ICML anchors |\n",
         "| 2609.05539 | DLMR dual-latent memory routing | dlmr, dlmrbench, dlmrpaper | dlmr_ce, dlmrbench_rows, dlmrpaper_anchors | live dual memory + injector + router, 3 stages + six VL benchmark adapters |\n",
-        "| 2609.00066 | OCGQuant NVFP4 outlier-companion grouping | ocgquant, ocgbench, ocgquantpaper | ocgquant_ppl, ocgbench_accuracy, ocgquantpaper_anchors | live NVFP4 + QuaRot/MR-GPTQ/ARCQuant/OCG + seven downstream benchmarks |\n",
+        "| 2609.00066 | OCGQuant NVFP4 outlier-companion grouping | Quant::[none, roleq, ocg, rtn, quarot, mrgptq, arcquant], ocgquant, ocgbench, ocgquantpaper | ocgquant_ppl, ocgbench_accuracy, ocgquantpaper_anchors | live NVFP4 + 5 quant impls + seven downstream benchmarks |\n",
         "| 1810.04805 | BERT | bert | bert_eq3_lr, bert_table3_heads, bert_table3_depth | 9 PNGs + metrics.json |\n",
         "| 2608.28930 | LayerMix | layermix | layermix_auroc_layers, layermix_agg | 23 PNGs + metrics.json |\n",
         "| 2608.27963 | SABER | saber | saber_exit | 13 PNGs + metrics.json |\n",
@@ -21919,6 +21919,61 @@
       ]
     }
     }@},
+    @Impl::Quant::ocg{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "QUANT_KIND = \"ocg\"\n"
+      ]
+    }
+    }@},
+    @Impl::Quant::rtn{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "QUANT_KIND = \"rtn\"\n"
+      ]
+    }
+    }@},
+    @Impl::Quant::quarot{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "QUANT_KIND = \"quarot\"\n"
+      ]
+    }
+    }@},
+    @Impl::Quant::mrgptq{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "QUANT_KIND = \"mrgptq\"\n"
+      ]
+    }
+    }@},
+    @Impl::Quant::arcquant{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "QUANT_KIND = \"arcquant\"\n"
+      ]
+    }
+    }@},
     {
       "cell_type": "code",
       "execution_count": null,
@@ -22447,6 +22502,16 @@
         "        m[\"live\"] = {\"fp16_ppl\": fp16, \"rtn_ppl\": rtn_ppl,\n",
         "                     \"quarot_ppl\": quarot_ppl, \"mrgptq_ppl\": mrgptq_ppl,\n",
         "                     \"arcquant_ppl\": arc_ppl, \"ocg_ppl\": ocg_ppl_v,\n",
+        "                     \"selected_kind\": globals().get(\"QUANT_KIND\", \"ocg\"),\n",
+        "                     \"selected_ppl\": ({\n",
+        "                         \"none\": fp16, \"ocg\": ocg_ppl_v,\n",
+        "                         \"rtn\": rtn_ppl, \"quarot\": quarot_ppl,\n",
+        "                         \"mrgptq\": mrgptq_ppl, \"arcquant\": arc_ppl,\n",
+        "                         \"roleq\": None,\n",
+        "                     }).get(globals().get(\"QUANT_KIND\", \"ocg\")),\n",
+        "                     \"checkpoint\": \"%s (%d params)\" % (\n",
+        "                         type(model).__name__,\n",
+        "                         sum(p.numel() for p in model.parameters())),\n",
         "                     \"n_layers_permuted\": len(perms),\n",
         "                     \"bpw\": 4.0,\n",
         "                     \"note\": \"NVFP4 weight+activation quantization; per-16 \"\n",
