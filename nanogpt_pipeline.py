@@ -1611,6 +1611,40 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "adajepa":
+        arms = measurements.get("live", {}).get("arms") if isinstance(
+            measurements, dict) else None
+        arms = arms if isinstance(arms, dict) else {}
+        labs, vals = [], []
+        for k in sorted(arms):
+            v = finite((arms[k] or {}).get("success"))
+            if v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(7.2, 3.4))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=20, fontsize=6.5)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("planning success")
+            ax.set_title("s66 AdaJEPA: frozen vs adapted under shifts")
+            paths.append(_save_fig(fig, f"{name}_success"))
+
+    if name == "adajepapaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.6))
+            ax.axis("off")
+            txt = "environments: %s\nshifts: %s\nplanner: %s" % (
+                ", ".join(tables.get("environments", [])),
+                ", ".join(tables.get("shifts", [])),
+                tables.get("planner", ""))
+            ax.text(0.01, 0.5, txt, fontsize=7, va="center")
+            ax.set_title("s66 AdaJEPA paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "tokenformer":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}

@@ -33,6 +33,7 @@
 @Technique::MoE::[dense, sbmoe, densec3]
 @Technique::Explain::[none, expertlens]
 @Technique::Pattn::[linear, pattention]
+@Technique::WorldModel::[none, jepa, adajepa]
 
 {
   "cells": [
@@ -65,6 +66,10 @@
         "    run_mmlu_live, run_gsm8k_live, run_mbpp_live, run_truthfulqa_live,\n",
         "    run_halieval_live, run_faithdial_live, run_olympiad_live, run_ruler_live)\n",
         "BENCH_RESULTS = []\n",
+        "BENCH_SPECS = []\n",
+        "\n",
+        "def defer_call(name, fn, **_kw):\n",
+        "    return (name, fn, _kw)\n",
         "\n",
         "# Shared inputs: bench_utils. Live runners/curves/compat: nanogpt_pipeline\n",
         "# (not graded/arxiv_llm_lib — that file only replots published PDF numbers).\n"
@@ -2766,6 +2771,45 @@
       "metadata": {},
       "outputs": [],
       "source": [
+        "\"\"\"Pattention is defined once, before the Pattn gates that install it.\"\"\"\n",
+        "class Pattention(nn.Module):\n",
+        "    def __init__(self, in_features, out_features, n_tokens=64, bias=False):\n",
+        "        super().__init__()\n",
+        "        self.in_features = int(in_features)\n",
+        "        self.out_features = int(out_features)\n",
+        "        self.n_tokens = int(n_tokens)\n",
+        "        self.key = nn.Parameter(torch.randn(self.n_tokens, self.in_features) * 0.02)\n",
+        "        self.value = nn.Parameter(torch.randn(self.n_tokens, self.out_features) * 0.02)\n",
+        "        self.bias = nn.Parameter(torch.zeros(self.out_features)) if bias else None\n",
+        "\n",
+        "    def forward(self, x):\n",
+        "        q = torch.nn.functional.normalize(x, dim=-1)\n",
+        "        k = torch.nn.functional.normalize(self.key, dim=-1)\n",
+        "        w = torch.nn.functional.gelu(q @ k.t())\n",
+        "        out = w @ self.value\n",
+        "        return out + self.bias if self.bias is not None else out\n",
+        "\n",
+        "def install_pattention(model, n_tokens=64):\n",
+        "    import copy as _c65\n",
+        "    m = _c65.deepcopy(model)\n",
+        "    for name, mod in list(m.named_modules()):\n",
+        "        if isinstance(mod, nn.Linear):\n",
+        "            parent = m\n",
+        "            parts = name.split('.')\n",
+        "            for p in parts[:-1]:\n",
+        "                parent = getattr(parent, p)\n",
+        "            setattr(parent, parts[-1],\n",
+        "                    Pattention(mod.in_features, mod.out_features,\n",
+        "                               n_tokens=n_tokens, bias=mod.bias is not None))\n",
+        "    return m\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
         "\"\"\"MoE FFN installed in every block for MoE::sbmoe / MoE::densec3.\"\"\"\n",
         "class MoEFFN(nn.Module):\n",
         "    def __init__(self, dim, experts=6, mode='sbmoe'):\n",
@@ -2803,7 +2847,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "PATTN_KIND = \"linear\"\n"
+        "# linear path: no architecture change\n"
       ]
     }
     }@},
@@ -2814,7 +2858,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "PATTN_KIND = \"pattention\"\n",
+        "# replace every Linear projection with Pattention\n",
         "model = install_pattention(model)\n"
       ]
     }
@@ -3000,47 +3044,10 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "# ALWAYS-PRESENT s65 substrate: Tokenformer (arXiv:2410.23168). Token-parameter\n",
-        "# attention (Pattention): input tokens are queries; two sets of learnable\n",
-        "# parameter tokens are keys and values. Modified softmax Θ = L2norm + GELU.\n",
-        "# Axis: Pattn::[linear, pattention] installs the architecture before training.\n",
+        "# ALWAYS-PRESENT s65 substrate: Tokenformer runner. Pattention is defined once\n",
+        "# before the Pattn gates and installed on the Pattn::pattention path; this cell\n",
+        "# only measures and expands the already-built architecture.\n",
         "import math as _m65\n",
-        "\n",
-        "\n",
-        "class Pattention(nn.Module):\n",
-        "    def __init__(self, in_features, out_features, n_tokens=64, bias=False):\n",
-        "        super().__init__()\n",
-        "        self.in_features = int(in_features)\n",
-        "        self.out_features = int(out_features)\n",
-        "        self.n_tokens = int(n_tokens)\n",
-        "        self.key = nn.Parameter(torch.randn(self.n_tokens, self.in_features) * 0.02)\n",
-        "        self.value = nn.Parameter(torch.randn(self.n_tokens, self.out_features) * 0.02)\n",
-        "        self.bias = nn.Parameter(torch.zeros(self.out_features)) if bias else None\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        import torch as _t\n",
-        "        q = _t.nn.functional.normalize(x, dim=-1)\n",
-        "        k = _t.nn.functional.normalize(self.key, dim=-1)\n",
-        "        w = _t.nn.functional.gelu(q @ k.t())      # Θ: L2norm + GELU\n",
-        "        out = w @ self.value\n",
-        "        return out + self.bias if self.bias is not None else out\n",
-        "\n",
-        "\n",
-        "def install_pattention(model, n_tokens=64):\n",
-        "    \"\"\"Replace every nn.Linear projection with a Pattention layer.\"\"\"\n",
-        "    import copy as _c65\n",
-        "    m = _c65.deepcopy(model)\n",
-        "    for name, mod in list(m.named_modules()):\n",
-        "        if isinstance(mod, nn.Linear):\n",
-        "            parent = m\n",
-        "            parts = name.split(\".\")\n",
-        "            for p in parts[:-1]:\n",
-        "                parent = getattr(parent, p)\n",
-        "            setattr(parent, parts[-1],\n",
-        "                    Pattention(mod.in_features, mod.out_features,\n",
-        "                               n_tokens=n_tokens,\n",
-        "                               bias=mod.bias is not None))\n",
-        "    return m\n",
         "\n",
         "\n",
         "def expand_pattention(model, add=32, seed=65):\n",
@@ -3087,15 +3094,14 @@
         "\n",
         "def run_tokenformer(model=None, enc=None, n_text=4096,\n",
         "                    out_path=\"outputs/tokenformer_results.json\", **_):\n",
-        "    \"\"\"s65 runner: Pattention architecture + incremental scaling.\"\"\"\n",
+        "    \"\"\"s65 runner: Pattention architecture + incremental scaling (post-install).\"\"\"\n",
         "    import json as _j65\n",
         "    import time as _t65\n",
         "    t0 = _t65.time()\n",
-        "    kind = globals().get(\"PATTN_KIND\", \"pattention\")\n",
         "    m = {\"paper\": \"Tokenformer: Rethinking Transformer Scaling with Tokenized \"\n",
-        "                  \"Model Parameters\", \"pattn\": kind}\n",
-        "    if model is None or enc is None:\n",
-        "        m[\"error\"] = \"live model + encoder required\"\n",
+        "                  \"Model Parameters\"}\n",
+        "    if model is None:\n",
+        "        m[\"error\"] = \"live model required\"\n",
         "        return {\"paper\": m[\"paper\"], \"section\": \"s65\", \"measurements\": m}\n",
         "    try:\n",
         "        import torch as _t\n",
@@ -3103,7 +3109,6 @@
         "        has_pattn = any(isinstance(x, Pattention) for x in model.modules())\n",
         "        base = pattn_ppl(model, ids)\n",
         "        params0 = sum(p.numel() for p in model.parameters())\n",
-        "        # incremental scaling: add key/value tokens (no retraining)\n",
         "        grown = model\n",
         "        added = 0\n",
         "        if has_pattn:\n",
@@ -3111,7 +3116,7 @@
         "            grown_ppl = pattn_ppl(grown, ids)\n",
         "        else:\n",
         "            grown_ppl = base\n",
-        "        m[\"live\"] = {\"architecture\": kind, \"has_pattention\": bool(has_pattn),\n",
+        "        m[\"live\"] = {\"has_pattention\": bool(has_pattn),\n",
         "                     \"base_ppl\": base, \"expanded_ppl\": grown_ppl,\n",
         "                     \"params\": params0,\n",
         "                     \"params_after\": sum(p.numel() for p in grown.parameters()),\n",
@@ -3120,11 +3125,8 @@
         "                         type(model).__name__, params0),\n",
         "                     \"note\": \"Pattention = L2norm+GELU cross-attention over \"\n",
         "                             \"learnable key/value parameter tokens; expansion \"\n",
-        "                             \"adds parameter tokens without changing channels\"}\n",
+        "                             \"adds tokens without changing channels\"}\n",
         "        m[\"anchors\"] = TOKENFORMER_PAPER\n",
-        "        m[\"expected\"] = (\"Pattention should match linear projections at base \"\n",
-        "                         \"scale; adding key/value tokens increases capacity \"\n",
-        "                         \"without changing d_in/d_out.\")\n",
         "    except Exception as exc:\n",
         "        m[\"error\"] = \"%s: %s\" % (type(exc).__name__, exc)\n",
         "    out = {\"paper\": \"Tokenformer: Rethinking Transformer Scaling with Tokenized \"\n",
@@ -3134,8 +3136,8 @@
         "                          \"venue\": \"arXiv:2410.23168v2\",\n",
         "                          \"code\": \"https://github.com/Haiyang-W/TokenFormer\",\n",
         "                          \"local\": \"LIVE model; every nn.Linear replaced by \"\n",
-        "                                   \"Pattention; incremental key/value token \"\n",
-        "                                   \"expansion; no retraining in the runner\"},\n",
+        "                                   \"Pattention on the Pattn::pattention path; \"\n",
+        "                                   \"incremental key/value token expansion\"},\n",
         "           \"measurements\": m, \"seconds\": round(_t65.time() - t0, 1)}\n",
         "    if out_path is not None:\n",
         "        import pathlib as _p65\n",
@@ -3181,12 +3183,296 @@
         "    _tf_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _tf_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'tokenformer', run_tokenformer, model=model, enc=_tf_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'tokenformerpaper', run_tokenformer_paper, model=model))\n\n",
         "from bench_external import bench_tokenformer_suite\n\n",
-        "BENCH_RESULTS.append(live_call('tokenformerbench', bench_tokenformer_suite, model=model, enc=_tf_enc))\n"
+        "BENCH_SPECS.append(defer_call('tokenformerbench', bench_tokenformer_suite, model=model, enc=_tf_enc))\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 66. AdaJEPA — adaptive latent world model (Wang et al. 2026, arXiv:2606.32026)\n",
+        "\n",
+        "**Paper in one paragraph.** JEPA world models encode observations into a latent space and predict `ẑ_{t+1}=f_θ(z_t, E_a(a_t))`; MPC plans by minimizing latent goal distance `Σ α_k d(ẑ_{t+k}, z_g)`. The model is normally frozen at test time, so distribution shifts break planning. **AdaJEPA** closes the loop: at each MPC replan it **plans**, **executes** the first action, appends `(o_t,a_t,o_{t+1})` to a capped buffer, takes **U self-supervised gradient steps** on `ℓ(f_θ(z_t,E_a(a_t)), sg(z_{t+1}))`, and replans with the updated model. It updates only a small parameter subset (encoder/predictor), needs no rewards or expert data, and works with a recent-N or hard-N buffer. On PushT/PointMaze/PushObj it improves success under shape, visual, dynamics and layout shifts, often with **one gradient step per replan**.\n",
+        "\n",
+        "**What runs here (real loop on the LIVE model).** `LiveJEPA` uses the compiled model's **own hidden states** as the observation encoder, the model's **token embedding** as the action encoder, and a latent MLP predictor. `live_pretrain` trains it on real token transitions. `live_mpc` scores top-k next tokens by predicted latent distance to a goal window. `live_episode` runs plan→execute→append→`live_adapt` (one step on predictor/action encoder + last block, stop-gradient target)→replan. `run_adajepa` compares frozen vs adapted arms on real text transitions and token noise. `adajepapaper` records PushT/PointMaze/PushObj and the four shift families.\n",
+        "\n",
+        "**Architecture axis.** `WorldModel::[none, jepa, adajepa]` is a compiled axis with gated impls: `none` skips the world model, `jepa` builds/pretrains the frozen JEPA, `adajepa` enables the closed-loop adaptation. The runner reads `WM_KIND` and reports the selected arm.
+
+**Double-sided expectations.** Adaptation should preserve in-distribution success and improve shifted arms; one step per replan should suffice. A null on the live token-transition arm is reported.\n",
+        "\n",
+        "**Relations to the corpus.**\n",
+        "- **GOLeMM (s50), CMM (s47):** latent/control models; AdaJEPA adapts the world model inside MPC. STACK at the world-model site.\n",
+        "- **SIF/RSHD (s48/s36):** RL post-training; AdaJEPA is test-time self-supervision, not reward optimization. ALTERNATIVE.\n",
+        "- **DLMR (s62), ExpertLens (s64):** latent representations and routing; AdaJEPA adapts latents online. STACK.\n",
+        "\n",
+        "**Limits.** PushT/PushObj simulators, the paper’s pretrained DINO-WM/patched world models and validation trajectories are external. The local arm uses the **live model’s hidden states** as the JEPA encoder, token embeddings as actions, real token windows as transitions, top-k MPC and one-step adaptation; it is not the paper’s robot-control setup. The success/latency tables are anchors.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ALWAYS-PRESENT s66 substrate: AdaJEPA (arXiv:2606.32026). The world model is\n",
+        "# implemented ONCE on the live model's hidden states; the PointMaze/MLP class\n",
+        "# copies are removed. WorldModel::[none, jepa, adajepa] selects the arm.\n",
+        "import math as _m66\n",
+        "\n",
+        "\n",
+        "class LiveJEPA(nn.Module):\n",
+        "    \"\"\"JEPA on the LIVE model: encoder = frozen blocks, action encoder = token\n",
+        "    embedding, predictor = latent MLP. One implementation, no copies.\"\"\"\n",
+        "\n",
+        "    def __init__(self, model, latent=64):\n",
+        "        super().__init__()\n",
+        "        self.model = model\n",
+        "        for p in model.parameters():\n",
+        "            p.requires_grad_(False)\n",
+        "        d = model.token_embedding.weight.shape[1]\n",
+        "        self.act = nn.Linear(d, latent)\n",
+        "        self.pred = nn.Sequential(nn.Linear(2 * latent, 128), nn.GELU(),\n",
+        "                                  nn.Linear(128, latent))\n",
+        "\n",
+        "    def encode(self, ids):\n",
+        "        import torch as _t\n",
+        "        feats = {}\n",
+        "\n",
+        "        def _hook(mod, inp, out, _i):\n",
+        "            feats[_i] = (out[0] if isinstance(out, tuple) else out).detach()\n",
+        "\n",
+        "        blocks = list(self.model.blocks)\n",
+        "        hooks = [b.register_forward_hook(\n",
+        "            lambda m, i, o, _i=k: _hook(m, i, o, _i))\n",
+        "            for k, b in enumerate(blocks)]\n",
+        "        with _t.no_grad():\n",
+        "            self.model(ids)\n",
+        "        for h in hooks:\n",
+        "            h.remove()\n",
+        "        return feats[max(feats)].mean(1)\n",
+        "\n",
+        "    def step(self, z, tok):\n",
+        "        import torch as _t\n",
+        "        u = self.act(self.model.token_embedding(tok.reshape(-1)))\n",
+        "        return self.pred(_t.cat([z, u], -1))\n",
+        "\n",
+        "\n",
+        "def live_windows(data, ctx=32, n=32, seed=66):\n",
+        "    import torch as _t\n",
+        "    g = _t.Generator().manual_seed(seed)\n",
+        "    starts = _t.randint(0, max(1, len(data) - ctx - 2), (int(n),), generator=g)\n",
+        "    X = _t.stack([data[s:s + ctx] for s in starts])\n",
+        "    Y = _t.stack([data[s + ctx] for s in starts])\n",
+        "    X2 = _t.stack([data[s + 1:s + ctx + 1] for s in starts])\n",
+        "    return X, Y, X2\n",
+        "\n",
+        "\n",
+        "def live_pretrain(wm, X, Y, X2, steps=80):\n",
+        "    import torch as _t\n",
+        "    opt = _t.optim.AdamW(list(wm.act.parameters()) + list(wm.pred.parameters()),\n",
+        "                         lr=1e-3)\n",
+        "    for _ in range(int(steps)):\n",
+        "        z = wm.encode(X)\n",
+        "        z2 = wm.encode(X2).detach()\n",
+        "        loss = _t.nn.functional.mse_loss(wm.step(z, Y), z2)\n",
+        "        opt.zero_grad(set_to_none=True)\n",
+        "        loss.backward()\n",
+        "        opt.step()\n",
+        "    return wm\n",
+        "\n",
+        "\n",
+        "def live_mpc(wm, window, goal_z, topk=8, seed=66):\n",
+        "    \"\"\"Pick the next token whose predicted latent is closest to the goal.\"\"\"\n",
+        "    import torch as _t\n",
+        "    with _t.no_grad():\n",
+        "        logits = wm.model(window)[0, -1]\n",
+        "        cand = logits.topk(min(int(topk), logits.numel())).indices\n",
+        "        z = wm.encode(window)\n",
+        "        best, best_d = int(cand[0]), float(\"inf\")\n",
+        "        for tok in cand:\n",
+        "            d = float((wm.step(z, tok.view(1)) - goal_z).pow(2).sum())\n",
+        "            if d < best_d:\n",
+        "                best, best_d = int(tok), d\n",
+        "    return best\n",
+        "\n",
+        "\n",
+        "def live_episode(wm, start, goal_ids, obs_noise=0.0, adapt=False,\n",
+        "                 max_steps=12, buffer_size=16, seed=66):\n",
+        "    import torch as _t\n",
+        "    window = start.clone()\n",
+        "    goal_z = wm.encode(goal_ids.unsqueeze(0))\n",
+        "    d0 = float((wm.encode(window.unsqueeze(0)) - goal_z).pow(2).sum())\n",
+        "    buf = []\n",
+        "    for t in range(int(max_steps)):\n",
+        "        tok = live_mpc(wm, window.unsqueeze(0), goal_z, seed=seed + t)\n",
+        "        nxt = _t.cat([window[1:], _t.tensor([tok])])\n",
+        "        if obs_noise > 0:\n",
+        "            nxt = (nxt + _t.randint(0, int(obs_noise * 10) + 1, nxt.shape)).clamp(\n",
+        "                0, wm.model.token_embedding.weight.shape[0] - 1)\n",
+        "        if adapt:\n",
+        "            buf.append((window, tok, nxt))\n",
+        "            buf = buf[-buffer_size:]\n",
+        "            for p in wm.model.blocks[-1].parameters():\n",
+        "                p.requires_grad_(True)\n",
+        "            params = (list(wm.pred.parameters()) + list(wm.act.parameters()) +\n",
+        "                      list(wm.model.blocks[-1].parameters()))\n",
+        "            opt = _t.optim.AdamW(params, lr=1e-3)\n",
+        "            Xb = _t.stack([b[0] for b in buf])\n",
+        "            Yb = _t.tensor([b[1] for b in buf])\n",
+        "            X2b = _t.stack([b[2] for b in buf])\n",
+        "            loss = _t.nn.functional.mse_loss(\n",
+        "                wm.step(wm.encode(Xb), Yb), wm.encode(X2b).detach())\n",
+        "            opt.zero_grad(set_to_none=True)\n",
+        "            loss.backward()\n",
+        "            opt.step()\n",
+        "        window = nxt\n",
+        "        d = float((wm.encode(window.unsqueeze(0)) - goal_z).pow(2).sum())\n",
+        "        if d < max(d0, 1e-6):\n",
+        "            return True\n",
+        "    return False\n",
+        "\n",
+        "\n",
+        "def run_adajepa(model=None, enc=None, n_episodes=4,\n",
+        "                out_path=\"outputs/adajepa_results.json\", **_):\n",
+        "    \"\"\"s66 runner: frozen vs adapted live-latent JEPA.\"\"\"\n",
+        "    import json as _j66\n",
+        "    import time as _t66\n",
+        "    import copy as _c66\n",
+        "    t0 = _t66.time()\n",
+        "    wm = globals().get(\"WM\")\n",
+        "    adaptive = bool(getattr(wm, \"adaptive\", False))\n",
+        "    m = {\"paper\": \"AdaJEPA: An Adaptive Latent World Model\",\n",
+        "         \"world_model\": \"adajepa\" if adaptive else \"jepa\"}\n",
+        "    if model is None:\n",
+        "        m[\"error\"] = \"live model required\"\n",
+        "        return {\"paper\": m[\"paper\"], \"section\": \"s66\", \"measurements\": m}\n",
+        "    try:\n",
+        "        import torch as _t\n",
+        "        if wm is None:\n",
+        "            raise RuntimeError(\"WorldModel::none selected\")\n",
+        "        ctx = int(getattr(model, \"ctx_len\", 64))\n",
+        "        X, Y, X2 = live_windows(data, ctx=ctx, n=32)\n",
+        "        live_pretrain(wm, X, Y, X2, steps=60)\n",
+        "        arms = {}\n",
+        "        arm_defs = (\n",
+        "            (\"in_dist_frozen\", 0.0, False),\n",
+        "            (\"in_dist_adapt\", 0.0, True),\n",
+        "            (\"noise_frozen\", 0.4, False),\n",
+        "            (\"noise_adapt\", 0.4, True))\n",
+        "        if not adaptive:\n",
+        "            arm_defs = tuple(a for a in arm_defs if not a[2])\n",
+        "        for name, noise, adapt in arm_defs:\n",
+        "            w = _c66.deepcopy(wm)\n",
+        "            succ = []\n",
+        "            for k in range(int(n_episodes)):\n",
+        "                start = X[k % len(X)]\n",
+        "                goal = X2[k % len(X2)]\n",
+        "                succ.append(live_episode(w, start, goal, obs_noise=noise,\n",
+        "                                         adapt=adapt, seed=66 + k))\n",
+        "            arms[name] = {\"success\": sum(succ) / max(1, len(succ)),\n",
+        "                          \"n\": len(succ)}\n",
+        "        m[\"live\"] = {\"arms\": arms, \"episodes\": n_episodes,\n",
+        "                     \"world_model\": \"adajepa\" if adaptive else \"jepa\",\n",
+        "                     \"checkpoint\": \"%s (%d params)\" % (\n",
+        "                         type(model).__name__,\n",
+        "                         sum(p.numel() for p in model.parameters())),\n",
+        "                     \"env\": \"LIVE model token transitions\",\n",
+        "                     \"note\": \"encoder = frozen live blocks; action encoder = \"\n",
+        "                             \"token embedding; predictor = latent MLP; top-k \"\n",
+        "                             \"MPC; one adaptation step per replan\"}\n",
+        "        m[\"anchors\"] = ADAJEPA_PAPER\n",
+        "    except Exception as exc:\n",
+        "        m[\"error\"] = \"%s: %s\" % (type(exc).__name__, exc)\n",
+        "    out = {\"paper\": \"AdaJEPA: An Adaptive Latent World Model \"\n",
+        "                    \"(arXiv:2606.32026)\", \"section\": \"s66\",\n",
+        "           \"provenance\": {\"authors\": \"Wang, Bounou, LeCun, Ren\",\n",
+        "                          \"venue\": \"arXiv:2606.32026v1, 30 Jun 2026\",\n",
+        "                          \"local\": \"LIVE model hidden states as JEPA encoder; \"\n",
+        "                                   \"token transitions; top-k MPC; one-step \"\n",
+        "                                   \"test-time adaptation\",\n",
+        "                          \"data_paper\": \"PushT, PointMaze, PushObj\"},\n",
+        "           \"measurements\": m, \"seconds\": round(_t66.time() - t0, 1)}\n",
+        "    if out_path is not None:\n",
+        "        import pathlib as _p66\n",
+        "        p = _p66.Path(out_path)\n",
+        "        p.parent.mkdir(parents=True, exist_ok=True)\n",
+        "        p.write_text(_j66.dumps(out, indent=2, default=str), encoding=\"utf-8\")\n",
+        "    return out\n",
+        "\n",
+        "\n",
+        "ADAJEPA_PAPER = {\n",
+        "    \"environments\": [\"PushT\", \"PointMaze\", \"PushObj\"],\n",
+        "    \"shifts\": [\"shape\", \"visual\", \"dynamics\", \"layout\"],\n",
+        "    \"planner\": \"MPC/CEM\",\n",
+        "    \"claim\": \"one gradient step per replan improves success under distribution \"\n",
+        "             \"shift; in-distribution performance is preserved\",\n",
+        "}\n",
+        "\n",
+        "\n",
+        "def run_adajepa_paper(model=None, out_path=\"outputs/adajepa_paper_results.json\", **_):\n",
+        "    import json as _j66p\n",
+        "    out = {\"paper\": \"AdaJEPA published anchors\", \"section\": \"s66\",\n",
+        "           \"measurements\": {\"tables\": ADAJEPA_PAPER},\n",
+        "           \"provenance\": \"paper abstract/Table 1; anchors only\",\n",
+        "           \"claim\": ADAJEPA_PAPER[\"claim\"]}\n",
+        "    if out_path is not None:\n",
+        "        import pathlib as _p66p\n",
+        "        p = _p66p.Path(out_path)\n",
+        "        p.parent.mkdir(parents=True, exist_ok=True)\n",
+        "        p.write_text(_j66p.dumps(out, indent=2, default=str), encoding=\"utf-8\")\n",
+        "    return out\n"
+      ]
+    },
+    @Impl::WorldModel::none{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "WM = None\n"
+      ]
+    }
+    }@},
+    @Impl::WorldModel::jepa{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "WM = LiveJEPA(model)\n"
+      ]
+    }
+    }@},
+    @Impl::WorldModel::adajepa{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "WM = LiveJEPA(model)\n",
+        "WM.adaptive = True\n"
+      ]
+    }
+    }@},
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "# ALWAYS-PRESENT s66 wire-in: closed-loop plan-execute-adapt-replan.\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
+        "    'adajepa', run_adajepa, model=model))\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
+        "    'adajepapaper', run_adajepa_paper, model=model))\n\n"
       ]
     },
     {
@@ -3613,7 +3899,7 @@
         "# ALWAYS-PRESENT s44 wire-in: ICL vs FT vs ZSL analysis + momentum A/B.\n",
         "# live_call adapts, runs and plots (iclmeta_prediction / iclmeta_representation /\n",
         "# iclmeta_momentum / iclmeta_dual); it never raises and never edits the model.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'iclmeta', run_icl_meta, model=model))\n"
       ]
     },
@@ -3759,7 +4045,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'dust', run_dust_benchmark, model=model, ids=bench_ids(globals(), 2048)))"
       ]
     },
@@ -3955,7 +4241,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'dust', run_dust_benchmark, model=model, ids=bench_ids(globals(), 2048)))"
       ]
     },
@@ -4438,7 +4724,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'sst', run_sst_benchmark, model=model, ids=bench_ids(globals(), 2048)))"
       ]
     },
@@ -4828,9 +5114,9 @@
         "    _stable_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _stable_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'stable', run_stable, model=model, enc=_stable_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'stablepaper', run_stable_paper, model=model))\n\n"
       ]
     },
@@ -6488,7 +6774,7 @@
         "# never raises. The four backend axes are resolved from the path environment by\n",
         "# run_trc2 itself, so this cell is present on EVERY path and adapts to the\n",
         "# selected HipRead / MoEDispatch / CortexAttn / Numeric arms.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'trc2', run_trc2, model=model))"
       ]
     },
@@ -6903,7 +7189,7 @@
         "# columns/attention/unembedding and the live checkpoint. live_call adapts,\n",
         "# runs and plots (crossprobe_layermix / crossprobe_fas / crossprobe_prior /\n",
         "# crossprobe_adamw); it never raises and never edits the model.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'crossprobe', crossprobe_trc2_matrix, model=model))\n"
       ]
     },
@@ -7670,7 +7956,7 @@
         "# ALWAYS-PRESENT s45 wire-in: text-domain PURGE (Vision::none) or the\n",
         "# SigLIP+LLaVA vision branch (Vision::siglip), with the compiled Unlearn\n",
         "# objective (GA/KL/NPO). live_call adapts, runs, plots, never raises.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'purge', run_purge, model=model))\n",
         "# All seven PURGE benchmarks, wired through bench_external (download-at-run,\n",
         "# fail-soft; CHAIR/Waterbirds SKIP without a vision_model callable).\n",
@@ -7679,10 +7965,10 @@
         "    _purge_enc = enc_for_model(model, globals())\n",
         "except Exception:\n",
         "    _purge_enc = None\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'purgebench', bench_purge_suite, model=model, enc=_purge_enc))\n",
         "# Published anchors: Tables 1-4 of the paper, plotted as printed.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'purgepaper', run_purge_paper, model=model))\n"
       ]
     },
@@ -8065,14 +8351,14 @@
       "source": [
         "# ALWAYS-PRESENT s49 wire-in: COMPOSE Phase I (holistic) + Phase II\n",
         "# (gradient-free Chamfer) on real repo images, plus CGQA anchors.\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'compose', run_compose, model=model))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'composepaper', run_compose_paper, model=model))\n",
         "# CFST/COMPOSE benchmark pipelines: CGQA, COBJ, CIFAR-100, ImageNet-R/A,\n",
         "# miniImageNet, CUB-200 (download-at-run; image metrics need vision_model).\n",
         "from bench_external import bench_compose_suite\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'composebench', bench_compose_suite, model=model))\n"
       ]
     },
@@ -8348,12 +8634,12 @@
       "source": [
         "# ALWAYS-PRESENT s56 wire-in: SeRV tokenizer + hierarchical GPT on the\n",
         "# declared fixture; paper anchors recorded separately.\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'serv', run_serv, model=model))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'servpaper', run_serv_paper, model=model))\n\n",
         "from bench_external import bench_serv_suite\n",
-        "BENCH_RESULTS.append(live_call('servbench', bench_serv_suite))\n"
+        "BENCH_SPECS.append(defer_call('servbench', bench_serv_suite))\n"
       ]
     },
     {
@@ -8742,9 +9028,9 @@
       "outputs": [],
       "source": [
         "# ALWAYS-PRESENT s57 wire-in: count manifold / QK / decision / causal on the LIVE model.\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'manifold', run_manifold, model=model))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'manifoldpaper', run_manifold_paper, model=model))\n\n"
       ]
     },
@@ -8756,7 +9042,7 @@
         "\n",
         "**Paper in one paragraph.** MoE-enhanced dense retrievers route queries/documents through specialized experts and fuse them by a gating-weighted sum `y = Σ f_i(x)·g_i(x)`. Their high-dimensional embeddings make feature-level attributions insufficient, so **ExpertLens** provides representation-level post-hoc explainability in three phases: **(I)** discriminative **DeepView** projections of the MoE-induced embedding space (Fisher-metric DiDi / UMAP), **(II)** analysis of expert-induced **subspaces** and specialization, and **(III)** automatically extracted **Concept Activation Vectors** mapped to experts. Evaluated on five IR benchmarks — MSMARCO, TREC DL 19, TREC DL 20, NQ, HotpotQA — with **SB-MoE** (unsupervised noisy Top-1 gate) and **DenseC3** (Cognitive-Complexity-supervised gate) over TinyBERT/BERT-Small/BERT-Base/ColBERT backbones.\n",
         "\n",
-        "**What runs here (real MoE + generic backbone).** `MoERetriever` holds six `MoEExpert` MLPs and a gate; `MoE::dense` is the no-MoE baseline, `sbmoe` is a learned soft gate, and `densec3` adds a six-way Cognitive-Complexity head to the gate. `expertlens_embed` reads mean last-block states from **any live compiled model** (dense or MoE, any attention impl), so the framework applies to the whole notebook. `deepview_project` is a Fisher-weighted discriminative projection with a `TSNE`/PCA embedding; `expertlens_retrieval` reports Recall@1/5 and MRR; `expertlens_cav` fits the binary-relevance Concept Activation Vector and the runner maps it to the routed expert subspace.\n",
+        "**What runs here (real MoE + generic backbone).** The MoE layer is the single `MoEFFN` installed in every block by the MoE axis; `MoE::dense` is the no-MoE baseline, `sbmoe` is a learned soft gate, and `densec3` adds a six-way Cognitive-Complexity head to the gate. `expertlens_embed_routes` reads last-block states and trained gate weights from **any live compiled model** (dense or MoE, any attention impl), so the framework applies to the whole notebook. `deepview_project` is a Fisher-weighted discriminative projection with a `TSNE`/PCA embedding; `expertlens_retrieval` reports Recall@1/5 and MRR; `expertlens_cav` fits the binary-relevance Concept Activation Vector and the runner maps it to the routed expert subspace.\n",
         "\n",
         "**Axes.** `MoE::[dense, sbmoe, densec3]` and `Explain::[none, expertlens]` are compiled; each is gated by its own `@Impl`. `Explain::none` skips the analysis while keeping the same model path.\n",
         "\n",
@@ -8839,70 +9125,6 @@
         "#   Phase III concept activation vectors (CAVs) and expert attribution\n",
         "# Axes: MoE::[dense, sbmoe, densec3], Explain::[none, expertlens].\n",
         "import math as _m64\n",
-        "\n",
-        "\n",
-        "class MoEExpert(nn.Module):\n",
-        "    def __init__(self, dim, hidden=None):\n",
-        "        super().__init__()\n",
-        "        hidden = hidden or 2 * dim\n",
-        "        self.net = nn.Sequential(nn.Linear(dim, hidden), nn.GELU(),\n",
-        "                                 nn.Linear(hidden, dim))\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        return self.net(x)\n",
-        "\n",
-        "\n",
-        "class MoERetriever(nn.Module):\n",
-        "    \"\"\"SB-MoE (learned gate) or DenseC3 (complexity-conditioned gate).\"\"\"\n",
-        "\n",
-        "    def __init__(self, dim, experts=6, mode=\"sbmoe\"):\n",
-        "        super().__init__()\n",
-        "        self.mode = mode\n",
-        "        self.dim = dim\n",
-        "        self.experts = nn.ModuleList([MoEExpert(dim) for _ in range(experts)])\n",
-        "        self.gate = nn.Linear(dim, experts)\n",
-        "        self.complexity = nn.Linear(dim, 6) if mode == \"densec3\" else None\n",
-        "\n",
-        "    def forward(self, x):\n",
-        "        if self.mode == \"dense\":\n",
-        "            return x, None\n",
-        "        logits = self.gate(x)\n",
-        "        if self.complexity is not None:\n",
-        "            logits = logits + self.complexity(x)\n",
-        "        w = torch.softmax(logits, -1)\n",
-        "        ys = torch.stack([e(x) for e in self.experts], 1)  # [B,E,D]\n",
-        "        return (w.unsqueeze(-1) * ys).sum(1), w\n",
-        "\n",
-        "\n",
-        "def expertlens_embed(model, enc, texts, ctx=64):\n",
-        "    \"\"\"Mean last-block hidden state for each text (any live architecture).\"\"\"\n",
-        "    import torch as _t\n",
-        "    feats = {}\n",
-        "\n",
-        "    def _hook(mod, inp, out, _i):\n",
-        "        feats[_i] = (out[0] if isinstance(out, tuple) else out).detach()\n",
-        "\n",
-        "    blocks = list(getattr(model, \"blocks\", []))\n",
-        "    hooks = [b.register_forward_hook(\n",
-        "        lambda m, i, o, _i=k: _hook(m, i, o, _i)) for k, b in enumerate(blocks)]\n",
-        "    out = []\n",
-        "    model.eval()\n",
-        "    with _t.no_grad():\n",
-        "        for txt in texts:\n",
-        "            ids = enc.encode(str(txt))[:int(ctx)]\n",
-        "            if len(ids) < 2:\n",
-        "                out.append(_t.zeros(model.token_embedding.weight.shape[1]))\n",
-        "                continue\n",
-        "            model(_t.tensor([ids], device=next(model.parameters()).device))\n",
-        "            if feats:\n",
-        "                last = max(feats)\n",
-        "                out.append(feats[last][0].mean(0).float().cpu())\n",
-        "            else:\n",
-        "                out.append(model.token_embedding.weight[\n",
-        "                    _t.tensor(ids, device=model.token_embedding.weight.device)].mean(0).float().cpu())\n",
-        "    for h in hooks:\n",
-        "        h.remove()\n",
-        "    return _t.stack(out)\n",
         "\n",
         "\n",
         "def expertlens_embed_routes(model, enc, texts, ctx=64):\n",
@@ -9140,12 +9362,12 @@
         "    _el_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _el_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'expertlens', run_expertlens, model=model, enc=_el_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'expertlenspaper', run_expertlens_paper, model=model))\n\n",
         "from bench_external import bench_expertlens_suite\n\n",
-        "BENCH_RESULTS.append(live_call('expertlensbench', bench_expertlens_suite, model=model, enc=_el_enc))\n"
+        "BENCH_SPECS.append(defer_call('expertlensbench', bench_expertlens_suite, model=model, enc=_el_enc))\n"
       ]
     },
     {
@@ -9604,7 +9826,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'layermix', run_layermix_live, ns=globals(),\n",
         "    model=model, pairs_fn=lambda: bench_pairs_fn(globals())))\n"
       ]
@@ -10459,7 +10681,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'attention', run_attention_pipeline, ns=globals(),\n",
         "    make_model=lambda: model, ids=bench_ids(globals()),\n",
         "    int_to_token=globals().get('int_to_token')))\n"
@@ -10487,7 +10709,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'bert', run_bert_pipeline, ns=globals(),\n",
         "    model=model, ids=bench_ids(globals())))\n"
       ]
@@ -13663,7 +13885,7 @@
         "# FAS adds no axis and no gate, so this cell is present on EVERY path; on a path\n",
         "# whose attention has no capturable softmax weights Leg B skips with a reason and\n",
         "# Leg A (the kernel math) still runs.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'fas', run_fas, model=model))\n"
       ]
     },
@@ -13965,9 +14187,9 @@
         "    _attr_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _attr_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'attrrobust', run_attr_robust, model=model, enc=_attr_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'attrrobustpaper', run_attr_robust_paper, model=model))\n\n"
       ]
     },
@@ -14377,7 +14599,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'saber', run_saber_live, ns=globals(),\n",
         "    model=model, encode_fn=encode, decode_fn=decode,\n",
         "    tasks=bench_tasks(globals())))\n"
@@ -14727,9 +14949,9 @@
         "    _rt_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _rt_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'realtime', run_realtime_bench, model=model, enc=_rt_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'realtimepaper', run_realtime_paper, model=model))\n\n"
       ]
     },
@@ -15012,9 +15234,9 @@
       "outputs": [],
       "source": [
         "# ALWAYS-PRESENT s51 wire-in: RADAR repair/adopt/diagnose on the LIVE model.\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'radar', run_radar, model=model))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'radarpaper', run_radar_paper, model=model))\n\n"
       ]
     },
@@ -15375,9 +15597,9 @@
         "    _gut_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _gut_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'gut', run_gut, model=model, enc=_gut_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'gutpaper', run_gut_paper, model=model))\n\n"
       ]
     },
@@ -15932,7 +16154,7 @@
       "outputs": [],
       "source": [
         "_nd, _dd, _qq = bench_niah(globals())\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'convmem', run_convmem_live, ns=globals(),\n",
         "    needles=_nd, distractors=_dd, queries=_qq, W=40, S=16))\n"
       ]
@@ -16226,7 +16448,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'grokking', run_grokking_live, ns=globals(),\n",
         "    make_model_fn=lambda: model, steps=200))\n"
       ]
@@ -16283,9 +16505,11 @@
         "",
         "**WIRED (s63 OCGQuant, arXiv:2609.00066).** `Quant::[none, roleq, ocg, rtn, quarot, mrgptq, arcquant]` is a compiled axis (7 techniques): `ocg` is this paper’s path, `rtn/quarot/mrgptq/arcquant` are the NVFP4 baselines as real impls, `none` is FP16, `roleq` is RoleQ. Real NVFP4 quantizer: FP4-E2M1 grid, per-16 FP8-E4M3 block scale, tensor FP32 scale, dequantized weights/activations. `ocg_permutation` implements RMS ranking, outlier + G−1 low-RMS companions with the adaptive margin stop and remainder order; `ocg_calibrate` hooks every Linear to collect channel RMS; `ocg_quantize_model` builds reordered `NVFP4Linear`s (weight reorder + online activation quantization). Baselines are real: `RotatedLinear` for **QuaRot** (global Hadamard) and **MR-GPTQ** (block-wise Hadamard), and `ARCQuantLinear` for **ARCQuant** (top outlier channels kept as an FP16 residual). `run_ocgquant` reports FP16/RTN/QuaRot/MR-GPTQ/ARCQuant/OCG perplexity; `ocgbench` wires ARC-Easy, ARC-Challenge, BoolQ, HellaSwag, LAMBADA, PIQA, MMLU and GSM8K; `ocgquantpaper` records the Llama3/Qwen3, WikiText-2/downstream, baseline table. STACK: RoleQ/Coupled Quantization; ALTERNATIVE at the quantization site.",
         "",
-        "**WIRED (s64 ExpertLens, arXiv:2609.06155).** `MoE::[dense, sbmoe, densec3]` and `Explain::[none, expertlens]` are compiled axes with gated impls. `MoERetriever` has six MLP experts and a gate; `sbmoe` is a learned soft gate, `densec3` adds the six-way Cognitive-Complexity head, `dense` is the no-MoE baseline. `expertlens_embed` reads any live model’s last-block states (works for dense/attention variants and falls back to token embeddings if no blocks), so Phase I–III apply across the notebook. Phase I is a Fisher-weighted DeepView proxy; Phase II reports routing counts and Recall@1/5/MRR; Phase III fits a binary-relevance CAV and maps it to the routed subspaces. The MoE gate is trained with a load-balancing + entropy term so it does not collapse to one expert. `expertlensbench` wires MSMARCO/TREC DL 19-20/NQ/HotpotQA through `bench_external` (queries + qrels + sampled corpus, nDCG@10/MRR/Recall@10, fail-soft). `expertlenspaper` records the published benchmark/backbone grid. STACK: s57 geometry, s43 probes; ALTERNATIVE at the MoE site.",
+        "**WIRED (s64 ExpertLens, arXiv:2609.06155).** `MoE::[dense, sbmoe, densec3]` and `Explain::[none, expertlens]` are compiled axes with gated impls. The MoE layer is the single `MoEFFN`; `sbmoe` is a learned soft gate, `densec3` adds the six-way Cognitive-Complexity head, `dense` is the no-MoE baseline. `expertlens_embed` reads any live model’s last-block states (works for dense/attention variants and falls back to token embeddings if no blocks), so Phase I–III apply across the notebook. Phase I is a Fisher-weighted DeepView proxy; Phase II reports routing counts and Recall@1/5/MRR; Phase III fits a binary-relevance CAV and maps it to the routed subspaces. The MoE gate is trained with a load-balancing + entropy term so it does not collapse to one expert. `expertlensbench` wires MSMARCO/TREC DL 19-20/NQ/HotpotQA through `bench_external` (queries + qrels + sampled corpus, nDCG@10/MRR/Recall@10, fail-soft). `expertlenspaper` records the published benchmark/backbone grid. STACK: s57 geometry, s43 probes; ALTERNATIVE at the MoE site.",
         "",
         "**WIRED (s65 Tokenformer, arXiv:2410.23168).** `Pattn::[linear, pattention]` is a compiled architecture axis with gated install cells **before s9**, so the Pattention model is trained end-to-end. `Pattention` implements `Θ(I K_P^T)V_P` with `Θ=L2norm+GELU` and learnable key/value parameter tokens; `install_pattention` replaces **every `nn.Linear`** (attention q/k/v/proj, MLP, head) in the live model; `expand_pattention` adds key/value tokens at every site without changing channels. `run_tokenformer` reports parameter count, base/expanded perplexity and layers expanded; `tokenformerpaper` records the 124M–1.4B and benchmark anchors. STACK: Scale::gpt2_124m; ALTERNATIVE to LoRA/SST parameter-efficient updates.",
+        "",
+        "**WIRED (s66 AdaJEPA, arXiv:2606.32026).** `WorldModel::[none, jepa, adajepa]` is a compiled architecture axis. `LiveJEPA` uses the **live model’s own hidden states** as the observation encoder, its token embedding as the action encoder, and a latent MLP predictor. `live_pretrain` trains on real token transitions; `live_mpc` scores top-k next tokens by predicted latent distance; `live_episode` runs plan→execute→append→adapt→replan with one self-supervised step on predictor/action encoder + last block. `run_adajepa` compares frozen vs adapted arms on real text and token noise; `adajepapaper` records PushT/PointMaze/PushObj. STACK: GOLeMM/CMM world models; ALTERNATIVE to reward-based RL.",
         "",
         "**WIRED (s37 LRT, arXiv:2610.21182).** The section already implements the paper's three tests on a latent-slot clone (chain deletion, noise/mean/donor replacement, slot×layer linear probes against permuted-label nulls, trajectory settling plus the mid-chain twin edit, and the six-type taxonomy). `lchbench` now wires the real item pools — ProsQA, PrOntoQA and GSM8K — through `bench_external.py`: download-at-run, fail-soft, and the live model is called on every item with candidate-restricted accuracy. The paper's 21 model-task cells (COCONUT/CODI/SIM-COT × GPT-2/Llama) and its taxonomy are anchors; the live latent-slot clone is the local analogue.",
         "",
@@ -16335,6 +16559,7 @@
         "| 2609.00066 | OCGQuant NVFP4 outlier-companion grouping | Quant::[none, roleq, ocg, rtn, quarot, mrgptq, arcquant], ocgquant, ocgbench, ocgquantpaper | ocgquant_ppl, ocgbench_accuracy, ocgquantpaper_anchors | live NVFP4 + 5 quant impls + seven downstream benchmarks |\n",
         "| 2609.06155 | ExpertLens MoE retriever explainability | MoE::[dense, sbmoe, densec3], Explain::[none, expertlens], expertlens, expertlensbench, expertlenspaper | expertlens_retrieval, expertlensbench_ndcg, expertlenspaper_anchors | live MoE retriever + DeepView/expert-subspace/CAV + five IR adapters |\n",
         "| 2410.23168 | Tokenformer tokenized parameters / Pattention | Pattn::[linear, pattention], tokenformer, tokenformerbench, tokenformerpaper | tokenformer_ppl, tokenformerbench_ppl, tokenformerpaper_anchors | all-linear Pattention + token expansion + WikiText/C4/OWT/Pile/EnWik8/ImageNet pipelines |\n",
+        "| 2606.32026 | AdaJEPA adaptive latent world model | WorldModel::[none, jepa, adajepa], adajepa, adajepapaper | adajepa_success, adajepapaper_anchors | live hidden-state JEPA + token-transition MPC + one-step test-time adaptation |\n",
         "| 1810.04805 | BERT | bert | bert_eq3_lr, bert_table3_heads, bert_table3_depth | 9 PNGs + metrics.json |\n",
         "| 2608.28930 | LayerMix | layermix | layermix_auroc_layers, layermix_agg | 23 PNGs + metrics.json |\n",
         "| 2608.27963 | SABER | saber | saber_exit | 13 PNGs + metrics.json |\n",
@@ -16506,7 +16731,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'rilm', run_rilm_live, ns=globals(),\n",
         "    make_model_fn=lambda: model, get_batch_fn=get_batch, steps=50))\n"
       ]
@@ -16924,7 +17149,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'wrp', run_wrp_benchmark, model=model, get_batch_fn=get_batch))"
       ]
     },
@@ -17334,7 +17559,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'tasco', run_tasco_benchmark, model=model, tasks=bench_tasks(globals()),\n",
         "    variant='rp', epochs=1))"
       ]
@@ -17678,7 +17903,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'ignorance', run_ignorance_live, ns=globals(),\n",
         "    model=model, text=text, encode=encode))\n"
       ]
@@ -18817,7 +19042,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'sharedcircuits', run_sharedcircuits_benchmark,\n",
         "    make_model_fn=lambda: model, n_train=90, n_eval=40))"
       ]
@@ -19602,7 +19827,7 @@
       "outputs": [],
       "source": [
         "_t25 = globals().get('text', '')\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'implicitpatch', run_implicitpatch_benchmark,\n",
         "    make_model_fn=lambda: model, context_text=_t25[:600],\n",
         "    query_text=_t25[600:700]))"
@@ -19952,7 +20177,7 @@
       "outputs": [],
       "source": [
         "_ids26 = bench_ids(globals(), 256)\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'lbi', run_lbi_benchmark, make_model_fn=lambda: model,\n",
         "    ids=_ids26, target_id=_ids26[-1]))"
       ]
@@ -20212,7 +20437,7 @@
         "# One model compiles per run; the runner measures the path that exists and\n",
         "# records the other interface as a cross-path run (no fake gap).\n",
         "_ids26b = bench_ids(globals(), 256)\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'lbi_interface', run_lbi_interface_benchmark,\n",
         "    make_model=lambda: model,\n",
         "    ids=_ids26b, target_id=_ids26b[-1]))"
@@ -21549,7 +21774,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'kvcache', run_kvcache_benchmark, make_model=lambda: model,\n",
         "    ids=bench_ids(globals(), 128), budget=32))"
       ]
@@ -21757,7 +21982,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'mmlu', run_mmlu_live, ns=globals(), model=model, enc=enc_ext, n=250, k_shot=5))\n"
       ]
     },
@@ -21767,7 +21992,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'gsm8k', run_gsm8k_live, ns=globals(), model=model, enc=enc_ext, n=100))\n"
       ]
     },
@@ -21777,7 +22002,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'mbpp', run_mbpp_live, ns=globals(), model=model, enc=enc_ext, n=200))\n"
       ]
     },
@@ -21787,7 +22012,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'truthfulqa', run_truthfulqa_live, ns=globals(), model=model, enc=enc_ext))\n"
       ]
     },
@@ -21797,7 +22022,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'halieval', run_halieval_live, ns=globals(), model=model, enc=enc_ext, n=1000))\n"
       ]
     },
@@ -21807,7 +22032,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'faithdial', run_faithdial_live, ns=globals(), model=model, enc=enc_ext, n=1000))\n"
       ]
     },
@@ -21817,7 +22042,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'olympiad', run_olympiad_live, ns=globals(), model=model, enc=enc_ext, n=200))\n"
       ]
     },
@@ -21827,7 +22052,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'ruler', run_ruler_live, ns=globals(), model=model, enc=enc_ext,\n",
         "    ctx_lens=(512, 1024, 2048, 8192, 16384, 32768, 65536, 131072), n_per_len=5, text=_ext_text))\n"
       ]
@@ -22107,7 +22332,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'keepkv', run_keepkv_benchmark, make_model=lambda: model,\n",
         "    ids=bench_ids(globals(), 128), budget=32))"
       ]
@@ -22470,7 +22695,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'cq', run_cq_benchmark, make_model=lambda: model, ids=bench_ids(globals(), 128)))"
       ]
     },
@@ -22921,9 +23146,9 @@
       "source": [
         "# ALWAYS-PRESENT s53 wire-in: RoleQ ternary conversion of a deep copy of\n",
         "# the LIVE model, plus the per-OC baseline and the paper anchors.\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'roleq', run_roleq, model=model))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'roleqpaper', run_roleq_paper, model=model))\n\n"
       ]
     },
@@ -23294,16 +23519,16 @@
       "outputs": [],
       "source": [
         "# ALWAYS-PRESENT s63 wire-in: NVFP4 + OCG vs RTN on the LIVE model.\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'ocgquant', run_ocgquant, model=model))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'ocgquantpaper', run_ocgquant_paper, model=model))\n\n",
         "from bench_external import bench_ocg_suite, enc_for_model\n\n",
         "try:\n\n",
         "    _ocg_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _ocg_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call('ocgbench', bench_ocg_suite, model=model, enc=_ocg_enc))\n"
+        "BENCH_SPECS.append(defer_call('ocgbench', bench_ocg_suite, model=model, enc=_ocg_enc))\n"
       ]
     },
     {
@@ -23518,7 +23743,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'epicache', run_epicache_benchmark, make_model=lambda: model,\n",
         "    ids=bench_ids(globals(), 128), budget=16))"
       ]
@@ -24301,7 +24526,7 @@
         "# this point, immediately after the epicache live cell in the KV-cache cluster.\n",
         "# Same invocation pattern as the spindlekv/keepkv/cq/epicache live cells;\n",
         "# live_call adapts, runs, plots, never raises.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'zha', run_zha_benchmark, make_model=lambda: model,\n",
         "    ids=bench_ids(globals(), 128), C=4, R=4, p=0.9, seed=40))\n"
       ]
@@ -25381,7 +25606,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'loop', run_loop_benchmark, make_model=lambda: model, ids=bench_ids(globals(), 128),\n",
         "    K=3, width=4, strategy='blockanchored'))"
       ]
@@ -25891,9 +26116,9 @@
       "source": [
         "# ALWAYS-PRESENT s47 wire-in: the compiled Recurrent impl (ctm/cmm) is\n",
         "# trained on the algorithmic suite; published anchors are recorded separately.\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'cmm', run_cmm_bench, model=model))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'cmmpaper', run_cmm_paper, model=model))\n\n"
       ]
     },
@@ -26308,12 +26533,12 @@
         "    _dlmr_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _dlmr_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'dlmr', run_dlmr, model=model, enc=_dlmr_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'dlmrpaper', run_dlmr_paper, model=model))\n\n",
         "from bench_external import bench_dlmr_suite\n\n",
-        "BENCH_RESULTS.append(live_call('dlmrbench', bench_dlmr_suite))\n"
+        "BENCH_SPECS.append(defer_call('dlmrbench', bench_dlmr_suite))\n"
       ]
     },
     {
@@ -26734,9 +26959,9 @@
       "outputs": [],
       "source": [
         "# ALWAYS-PRESENT s50 wire-in: compiled MARL algorithm axis and paper anchor.\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'marl', run_marl, model=model))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'marlpaper', run_marl_paper, model=model))\n\n"
       ]
     },
@@ -26776,7 +27001,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'mmlu', run_mmlu_live, ns=globals(), model=model, enc=enc_ext, n=250, k_shot=5))\n"
       ]
     },
@@ -26786,7 +27011,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'gsm8k', run_gsm8k_live, ns=globals(), model=model, enc=enc_ext, n=100))\n"
       ]
     },
@@ -26796,7 +27021,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'mbpp', run_mbpp_live, ns=globals(), model=model, enc=enc_ext, n=200))\n"
       ]
     },
@@ -26806,7 +27031,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'truthfulqa', run_truthfulqa_live, ns=globals(), model=model, enc=enc_ext))\n"
       ]
     },
@@ -26816,7 +27041,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'halieval', run_halieval_live, ns=globals(), model=model, enc=enc_ext, n=1000))\n"
       ]
     },
@@ -26826,7 +27051,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'faithdial', run_faithdial_live, ns=globals(), model=model, enc=enc_ext, n=1000))\n"
       ]
     },
@@ -26836,7 +27061,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'olympiad', run_olympiad_live, ns=globals(), model=model, enc=enc_ext, n=200))\n"
       ]
     },
@@ -26846,7 +27071,7 @@
       "metadata": {},
       "outputs": [],
       "source": [
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'ruler', run_ruler_live, ns=globals(), model=model, enc=enc_ext,\n",
         "    ctx_lens=(512, 1024, 2048, 8192, 16384, 32768, 65536, 131072), n_per_len=5, text=_ext_text))\n"
       ]
@@ -27592,7 +27817,7 @@
         "# ALWAYS-PRESENT s35 wire-in: runs on whatever compiled path is live at the end of the notebook.\n",
         "# Same invocation pattern as the sst live cell; live_call adapts, runs, plots (stems\n",
         "# mehri_prelinearity / mehri_generalization via the pipeline branch), never raises.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'mehri', run_mehri, model=model))\n",
         "# Paper relation artifacts: 70 relations from the supplementary repo,\n",
         "# downloaded at run time and scored with candidate-restricted recall.\n",
@@ -27601,7 +27826,7 @@
         "    _mehri_enc = enc_for_model(model, globals())\n",
         "except Exception:\n",
         "    _mehri_enc = None\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'mehribench', bench_mehri_suite, model=model, enc=_mehri_enc))\n"
       ]
     },
@@ -28277,7 +28502,7 @@
         "# ALWAYS-PRESENT s36 wire-in: runs on whatever compiled path is live at the end of the notebook.\n",
         "# Same invocation pattern as the sst/mehri live cells; live_call adapts, runs, plots\n",
         "# (stems rshd_funnel / rshd_success / rshd_allfail via the pipeline branch), never raises.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'rshd', run_rshd, model=model))\n",
         "# Paper Table 1 benchmarks: MATH-500, GPQA-Diamond, TheoremQA, MMLU-Pro.\n",
         "from bench_external import bench_rshd_suite, enc_for_model\n",
@@ -28285,7 +28510,7 @@
         "    _rshd_enc = enc_for_model(model, globals())\n",
         "except Exception:\n",
         "    _rshd_enc = None\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'rshdbench', bench_rshd_suite, model=model, enc=_rshd_enc))\n"
       ]
     },
@@ -28645,14 +28870,14 @@
         "    _sif_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _sif_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'sif', run_sif, model=model, enc=_sif_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'sifpaper', run_sif_paper, model=model))\n",
         "# The paper's 12 reasoning benchmarks, wired through bench_external:\n",
         "# download-at-run, fail-soft, and the LIVE model is called on every row.\n",
         "from bench_external import bench_sif_suite\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'sifbench', bench_sif_suite, model=model, enc=_sif_enc))\n"
       ]
     },
@@ -29609,7 +29834,7 @@
         "# ALWAYS-PRESENT s37 wire-in: runs on whatever compiled path is live at the end of the notebook.\n",
         "# Same invocation pattern as the sst/mehri/rshd live cells; live_call adapts, runs, plots\n",
         "# (stems lch_use / lch_probe / lch_dynamics / lch_census via the pipeline branch), never raises.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'lch', run_lch, model=model))\n",
         "# Real item pools: ProsQA, PrOntoQA and GSM8K (download-at-run, fail-soft).\n",
         "from bench_external import bench_lch_suite, enc_for_model\n",
@@ -29617,7 +29842,7 @@
         "    _lch_enc = enc_for_model(model, globals())\n",
         "except Exception:\n",
         "    _lch_enc = None\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'lchbench', bench_lch_suite, model=model, enc=_lch_enc))\n"
       ]
     },
@@ -30262,7 +30487,7 @@
         "# ALWAYS-PRESENT s38 wire-in: runs on whatever compiled path is live at the end of the notebook.\n",
         "# Same invocation pattern as the sst/mehri/rshd/lch live cells; live_call adapts, runs, plots\n",
         "# (stems etc_dose / etc_trace / etc_remedy / etc_stage via the pipeline branch), never raises.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'etc', run_etc, model=model))\n"
       ]
     },
@@ -30681,7 +30906,7 @@
         "# ALWAYS-PRESENT s36-ext wire-in: the RL algorithm suite (RLOO / GRPO / GRPO-KL / REINFORCE).\n",
         "# Same invocation pattern as the other live cells; live_call adapts, runs, plots\n",
         "# (stems grl_reward / grl_degen / grl_drift / grl_cost via the pipeline branch), never raises.\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'grl', run_grl, model=model))\n"
       ]
     },
@@ -30714,17 +30939,17 @@
         "# data/external), fail-soft to SKIP-with-reason; never faked numbers.\n",
         "from nanogpt_pipeline import (run_imppres_live, run_nope_live, run_ludwig_live,\n",
         "                             run_figqa_live, run_circa_live, run_pub_live)\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'imppres', run_imppres_live, ns=globals(), model=model, enc=enc_ext, n=240))\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'nope', run_nope_live, ns=globals(), model=model, enc=enc_ext, n=400))\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'ludwig', run_ludwig_live, ns=globals(), model=model, enc=enc_ext, n=718))\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'figqa', run_figqa_live, ns=globals(), model=model, enc=enc_ext, n=1146))\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'circa', run_circa_live, ns=globals(), model=model, enc=enc_ext, n=1000))\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'pub', run_pub_live, ns=globals(), model=model, enc=enc_ext, n=400))\n"
       ]
     },
@@ -31455,13 +31680,13 @@
         "# the end of the notebook. Same invocation pattern as the sst/mehri/rshd/lch/\n",
         "# etc/grl/prag live cells; live_call adapts, runs, plots, never raises.\n",
         "from nanogpt_pipeline import run_dnst_live\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'dnst', run_dnst_live, model=model, enc=enc_ext, n=60))\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'egdr', run_dnsteg, model=model, enc=enc_ext, n=60))\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'dnsgap', run_dnsgap, model=model, enc=enc_ext))\n",
-        "BENCH_RESULTS.append(live_call(\n",
+        "BENCH_SPECS.append(defer_call(\n",
         "    'dnssynth', run_dnstsynth, model=model, enc=enc_ext))\n"
       ]
     },
@@ -31658,11 +31883,11 @@
         "    _hidden_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _hidden_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'hiddenbelief', run_hiddenbelief, model=model, enc=_hidden_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'hiddenbeliefbench', bench_hidden_suite, model=model, enc=_hidden_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'hiddenbeliefpaper', run_hiddenbelief_paper, model=model))\n\n"
       ]
     },
@@ -31828,10 +32053,30 @@
         "    _aware_enc = enc_for_model(model, globals())\n\n",
         "except Exception:\n\n",
         "    _aware_enc = None\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'awareness', run_awareness, model=model, enc=_aware_enc))\n\n",
-        "BENCH_RESULTS.append(live_call(\n\n",
+        "BENCH_SPECS.append(defer_call(\n\n",
         "    'awarenesspaper', run_awareness_paper, model=model))\n\n"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "metadata": {},
+      "source": [
+        "## 67. Central benchmark manifest\n",
+        "\n",
+        "Every section registers a benchmark spec during path execution; this final\n",
+        "cell runs them once, after the model and all path-specific state are final.\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "for _name, _fn, _kw in BENCH_SPECS:\n",
+        "    BENCH_RESULTS.append(live_call(_name, _fn, **_kw))\n"
       ]
     }
   ],
