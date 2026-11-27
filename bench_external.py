@@ -3200,3 +3200,72 @@ def bench_tokenformer_suite(model, enc, vision_model=None, names=None):
                        "lm": ["WikiText-2", "C4", "OpenWebText", "Pile",
                               "EnWik8"],
                        "vision": "ImageNet-1K"}}
+
+# ---------------------------------------------------------------------------
+# TASK memory (arXiv:2611.34762): CounterFact, zsRE, MQuAKE edit items.
+# Each item yields {subject, question, answer_new, answer_old, relation}.
+# ---------------------------------------------------------------------------
+
+_TASK_SOURCES = {
+    "counterfact": [("azhx/counterfact", None, "train"),
+                    ("EleutherAI/counterfact", None, "train")],
+    "zsre": [("pminervini/zsre", None, "train"),
+             ("Osumi/zsre", None, "train")],
+    "mquake": [("sen90/MQuAKE", None, "train"),
+               ("MQuAKE/MQuAKE", None, "train")],
+}
+
+
+def _nested(r, *keys):
+    for k in keys:
+        if isinstance(r, dict) and k in r:
+            return r[k]
+    return None
+
+
+def load_task_items(name="counterfact", n=16, seed=0):
+    last = None
+    for repo, config, split in _TASK_SOURCES[name]:
+        try:
+            rows = _hf_stream(repo, config, split, n=max(32, int(n) * 4))
+            rng = random.Random(seed)
+            rng.shuffle(rows)
+            out = []
+            for r in rows:
+                rw = r.get("requested_rewrite") if isinstance(r, dict) else None
+                src = rw if isinstance(rw, dict) else r
+                q = _first_key(src, ["question", "prompt", "query", "text"])
+                subj = _first_key(src, ["subject", "subj"])
+                new = _first_key(src, ["target_new", "new_answer", "answer",
+                                       "target", "obj"])
+                old = _first_key(src, ["target_true", "old_answer", "alt",
+                                       "ground_truth"])
+                if isinstance(new, dict):
+                    new = new.get("str") or new.get("text")
+                if isinstance(old, dict):
+                    old = old.get("str") or old.get("text")
+                if q is None or subj is None or new is None:
+                    continue
+                out.append({"q": str(q), "subject": str(subj),
+                            "new": str(new), "old": None if old is None else str(old),
+                            "dataset": name})
+                if len(out) >= int(n):
+                    break
+            if out:
+                return out, "%s/%s %s" % (repo, config or "-", split)
+        except Exception as e:  # noqa: BLE001
+            last = e
+    return None, str(last)[:240]
+
+
+def bench_task_suite(model, enc, n=12, seed=0):
+    out = {}
+    for name in _TASK_SOURCES:
+        items, prov = load_task_items(name, n=n, seed=seed)
+        out[name] = {"status": "ok" if items else "skip",
+                     "n": 0 if items is None else len(items),
+                     "provenance": prov}
+    return {"suite": "TASK memory edit benchmarks", "results": out,
+            "anchor": {"models": ["Qwen3-8B/14B", "Llama-3.1-8B", "Phi-4",
+                                  "Gemma-3-27B"],
+                       "benchmarks": ["CounterFact", "zsRE", "MQuAKE"]}}

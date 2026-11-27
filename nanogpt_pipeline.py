@@ -1611,6 +1611,34 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "taskmemory":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        vals = [finite(live.get(k)) for k in
+                ("text_accuracy", "task_accuracy", "neighbour_misuse")]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(5.4, 3.2))
+            ax.bar([0, 1, 2], [v if v is not None else 0 for v in vals],
+                   color=["#999999", "#55a868", "#c44e52"], width=0.5)
+            ax.set_xticks([0, 1, 2], ["text", "TASK", "neighbour misuse"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("rate")
+            ax.set_title("s67 TASK memory: address-gated T+E+S")
+            paths.append(_save_fig(fig, f"{name}_rates"))
+
+    if name == "taskmemorypaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.2, 2.8))
+            ax.axis("off")
+            txt = "models: %s\nbenchmarks: %s" % (
+                ", ".join(tables.get("models", [])),
+                ", ".join(tables.get("benchmarks", [])))
+            ax.text(0.01, 0.5, txt, fontsize=7, va="center")
+            ax.set_title("s67 TASK memory paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "adajepa":
         arms = measurements.get("live", {}).get("arms") if isinstance(
             measurements, dict) else None
