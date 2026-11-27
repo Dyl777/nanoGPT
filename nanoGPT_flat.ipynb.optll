@@ -13,9 +13,9 @@
 @Technique::MARL::[cql, iql, golemm]
 @Technique::Quant::[none, roleq, ocg, rtn, quarot, mrgptq, arcquant]
 @Technique::Gate::[em, bits, kl]
-@Technique::Vocab::[char64, word1k, word10k, word20k, word40k, word50k, gpt2bpe]
-@Technique::Scale::[tiny64, small256, faithful512, gpt2_124m]
-@Technique::Context::[ctx64, ctx256, ctx512, ctx1024, ctx2048, ctx8192, ctx16384, ctx32768, ctx65536, ctx131072, ctx262144, ctx524288, ctx896000]
+@Technique::Vocab::[gpt2bpe, char64, word1k, word10k, word20k, word40k, word50k]
+@Technique::Scale::[gpt2_124m, tiny64, small256, faithful512]
+@Technique::Context::[ctx1024, ctx64, ctx256, ctx512, ctx2048, ctx8192, ctx16384, ctx32768, ctx65536, ctx131072, ctx262144, ctx524288, ctx896000]
 @Technique::Interface::[dense, bounded]
 @Technique::KVCacheEvict::[none, h2o, snapkv, nacl, infinipot, hashevict, morphkv, rocketkv, kvzip, adakv, spindlepyr, episodic, zha]
 @Technique::KVCacheCompress::[none, kivi, kvquant, minicache, palu, spindlecodebook, keepkv, coupledquant]
@@ -14865,7 +14865,7 @@
         "- **KV cache (s27-31), ZHA (s40):** serving speed affects Wall Clock; Token Clock is exactly the cache-independent control. STACK.\n",
         "- **PURGE (s45):** unlearning changes the policy; Realtime evaluates it under temporal pressure. STACK (no shared site).\n",
         "\n",
-        "**Limits.** The 50 curated tasks are replaced by a procedural suite of the same size/distribution (10 tasks by default for notebook runtime; pass `n_tasks=50`); the live agent is the compiled char model, not a frontier VLM, so absolute success is not the paper's number. The paper's 12-model table and Figures 1/3/5/6 are recorded as anchors. One seed, three trials by default; GUI/SoM action space is reduced to A/B text actions.\n"
+        "**Limits.** The 50 curated tasks are replaced by a procedural suite of the same size/distribution (10 tasks by default for notebook runtime; pass `n_tasks=50`); the live agent is the compiled model at the selected Scale, not a frontier VLM, so absolute success is not the paper's number. The paper's 12-model table and Figures 1/3/5/6 are recorded as anchors. One seed, three trials by default; GUI/SoM action space is reduced to A/B text actions.\n"
       ]
     },
     {
@@ -15491,7 +15491,7 @@
         "\n",
         "**What runs here (real pipeline, LIVE model).** `gut_sample` draws K temperature samples; `gut_steps` splits them into steps; `gut_build_dag` builds the DAG and merges equivalent steps by token-set Jaccard (declared stand-in for NLI); `gut_node_uncertainty` implements token entropy (the other three metrics are switchable); `gut_complexity` computes width, height and uncertainty propagation; `gut_selective` returns AUROC/AUPRC/PRR. `run_gut` also forms the GUT-O reward `−U + 2·correct` and takes one REINFORCE step on a LoRA-wrapped LM head.\n",
         "\n",
-        "**Double-sided expectations.** Higher graph uncertainty should predict incorrect chains (AUROC > 0.5, positive PRR); width/height/UP should agree on harder items; GUT-O should lower mean uncertainty. A null at char-model scale is reported, not hidden.\n",
+        "**Double-sided expectations.** Higher graph uncertainty should predict incorrect chains (AUROC > 0.5, positive PRR); width/height/UP should agree on harder items; GUT-O should lower mean uncertainty. A null on the selected live-model path (tiny64 … gpt2_124m) is reported, not hidden.\n",
         "\n",
         "**Relations to the corpus.**\n",
         "- **RADAR (s51):** calibration/confidence; GUT is structural reasoning uncertainty. STACK.\n",
