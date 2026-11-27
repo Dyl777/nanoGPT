@@ -1611,6 +1611,34 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "semforge":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        chains = live.get("chains") if isinstance(live.get("chains"), list) else []
+        if chains:
+            fig, ax = plt.subplots(figsize=(5.6, 3.0))
+            ds = [c.get("depth") for c in chains]
+            ms = [c.get("mandatory") for c in chains]
+            ss = [c.get("steps") for c in chains]
+            ax.plot(ds, ss, "o-", label="shortest", color="#4c72b0")
+            ax.plot(ds, ms, "s--", label="mandatory", color="#c44e52")
+            ax.set_xlabel("planted depth")
+            ax.set_ylabel("steps")
+            ax.set_title("s71 SemForge: planted vs realized")
+            ax.legend(fontsize=7)
+            paths.append(_save_fig(fig, f"{name}_depth"))
+
+    if name == "semforgepaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "datasets: " + ", ".join(tables.get("datasets", [])),
+                    fontsize=7, va="center")
+            ax.set_title("s71 SemForge paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "tkg":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
