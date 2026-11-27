@@ -1611,6 +1611,62 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "tkg":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        v = finite(live.get("mrr"))
+        if v is not None:
+            fig, ax = plt.subplots(figsize=(4.4, 3.0))
+            ax.bar([0], [v], color="#4c72b0", width=0.45)
+            ax.set_xticks([0], [live.get("arm", "TKG")])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("MRR")
+            ax.set_title("s70 selected TKG impl")
+            paths.append(_save_fig(fig, f"{name}_mrr"))
+
+    if name == "inspirebaselines":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        mrr = live.get("mrr") if isinstance(live.get("mrr"), dict) else {}
+        row = next(iter(mrr.values()), {}) if mrr else {}
+        row = row if isinstance(row, dict) else {}
+        labs = [k for k, v in row.items() if finite(v) is not None]
+        vals = [finite(row[k]) for k in labs]
+        if labs:
+            fig, ax = plt.subplots(figsize=(7.2, 3.2))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=20, fontsize=8)
+            ax.set_ylabel("MRR")
+            ax.set_title("s70 TKG baselines on %s" % next(iter(mrr), ""))
+            paths.append(_save_fig(fig, f"{name}_mrr"))
+
+    if name == "inspire":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        vals = [finite(live.get("stage1_mrr")), finite(live.get("stage2_mrr"))]
+        if any(v is not None for v in vals):
+            fig, ax = plt.subplots(figsize=(4.8, 3.2))
+            ax.bar([0, 1], [v if v is not None else 0 for v in vals],
+                   color=["#999999", "#4c72b0"], width=0.5)
+            ax.set_xticks([0, 1], ["Stage I", "Stage I + EA"])
+            ax.set_ylabel("MRR")
+            ax.set_title("s70 INSPIRE: %s" % live.get("provenance", ""))
+            paths.append(_save_fig(fig, f"{name}_mrr"))
+
+    if name == "inspirepaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            txt = "datasets: %s\nbaselines: %s" % (
+                ", ".join(tables.get("datasets", [])),
+                ", ".join(tables.get("baselines", [])))
+            ax.text(0.01, 0.5, txt, fontsize=7, va="center")
+            ax.set_title("s70 INSPIRE paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "theoryvalue":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}

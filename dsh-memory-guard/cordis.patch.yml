@@ -1,0 +1,5 @@
+- insert:
+    - id: memory-guard
+      name: dsh-memory-guard
+      config:
+        path: 'C:/Users/AMBE/Desktop/Engineering/nanoGPT/AGENTS_MEMORY.md'

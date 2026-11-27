@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Agent memory guard",
+    "description": "Injects AGENTS_MEMORY.md into every prompt assembly so the rules are read before every query."
+  }
+}
