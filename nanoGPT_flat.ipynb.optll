@@ -18,6 +18,7 @@
 @Technique::Context::[ctx1024, ctx64, ctx256, ctx512, ctx2048, ctx8192, ctx16384, ctx32768, ctx65536, ctx131072, ctx262144, ctx524288, ctx896000]
 @Technique::Interface::[dense, bounded]
 @Technique::KVCacheEvict::[none, h2o, snapkv, nacl, infinipot, hashevict, morphkv, rocketkv, kvzip, adakv, spindlepyr, episodic, zha]
+@Technique::QueryProbe::[last, ftq8, fbq]
 @Technique::KVCacheCompress::[none, kivi, kvquant, minicache, palu, spindlecodebook, keepkv, coupledquant]
 @Technique::KVCachePlace::[resident, paged, infinigen, layerkv, inf2, kvpr, oneiros, clo]
 @Technique::DepthLoop::[none, naiveloop, dampedeuler, rkmidpoint, rkheun, rk4, heavygball, anderson, aitken, normstab, polyblend, blockanchored]
@@ -20978,6 +20979,60 @@
         "**Adaptations with consequences (documented, kept):** (1) harness captures Head.key/Head.value projection outputs; for Attn values whose final k/v diverge from those projections (mla, tpa, tokenformer) the captures are projection-level and the runner records that fidelity note; default-path (vanillaatten-class) captures are exact; (2) recent-window protection in H2O realizes the survey's stated recent+H2 balance; (3) InfiniPot CCD is keep-top-K by CaP+NuC at enforcement; (4) PALU weight factorization is modeled at cache level via SVD; (5) KVQuant NUQ levels are data quantiles; (6) LLA regression is the centered ridge form; the survey prints no LLA equations; (7) KIMI gates are untrained at small scale (paper trains them); the 3:1 hybrid and chunking are recorded, not run; (8) placer timing/rate constants are stand-ins; (9) harness has no RoPE: ShadowKV landmarks and KVQuant pre-RoPE notes use captured keys directly.\n"
       ]
     },
+    @Impl::QueryProbe::last{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "class LastProbe:\n",
+        "    def score(self, scores, qlast=None, K=None, **kw):\n",
+        "        return scores\n",
+        "PROBE = LastProbe()\n"
+      ]
+    }
+    }@},
+    @Impl::QueryProbe::ftq8{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "class FTQ8Probe:\n",
+        "    def score(self, scores, qlast=None, K=None, **kw):\n",
+        "        if qlast is None or K is None:\n",
+        "            return scores\n",
+        "        q = qlast.unsqueeze(0).expand(8, -1)\n",
+        "        logits = (q @ K.t()) / _m27.sqrt(K.shape[-1])\n",
+        "        return _t27.softmax(logits, -1).mean(0)\n",
+        "PROBE = FTQ8Probe()\n"
+      ]
+    }
+    }@},
+    @Impl::QueryProbe::fbq{
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {},
+      "outputs": [],
+      "source": [
+        "class FBQProbe:\n",
+        "    def __init__(self, dim=64):\n",
+        "        self.offsets = _t27.zeros(7, dim)\n",
+        "    def score(self, scores, qlast=None, K=None, **kw):\n",
+        "        if qlast is None or K is None:\n",
+        "            return scores\n",
+        "        d = min(int(self.offsets.shape[1]), qlast.numel())\n",
+        "        base = qlast[:d]\n",
+        "        q = _t27.cat([base.unsqueeze(0), base.unsqueeze(0) + self.offsets[:, :d]], 0)\n",
+        "        logits = (q @ K[:, :d].t()) / _m27.sqrt(d)\n",
+        "        return _t27.softmax(logits, -1).mean(0)\n",
+        "PROBE = FBQProbe()\n"
+      ]
+    }
+    }@},
     {
       "cell_type": "code",
       "execution_count": null,
@@ -22031,7 +22086,7 @@
         "                for k, c in H.cache.items():\n",
         "                    S = c[\"S\"]\n",
         "                    W = min(8, H.T)\n",
-        "                    kept[k] = ev.select(acc[k], min(budget, H.T), win=S[-W:], prox=S[-4:],\n",
+        "                    sc = (globals().get(\"PROBE\").score(acc[k], qlast=c["qlast"], K=c["K"])\n                          if globals().get(\"PROBE\") else acc[k])\n                    kept[k] = ev.select(sc, min(budget, H.T), win=S[-W:], prox=S[-4:],\n",
         "                                        K=c[\"K\"], V=c[\"V\"], qlast=c[\"qlast\"], Smat=S,\n",
         "                                        recent_w=6, seed=seed + i)\n",
         "            m8 = H.retained_mass(kept, rows_last=8)\n",
