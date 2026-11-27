@@ -3269,3 +3269,38 @@ def bench_task_suite(model, enc, n=12, seed=0):
             "anchor": {"models": ["Qwen3-8B/14B", "Llama-3.1-8B", "Phi-4",
                                   "Gemma-3-27B"],
                        "benchmarks": ["CounterFact", "zsRE", "MQuAKE"]}}
+
+# ---------------------------------------------------------------------------
+# Math reasoning corpora for DART (arXiv:2611.34928).
+# ---------------------------------------------------------------------------
+
+_MATH_SOURCES = {
+    "math500": [("HuggingFaceH4/MATH-500", None, "test"),
+                ("hendrycks/competition_math", None, "test")],
+    "aime": [("AI-MO/aimo-validation-aime", None, "train"),
+             ("Maxwell-Jia/AIME_2024", None, "train")],
+    "deepmath": [("zwhe99/DeepMath-103K", None, "train")],
+}
+
+
+def load_math_items(name="math500", n=8, seed=0):
+    last = None
+    for repo, config, split in _MATH_SOURCES.get(name, []):
+        try:
+            rows = _hf_stream(repo, config, split, n=max(16, int(n) * 3))
+            out = []
+            for r in rows:
+                q = r.get("problem") or r.get("question") or r.get("prompt")
+                a = r.get("answer") or r.get("solution") or r.get("final_answer")
+                if q and a:
+                    out.append({"problem": str(q), "answer": str(a),
+                                "dataset": name})
+                if len(out) >= int(n):
+                    break
+            if out:
+                return out
+        except Exception as e:  # noqa: BLE001
+            last = e
+    if last is not None:
+        raise RuntimeError("%s unavailable: %s" % (name, str(last)[:200]))
+    return []

@@ -1611,6 +1611,32 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "dart":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        mc = finite(live.get("mc_coverage"))
+        da = finite(live.get("dart_coverage"))
+        if mc is not None or da is not None:
+            fig, ax = plt.subplots(figsize=(4.8, 3.0))
+            ax.bar([0, 1], [mc or 0, da or 0], color=["#999999", "#4c72b0"],
+                   width=0.5)
+            ax.set_xticks([0, 1], ["MC", "DART"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("problem coverage")
+            ax.set_title("s74 DART vs MC")
+            paths.append(_save_fig(fig, f"{name}_coverage"))
+
+    if name == "dartpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "data: " + ", ".join(tables.get("data", [])),
+                    fontsize=7, va="center")
+            ax.set_title("s74 DART paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "confidencegate":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
