@@ -1611,6 +1611,39 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "confidencegate":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        rows = []
+        for arm in ("head", "token_logprob", "metamodel"):
+            d = live.get(arm) if isinstance(live.get(arm), dict) else {}
+            a, c = finite(d.get("auroc")), finite(d.get("coverage"))
+            if a is not None:
+                rows.append((arm, a, c if c is not None else 0.0))
+        if rows:
+            import numpy as _np
+            fig, ax = plt.subplots(figsize=(6.0, 3.0))
+            x = _np.arange(len(rows))
+            ax.bar(x - 0.18, [r[1] for r in rows], width=0.34, label="AUROC")
+            ax.bar(x + 0.18, [r[2] for r in rows], width=0.34, label="coverage")
+            ax.set_xticks(x)
+            ax.set_xticklabels([r[0] for r in rows], fontsize=8)
+            ax.set_ylim(0, 1.0)
+            ax.legend(fontsize=7)
+            ax.set_title("s73 confidence gate")
+            paths.append(_save_fig(fig, f"{name}_gate"))
+
+    if name == "confidencegatepaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "backbone: " + str(tables.get("backbone", "")),
+                    fontsize=7, va="center")
+            ax.set_title("s73 confidence-gating paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "rrt":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
