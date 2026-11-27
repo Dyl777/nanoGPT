@@ -1611,6 +1611,41 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "theoryvalue":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        conds = live.get("conditions") if isinstance(live.get("conditions"), dict) else {}
+        labs, vals = [], []
+        for k in ("none", "irrelevant", "hint", "examples", "oracle",
+                  "induced", "merged"):
+            v = finite((conds.get(k) or {}).get("acc"))
+            if v is not None:
+                labs.append(k)
+                vals.append(v)
+        if vals:
+            fig, ax = plt.subplots(figsize=(7.0, 3.2))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs, rotation=20, fontsize=7)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("pass@1")
+            r = finite(live.get("recovery_ratio"))
+            ax.set_title("s68 theory value: length-matched conditions%s" %
+                         ("" if r is None else " (R=%.2f)" % r))
+            paths.append(_save_fig(fig, f"{name}_conditions"))
+
+    if name == "theoryvaluepaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            txt = "solver: %s\nfamilies: %s" % (
+                tables.get("solver", ""), ", ".join(tables.get("families", [])))
+            ax.text(0.01, 0.5, txt, fontsize=7, va="center")
+            ax.set_title("s68 theory-value paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "taskmemory":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
