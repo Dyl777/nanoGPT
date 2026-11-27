@@ -1611,6 +1611,34 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "rrt":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        rows = live.get("rewards") if isinstance(live.get("rewards"), dict) else {}
+        if rows:
+            fig, ax = plt.subplots(figsize=(6.4, 3.2))
+            for env, arm in rows.items():
+                for arm_name, by_budget in arm.items():
+                    xs = sorted(int(b) for b in by_budget)
+                    ys = [finite(by_budget[str(b)]) for b in xs]
+                    ax.plot(xs, ys, marker="o", label="%s/%s" % (env, arm_name))
+            ax.set_xlabel("time budget")
+            ax.set_ylabel("reward")
+            ax.set_title("s72 RRT: real-time reward vs budget")
+            ax.legend(fontsize=6)
+            paths.append(_save_fig(fig, f"{name}_reward"))
+
+    if name == "rrtpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "envs: " + ", ".join(tables.get("environments", [])),
+                    fontsize=7, va="center")
+            ax.set_title("s72 RRT paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "semforge":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
