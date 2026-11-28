@@ -1611,6 +1611,35 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "duomi":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        b = live.get("before") if isinstance(live.get("before"), dict) else {}
+        a = live.get("after") if isinstance(live.get("after"), dict) else {}
+        vals = [("G before", finite(b.get("G"))), ("G after", finite(a.get("G"))),
+                ("D before", finite(b.get("D"))), ("D after", finite(a.get("D")))]
+        vals = [(k, v) for k, v in vals if v is not None]
+        if vals:
+            fig, ax = plt.subplots(figsize=(6.0, 3.0))
+            ax.bar(range(len(vals)), [v for _, v in vals], color="#4c72b0",
+                   width=0.55)
+            ax.set_xticks(range(len(vals)))
+            ax.set_xticklabels([k for k, _ in vals], rotation=15, fontsize=8)
+            ax.set_ylabel("JSD")
+            ax.set_title("s79 DuoMI routing statistics")
+            paths.append(_save_fig(fig, f"{name}_stats"))
+
+    if name == "duomipaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "backbone: " + str(tables.get("backbone", "")),
+                    fontsize=7, va="center")
+            ax.set_title("s79 DuoMI paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "acd":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}

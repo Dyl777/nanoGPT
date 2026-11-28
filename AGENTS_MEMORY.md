@@ -63,3 +63,17 @@ them to every change in this repository.
 - No excuses, no repeated mischaracterizations.
 - When corrected, fix the code, not just the prose.
 - Read the existing implementation patterns before adding new ones.
+
+## Implementation verification and replication fraud checks
+
+- For every paper, first read its official code/repository when available and
+  compare the implementation against the paper's equations.
+- Check the repository's implementation and open issues for known bugs,
+  deviations, missing pieces, or mismatches; record them.
+- Deep-research the web when a replication looks fraudulent, inconsistent, or
+  too-good-to-be-true; verify claims, numbers, and provenance.
+- In the notebook section, explicitly indicate what was checked (repository
+  files, issues, web sources), any mismatch found, and the correction made.
+- Do not silently reproduce paper claims or repository code; document the
+  verification in the section when adding it to the notebook.
+- Do not change any other rule in this file.
