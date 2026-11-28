@@ -1611,6 +1611,37 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "whichmodel":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        base = live.get("base") if isinstance(live.get("base"), dict) else {}
+        corrupt = live.get("corruption") if isinstance(live.get("corruption"), dict) else {}
+        vals = [("base", finite(base.get("accuracy")))]
+        for k, v in corrupt.items():
+            if isinstance(v, dict):
+                vals.append((k, finite(v.get("accuracy"))))
+        vals = [(k, v) for k, v in vals if v is not None]
+        if vals:
+            fig, ax = plt.subplots(figsize=(6.0, 3.0))
+            ax.bar(range(len(vals)), [v for _, v in vals], color="#4c72b0", width=0.55)
+            ax.set_xticks(range(len(vals)))
+            ax.set_xticklabels([k for k, _ in vals], rotation=15, fontsize=8)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("source accuracy")
+            ax.set_title("s75 T2I source attribution")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "whichmodelpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "models: " + ", ".join(tables.get("models", [])),
+                    fontsize=7, va="center")
+            ax.set_title("s75 WhichModel paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "dart":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
