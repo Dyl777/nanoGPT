@@ -1611,6 +1611,33 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "acd":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        acc = live.get("accuracy") if isinstance(live.get("accuracy"), dict) else {}
+        labs = [k for k, v in acc.items() if finite(v) is not None]
+        vals = [finite(acc[k]) for k in labs]
+        if labs:
+            fig, ax = plt.subplots(figsize=(5.2, 3.0))
+            ax.bar(range(len(labs)), vals, color="#4c72b0", width=0.5)
+            ax.set_xticks(range(len(labs)))
+            ax.set_xticklabels(labs)
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("answer accuracy")
+            ax.set_title("s78 Attention Contrastive Decoding")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "acdpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "benchmarks: " + ", ".join(tables.get("benchmarks", [])),
+                    fontsize=7, va="center")
+            ax.set_title("s78 ACD paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "archprior":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
