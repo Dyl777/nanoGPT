@@ -1611,6 +1611,31 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "pbrfrepair":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        b = finite(live.get("trust_logodds_base"))
+        r = finite(live.get("trust_logodds_repair"))
+        if b is not None or r is not None:
+            fig, ax = plt.subplots(figsize=(5.0, 3.0))
+            ax.bar([0, 1], [b or 0, r or 0], color=["#999999", "#55a868"],
+                   width=0.5)
+            ax.set_xticks([0, 1], ["base", "PBRF repaired"])
+            ax.set_ylabel("trust log-odds")
+            ax.set_title("s76 preference-aware PBRF repair")
+            paths.append(_save_fig(fig, f"{name}_logodds"))
+
+    if name == "pbrfpaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "models: " + ", ".join(tables.get("models", [])),
+                    fontsize=7, va="center")
+            ax.set_title("s76 PBRF repair paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "whichmodel":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
