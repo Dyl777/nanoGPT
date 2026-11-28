@@ -1611,6 +1611,33 @@ def _plot_known(name: str, res: dict, plt) -> List[str]:
             ax.set_title("s65 Tokenformer LM corpora (WikiText/C4/OWT/Pile/enwik8)")
             paths.append(_save_fig(fig, f"{name}_ppl"))
 
+    if name == "contlora":
+        live = measurements.get("live") if isinstance(measurements, dict) else None
+        live = live if isinstance(live, dict) else {}
+        acc = finite(live.get("accuracy"))
+        if acc is not None:
+            fig, ax = plt.subplots(figsize=(4.6, 3.0))
+            ax.bar([0], [acc], color="#4c72b0", width=0.45)
+            ax.axhline(1.0 / max(1, int(live.get("n_classes", 2))), color="#c44e52",
+                       linestyle="--", label="chance")
+            ax.set_xticks([0], ["CONTLORA"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("seen-class accuracy")
+            ax.legend(fontsize=7)
+            ax.set_title("s80 statistical-memory routing")
+            paths.append(_save_fig(fig, f"{name}_accuracy"))
+
+    if name == "contlorapaper":
+        tables = measurements.get("tables") if isinstance(measurements, dict) else None
+        tables = tables if isinstance(tables, dict) else {}
+        if isinstance(tables, dict) and tables:
+            fig, ax = plt.subplots(figsize=(6.4, 2.8))
+            ax.axis("off")
+            ax.text(0.01, 0.5, "benchmarks: " + ", ".join(tables.get("benchmarks", [])),
+                    fontsize=7, va="center")
+            ax.set_title("s80 CONTLORA paper anchors")
+            paths.append(_save_fig(fig, f"{name}_anchors"))
+
     if name == "duomi":
         live = measurements.get("live") if isinstance(measurements, dict) else None
         live = live if isinstance(live, dict) else {}
